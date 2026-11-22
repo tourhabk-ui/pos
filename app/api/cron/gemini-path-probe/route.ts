@@ -20,8 +20,12 @@
  * (гео-отказ), http (чужой ответ), unreachable («не смог», а не «закрыто»).
  *
  * В ответе нет адресов: путь назван словом (gateway / current / direct), а
- * id аккаунта Cloudflare в ответ не попадает. Ключ назван отпечатком —
- * по нему видно, дошёл ли новый ключ до контейнера (`lib/ai/key-identity.ts`).
+ * id аккаунта Cloudflare в ответ не попадает. Чем адрес из GEMINI_BASE_URL
+ * отличается от шлюза пробы, сказано словами (`current_vs_gateway`: аккаунт
+ * и имя шлюза — тот же / другой). Ключ назван отпечатком — по нему видно,
+ * дошёл ли новый ключ до контейнера (`lib/ai/key-identity.ts`). Откуда взята
+ * модель генерации — из GEMINI_MODEL или из списка — сказано в
+ * `generate.model_source`.
  *
  * SSRF. Адрес шлюза собирается из проверенных частей (`geminiGatewayBase`):
  * хост — литерал, id аккаунта пересобирается через число, имя шлюза — из
@@ -34,6 +38,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { keyIdentity } from '@/lib/ai/key-identity';
 import { classifyModels } from '@/lib/ai/model-resolver';
 import {
+  gatewayBaseDiff,
   geminiEndpoint,
   geminiGatewayBase,
   geminiHeaders,
@@ -41,6 +46,7 @@ import {
   geminiUrl,
   pickGeminiModel,
   GEMINI_DIRECT_BASE,
+  UNSTABLE_GEMINI_ID,
   type GeminiEndpoint,
 } from '@/lib/ai/gemini-endpoint';
 
@@ -154,19 +160,20 @@ async function probeList(target: ProbeTarget, apiKey: string): Promise<{ probe: 
 export const GENERATE_PROBE_TIMEOUT_MS = 40_000;
 
 /**
- * Запасные модели генерации (замер 5, 21.11): основная модель живого кода
- * (gemini-flash-latest) за четыре замера не ответила ни разу — 20 с и 40 с
- * без ответа, дважды 503 «перегружена». Отвечает ли через шлюз хоть одна
- * модель, одной моделью не узнать. Если основная не ответила, проба пробует
- * ещё до двух flash-моделей списка — закреплённых версий, не скользящих
- * алиасов, сильнейших первыми. Живой код при этом не меняется: какая модель
- * ему нужна, решается по замеру.
+ * Запасные модели генерации (замер 5, 21.11): тогдашняя основная модель
+ * живого кода (gemini-flash-latest) за четыре замера не ответила ни разу —
+ * 20 с и 40 с без ответа, дважды 503 «перегружена». Отвечает ли через шлюз
+ * хоть одна модель, одной моделью не узнать. Если основная не ответила, проба
+ * пробует ещё до двух flash-моделей списка — закреплённых версий, без
+ * скользящих алиасов и предварительных версий (`UNSTABLE_GEMINI_ID`),
+ * сильнейших первыми. По замеру 6 (ответила закреплённая gemini-3.8-flash)
+ * живой код сам берёт закреплённую модель (`pickGeminiModel`).
  */
 export const GENERATE_ALT_MAX = 2;
 export const GENERATE_ALT_TIMEOUT_MS = 20_000;
 
 export function pickProbeAlternates(ids: readonly string[], primary: string): string[] {
-  const flash = ids.filter((id) => /flash/i.test(id) && id !== primary && !/(^|[-_])latest(\b|[-_]|$)/i.test(id));
+  const flash = ids.filter((id) => /flash/i.test(id) && id !== primary && !UNSTABLE_GEMINI_ID.test(id));
   return classifyModels(flash).filter((m) => m.eligible).slice(0, GENERATE_ALT_MAX).map((m) => m.id);
 }
 
@@ -226,6 +233,8 @@ export async function GET(request: NextRequest) {
   // Настройка прода — в замере, если она не совпадает с уже названными путями.
   if (current.via === 'gateway' && current.base !== gatewayBase) targets.push({ path: 'current', endpoint: current });
   targets.push({ path: 'direct', endpoint: geminiEndpoint(GEMINI_DIRECT_BASE) });
+  // Какая часть адреса из настройки не та, что у шлюза пробы, — без значений.
+  const currentVsGateway = current.via === 'gateway' ? gatewayBaseDiff(current.base, gatewayBase) : null;
 
   const apiKey = process.env.GEMINI_API_KEY?.trim() ?? '';
   if (!apiKey) {
@@ -237,6 +246,7 @@ export async function GET(request: NextRequest) {
       key: { present: false, format: null, fingerprint: null },
       current_via: current.via,
       current_rejected: current.rejected,
+      current_vs_gateway: currentVsGateway,
       gateway_probed: false,
       path_exists: null,
       open_paths: [],
@@ -256,7 +266,10 @@ export async function GET(request: NextRequest) {
   }
 
   const model = firstOpen ? pickProbeModel(firstOpen.ids) : null;
-  const generate = firstOpen && model ? await probeGenerate(firstOpen.target, apiKey, model) : null;
+  const modelSource = process.env.GEMINI_MODEL?.trim() ? 'env' : 'list';
+  const generate = firstOpen && model
+    ? { ...(await probeGenerate(firstOpen.target, apiKey, model)), model_source: modelSource }
+    : null;
   // Основная не ответила — запасные по очереди, до первой ответившей.
   const generateAlternates: Array<Awaited<ReturnType<typeof probeGenerate>>> = [];
   if (firstOpen && model && generate && generate.outcome !== 'open') {
@@ -274,6 +287,7 @@ export async function GET(request: NextRequest) {
     key: { present: key.present, format: key.format, fingerprint: key.fingerprint },
     current_via: current.via,
     current_rejected: current.rejected,
+    current_vs_gateway: currentVsGateway,
     gateway_probed: gatewayBase !== null,
     // Есть ли хоть один путь до Google. `null` — все пробы «не смог»: ответ «не знаю», а не «нет».
     path_exists: open.length > 0 ? true : results.every((r) => r.outcome === 'unreachable') ? null : false,

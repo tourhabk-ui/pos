@@ -27,7 +27,7 @@ export const GEMINI_DIRECT_BASE = 'https://generativelanguage.googleapis.com';
 const GATEWAY_HOST = 'https://gateway.ai.cloudflare.com';
 
 /** Шлюз Cloudflare к Google AI Studio: аккаунт — 32 hex, имя шлюза — строчные буквы, цифры, дефис. */
-const GATEWAY_BASE_RE = /^https:\/\/gateway\.ai\.cloudflare\.com\/v1\/[0-9a-f]{32}\/[a-z0-9][a-z0-9-]{0,63}\/google-ai-studio$/;
+const GATEWAY_BASE_RE = /^https:\/\/gateway\.ai\.cloudflare\.com\/v1\/([0-9a-f]{32})\/([a-z0-9][a-z0-9-]{0,63})\/google-ai-studio$/;
 
 export type GeminiVia = 'direct' | 'gateway';
 
@@ -94,15 +94,34 @@ export function geminiModelIds(data: unknown): string[] {
 }
 
 /**
- * Модель Gemini из списка: сильнейшая flash-модель (`pickBestModel`), без
- * flash — сильнейшая из всех. Одно правило на живой код (`resolveGeminiModel`)
- * и пробу пути: проба 20.11 брала первую flash-модель списка —
- * gemini-2.5-flash, которую Google новым ключам уже не отдаёт (404), и
- * проверила не ту модель, которой ходит живой код.
+ * Имя модели Gemini, которое Google может в любой день перевести на другую
+ * модель или выпустить с меньшими лимитами: скользящий алиас (`-latest`),
+ * предварительная (`preview`) и опытная (`exp`) версия.
+ */
+export const UNSTABLE_GEMINI_ID = /(^|[-_])(latest|preview|exp|experimental)([-_]|$)/i;
+
+/**
+ * Модель Gemini из списка: сильнейшая закреплённая flash-модель
+ * (`pickBestModel`). Скользящий алиас и предварительные версии берутся, только
+ * когда закреплённой нет. Без flash — по тому же правилу из всех. Одно правило
+ * на живой код (`resolveGeminiModel`) и пробу пути.
+ *
+ * Почему закреплённая. Через шлюз `gemini-flash-latest` не ответил ни в одном
+ * из пяти замеров 20–21.11: дважды не уложился в срок (20 с и 40 с), трижды
+ * Google ответил 503 «перегружена». Закреплённая `gemini-3.8-flash` в замере 6
+ * ответила за 3,4 с. Общий `pickBestModel` даёт алиасу надбавку (у DeepSeek и
+ * Qwen алиас — самая надёжная модель), у Gemini надбавка выбирала ту модель,
+ * которая не отвечает.
+ *
+ * Раньше (20.11) проба брала первую flash-модель списка — gemini-2.5-flash,
+ * которую Google новым ключам уже не отдаёт (404), и проверила не ту модель,
+ * которой ходит живой код.
  */
 export function pickGeminiModel(ids: readonly string[]): string | null {
   const flash = ids.filter((id) => /flash/i.test(id));
-  return pickBestModel(flash.length > 0 ? flash : ids);
+  const pool = flash.length > 0 ? flash : ids;
+  const stable = pool.filter((id) => !UNSTABLE_GEMINI_ID.test(id));
+  return pickBestModel(stable) ?? pickBestModel(pool);
 }
 
 /** Шлюзы, которые проба знает по имени. Значение — литерал, не ввод. */
@@ -122,4 +141,31 @@ export function geminiGatewayBase(accountRaw: string | null, gatewayRaw: string 
   const gateway = Object.prototype.hasOwnProperty.call(GATEWAYS, gatewayRaw) ? GATEWAYS[gatewayRaw] : null;
   if (!gateway) return null;
   return new URL(`/v1/${account}/${gateway}/google-ai-studio`, GATEWAY_HOST).toString().replace(/\/+$/, '');
+}
+
+export type GatewayPart = 'same' | 'differs';
+
+/**
+ * Чем адрес шлюза из настройки отличается от адреса шлюза пробы: аккаунт и
+ * имя шлюза — словом «тот же / другой», без самих значений. Замер 6 (21.11):
+ * адрес из GEMINI_BASE_URL получил 401, а шлюз `vedar-ai` того аккаунта,
+ * что знает проба, открыт. Чтобы владелец поправил адрес, ему надо знать,
+ * какая часть другая; id аккаунта при этом в ответ не идёт. `null` — один из
+ * адресов не шлюз.
+ */
+export function gatewayBaseDiff(
+  base: string,
+  probeBase: string | null,
+): { account: GatewayPart; gateway: GatewayPart } | null {
+  const parts = (value: string | null) => {
+    const m = value ? GATEWAY_BASE_RE.exec(value) : null;
+    return m ? { account: m[1], gateway: m[2] } : null;
+  };
+  const a = parts(base);
+  const b = parts(probeBase);
+  if (!a || !b) return null;
+  return {
+    account: a.account === b.account ? 'same' : 'differs',
+    gateway: a.gateway === b.gateway ? 'same' : 'differs',
+  };
 }

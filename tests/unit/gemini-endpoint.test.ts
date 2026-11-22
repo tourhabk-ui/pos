@@ -338,10 +338,49 @@ describe('проба пути с прода', () => {
     const { pickGeminiModel, geminiModelIds } = await import('@/lib/ai/gemini-endpoint');
     expect(pickGeminiModel(geminiModelIds(list))).toBe('gemini-3.8-flash');
 
-    // Ручная GEMINI_MODEL у живого кода главнее списка — и у пробы тоже.
+    expect(body.generate.model_source).toBe('list');
+
+    // Ручная GEMINI_MODEL у живого кода главнее списка — и у пробы тоже, и это названо.
     vi.stubEnv('GEMINI_MODEL', 'gemini-3.8-pro');
     const forced = await (await GET(req(`?account=${ACC}&gateway=vedar-ai`))).json();
-    expect(forced.generate).toMatchObject({ model: 'gemini-3.8-pro' });
+    expect(forced.generate).toMatchObject({ model: 'gemini-3.8-pro', model_source: 'env' });
+  });
+
+  // Замер 6 (21.11): адрес из GEMINI_BASE_URL — 401, шлюз пробы открыт. Чтобы
+  // поправить адрес, надо знать, какая часть другая; id аккаунта в ответ не идёт.
+  describe('адрес из настройки против шлюза пробы', () => {
+    const OTHER = 'fedcba9876543210fedcba9876543210';
+    async function probe(base: string) {
+      vi.stubEnv('GEMINI_BASE_URL', base);
+      const { GET } = await import('@/app/api/cron/gemini-path-probe/route');
+      const text = await (await GET(req(`?account=${ACC}&gateway=vedar-ai`))).text();
+      return { text, body: JSON.parse(text) };
+    }
+
+    it('другой аккаунт, то же имя шлюза — так и названо, id аккаунтов в ответе нет', async () => {
+      const { text, body } = await probe(GW.replace(ACC, OTHER));
+      expect(body.current_vs_gateway).toEqual({ account: 'differs', gateway: 'same' });
+      expect(body.results.map((r: { path: string }) => r.path)).toEqual(['gateway', 'current', 'direct']);
+      expect(text).not.toContain(OTHER);
+      expect(text).not.toContain(ACC);
+    });
+
+    it('тот же аккаунт, другое имя шлюза', async () => {
+      const { text, body } = await probe(GW.replace('/vedar-ai/', '/my-gemini/'));
+      expect(body.current_vs_gateway).toEqual({ account: 'same', gateway: 'differs' });
+      expect(text).not.toContain('my-gemini');
+    });
+
+    it('тот же адрес — оба «тот же», и путь current отдельно не меряется', async () => {
+      const { body } = await probe(GW);
+      expect(body.current_vs_gateway).toEqual({ account: 'same', gateway: 'same' });
+      expect(body.results.map((r: { path: string }) => r.path)).toEqual(['gateway', 'direct']);
+    });
+
+    it('настройка не задана или не шлюз — сравнивать нечего', async () => {
+      expect((await probe('')).body.current_vs_gateway).toBeNull();
+      expect((await probe('https://evil.example.com/x')).body.current_vs_gateway).toBeNull();
+    });
   });
 
   // Проба 2 (20.11) не дождалась генерации за 20 с — столько же ждёт живой
@@ -398,25 +437,25 @@ describe('проба пути с прода', () => {
     const generated = () => calls.map((c) => /models\/([^:]+):generateContent/.exec(c.url)?.[1]).filter(Boolean);
 
     it('основная не ответила — пробуются закреплённые flash-модели, до первой ответившей', async () => {
-      stub((model) => (model === 'gemini-3.8-flash' ? okGenerate() : overloaded()));
+      stub((model) => (model === 'gemini-3.8-flash-lite' ? okGenerate() : overloaded()));
       const { GET, GENERATE_ALT_TIMEOUT_MS } = await import('@/app/api/cron/gemini-path-probe/route');
       const body = await (await GET(req(`?account=${ACC}&gateway=vedar-ai`))).json();
       // Основная — та, которой пойдёт живой код; её исход в generate, как раньше.
-      expect(body.generate).toMatchObject({ model: 'gemini-flash-latest', outcome: 'http', status: 503 });
+      expect(body.generate).toMatchObject({ model: 'gemini-3.8-flash', outcome: 'http', status: 503 });
       expect(body.generate_alternates.map((a: { model: string; outcome: string }) => `${a.model}:${a.outcome}`))
-        .toEqual(['gemini-3.8-flash:open']);
+        .toEqual(['gemini-3.8-flash-lite:open']);
       expect(body.generate_alternates[0].timeout_ms).toBe(GENERATE_ALT_TIMEOUT_MS);
       // После ответившей — стоп.
-      expect(generated()).toEqual(['gemini-flash-latest', 'gemini-3.8-flash']);
+      expect(generated()).toEqual(['gemini-3.8-flash', 'gemini-3.8-flash-lite']);
     });
 
     it('основная ответила — запасные не спрашиваются', async () => {
       stub(() => okGenerate());
       const { GET } = await import('@/app/api/cron/gemini-path-probe/route');
       const body = await (await GET(req(`?account=${ACC}&gateway=vedar-ai`))).json();
-      expect(body.generate).toMatchObject({ model: 'gemini-flash-latest', outcome: 'open' });
+      expect(body.generate).toMatchObject({ model: 'gemini-3.8-flash', outcome: 'open' });
       expect(body.generate_alternates).toEqual([]);
-      expect(generated()).toEqual(['gemini-flash-latest']);
+      expect(generated()).toEqual(['gemini-3.8-flash']);
     });
 
     it('запасных не больше двух, даже если не ответил никто', async () => {
@@ -425,8 +464,49 @@ describe('проба пути с прода', () => {
       const body = await (await GET(req(`?account=${ACC}&gateway=vedar-ai`))).json();
       expect(body.generate_alternates).toHaveLength(GENERATE_ALT_MAX);
       // Скользящие алиасы, картинки и не-flash в запасные не идут; сильнейшие первыми.
-      expect(body.generate_alternates.map((a: { model: string }) => a.model)).toEqual(['gemini-3.8-flash', 'gemini-3.8-flash-lite']);
+      expect(body.generate_alternates.map((a: { model: string }) => a.model)).toEqual(['gemini-3.8-flash-lite', 'gemini-2.5-flash']);
       expect(generated()).toHaveLength(1 + GENERATE_ALT_MAX);
+    });
+  });
+
+  // Замеры 2–6 (20–21.11): gemini-flash-latest через шлюз не ответил ни разу
+  // (два срока, три 503 «перегружена»), закреплённая gemini-3.8-flash ответила.
+  describe('живой код выбирает закреплённую модель', () => {
+    it('алиас, preview и exp уступают закреплённой flash-модели, даже более новые', async () => {
+      const { pickGeminiModel } = await import('@/lib/ai/gemini-endpoint');
+      expect(pickGeminiModel([
+        'gemini-flash-latest',
+        'gemini-3.9-flash-preview',
+        'gemini-3.9-flash-exp',
+        'gemini-3.8-flash',
+        'gemini-3.8-flash-lite',
+        'gemini-3.8-pro',
+      ])).toBe('gemini-3.8-flash');
+    });
+
+    it('закреплённой нет — берётся то, что есть, а не «модели нет»', async () => {
+      const { pickGeminiModel } = await import('@/lib/ai/gemini-endpoint');
+      expect(pickGeminiModel(['gemini-flash-latest', 'gemini-3.8-pro'])).toBe('gemini-flash-latest');
+      // Закреплённая есть, но непригодна (картинки) — тоже не «модели нет».
+      expect(pickGeminiModel(['gemini-3.8-flash-image', 'gemini-flash-latest'])).toBe('gemini-flash-latest');
+      expect(pickGeminiModel(['gemini-3.8-pro', 'gemini-pro-latest'])).toBe('gemini-3.8-pro');
+    });
+
+    it('живой путь Gemini зовёт генерацию той же моделью, что выбрала проба', async () => {
+      vi.stubEnv('GEMINI_MODEL', '');
+      vi.stubEnv('GEMINI_BASE_URL', GW);
+      const list = {
+        models: ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-3.8-flash-lite', 'gemini-3.8-pro']
+          .map((id) => ({ name: `models/${id}`, supportedGenerationMethods: ['generateContent'] })),
+      };
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith(GW) && url.endsWith('/v1beta/models')) return new Response(JSON.stringify(list), { status: 200 });
+        return geo();
+      }));
+      vi.resetModules();
+      const { resolveGeminiModel } = await import('@/lib/ai/providers');
+      expect(await resolveGeminiModel()).toBe('gemini-3.8-flash');
     });
   });
 
