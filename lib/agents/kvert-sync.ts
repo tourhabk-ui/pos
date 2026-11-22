@@ -1,6 +1,6 @@
 /**
  * KVERT ACC sync — тянет авиационные цветовые коды вулканов из KVERT VONA
- * и пишет в volcano_status (migration 728). Сопоставляет вулкан с точкой
+ * и пишет в volcano_status (migration 728). Смена авиационного кода (не повтор того же цвета) дополнительно уходит в external_alerts — иначе Scout Digest не видит VONA в разделе «Камчатка». Сопоставляет вулкан с точкой
  * places (location_type='volcano') по русскому имени.
  *
  * Сетевая выборка идёт с прод-сервера (российский IP Timeweb — KVERT доступен;
@@ -19,6 +19,8 @@
 
 import { pool } from '@/lib/db-pool';
 import { parseVonaFeed, parseAccSummary, parseActivitySections, normalizeVolcanoName, latestVonaNumber, type AccColor, type ParsedVona } from '@/lib/services/safety/kvert-vona';
+import { buildKvertColorAlert } from '@/lib/services/safety/kvert-color-alerts';
+import { saveEvent } from '@/lib/services/safety/seismic-parser';
 import { describeActivityRu, describeVonaRu } from '@/lib/services/safety/kvert-activity-ru';
 import { brightDataFetch, brightDataAvailable } from '@/lib/services/ingest/brightdata-unlocker';
 import {
@@ -235,6 +237,12 @@ export interface KvertSyncResult {
   source_type?: string | null;
   /** Диагностика при fetched=0: сырое начало ответа — видно, что пришло вместо VONA. */
   source_sample?: string;
+  /**
+   * Сколько новых строк попало в external_alerts из-за смены авиакода
+   * (повтор того же цвета не считается). Отдельно от upserted: цвет в
+   * volcano_status мог обновиться, а алерт для разведки — нет.
+   */
+  alerts_inserted?: number;
 }
 
 /**
@@ -293,6 +301,51 @@ async function upsertStatus(params: {
 }
 
 /** Полный синк: fetch → parse → resolve → upsert. Non-fatal по каждому вулкану. */
+/**
+ * Текущие авиакоды из volcano_status — чтобы отличить смену цвета от
+ * повторной записи того же кода. Ключ — name_normalized (slug).
+ */
+async function loadAviationColors(): Promise<Map<string, AccColor>> {
+  const { rows } = await pool.query<{ name_normalized: string; aviation_color_code: string | null }>(
+    `SELECT name_normalized, aviation_color_code FROM volcano_status`,
+  );
+  const map = new Map<string, AccColor>();
+  for (const r of rows) {
+    const c = r.aviation_color_code;
+    if (c === 'green' || c === 'yellow' || c === 'orange' || c === 'red' || c === 'unassigned') {
+      map.set(r.name_normalized, c);
+    }
+  }
+  return map;
+}
+
+/**
+ * Смена цвета (или первый жёлтый/оранжевый/красный) → external_alerts.
+ * Ошибка записи алерта не откатывает уже сохранённый volcano_status:
+ * код на карточке важнее, чем строка в ленте разведки.
+ */
+async function maybeInsertColorAlert(opts: {
+  slug: string;
+  volcanoName: string;
+  prev: AccColor | null;
+  next: AccColor;
+  sourceUrl: string | null;
+  observedAt: Date | null;
+  summary: string | null;
+  ashHeightM: number | null;
+}): Promise<boolean> {
+  const event = buildKvertColorAlert(opts);
+  if (!event) return false;
+  try {
+    const st = await saveEvent(event);
+    return st === 'inserted';
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[kvert-sync] ${opts.volcanoName}: алерт в external_alerts не записался:`, msg);
+    return false;
+  }
+}
+
 export async function syncKvertAcc(): Promise<KvertSyncResult> {
   const url = process.env.KVERT_VONA_URL || DEFAULT_KVERT_URL;
 
@@ -329,7 +382,7 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
   }
 
   if (!text) throw new Error('KVERT недоступен: прямой fetch и Unlocker не дали ответа');
-  const result: KvertSyncResult = { fetched: parsed.length, upserted: 0, matched: 0, unmatched: [], via };
+  const result: KvertSyncResult = { fetched: parsed.length, upserted: 0, matched: 0, unmatched: [], via, alerts_inserted: 0 };
 
   // Бюллетени между сводками. Отказ ленты не роняет синк: сводка всё равно
   // пишется, а отказ назван в ответе и в логе — не выдан за «бюллетеней нет».
@@ -392,6 +445,7 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
 
   // Указатель каталога — один раз на прогон, а не запрос на каждый вулкан.
   const index = await loadVolcanoIndex();
+  const prevColors = await loadAviationColors();
   const reasons = { unknown_name: [] as string[], no_place: [] as string[],
                     ambiguous: [] as string[], failed: [] as string[] };
   result.places_indexed = index.size;
@@ -438,6 +492,20 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
           reasons.no_place.push(`${v.volcanoName} (${v.nameRu})`);
         }
       }
+      const prev = prevColors.get(v.nameSlug) ?? null;
+      prevColors.set(v.nameSlug, v.color);
+      if (await maybeInsertColorAlert({
+        slug: v.nameSlug,
+        volcanoName: v.nameRu,
+        prev,
+        next: v.color,
+        sourceUrl: rec.sourceUrl ?? url,
+        observedAt: v.observedAt,
+        summary: rec.summary,
+        ashHeightM: rec.ashHeightM,
+      })) {
+        result.alerts_inserted = (result.alerts_inserted ?? 0) + 1;
+      }
     } catch (err) {
       // Пустой catch здесь превращал отказ записи в «места нет» — а это
       // разные беды и чинятся они в разных местах.
@@ -471,6 +539,9 @@ export async function setVolcanoAcc(params: {
   const m = matchVolcanoPlace(await loadVolcanoIndex(), nameRu);
   const placeArkId = m.kind === 'matched' ? m.arkId : null;
 
+  const prevColors = await loadAviationColors();
+  const prev = prevColors.get(slug) ?? null;
+  const observedAt = new Date();
   await upsertStatus({
     slug,
     volcanoName: params.volcanoName.trim(),
@@ -481,7 +552,17 @@ export async function setVolcanoAcc(params: {
     ashHeightM: params.ashHeightM ?? null,
     summary: params.summary ?? null,
     sourceUrl: null,
-    observedAt: new Date(),
+    observedAt,
+  });
+  await maybeInsertColorAlert({
+    slug,
+    volcanoName: nameRu,
+    prev,
+    next: params.color,
+    sourceUrl: null,
+    observedAt,
+    summary: params.summary ?? null,
+    ashHeightM: params.ashHeightM ?? null,
   });
 
   return { ok: true, matched: !!placeArkId };

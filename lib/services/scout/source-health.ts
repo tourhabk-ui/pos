@@ -57,6 +57,15 @@ export const SCOUT_SOURCE_EXPECTATIONS: readonly SourceExpectation[] = [
   // тот случай, когда сторож и нужен: источник внесён без переписи (arxiv.org
   // из среды правки недостижим), и подтвердить его может только прогон.
   { key: 'arxiv',         label: 'arXiv cs.AI',       maxSilenceHours: 96 },
+  // Релизы протоколов и редактора (22.11). Ритм редкий (недели и месяцы
+  // между версиями), поэтому окно широкое: две недели тишины у changelog
+  // Cursor ещё законны, месяц без релиза спецификации MCP — тоже. Более
+  // узкое окно дало бы ложную тревогу на нормальный цикл релизов.
+  { key: 'mcp_spec',          label: 'MCP specification',  maxSilenceHours: 336 },
+  { key: 'mcp_ts_sdk',        label: 'MCP TypeScript SDK', maxSilenceHours: 336 },
+  { key: 'mcp_py_sdk',        label: 'MCP Python SDK',     maxSilenceHours: 336 },
+  { key: 'a2a_releases',      label: 'A2A protocol',       maxSilenceHours: 336 },
+  { key: 'cursor_changelog',  label: 'Cursor changelog',   maxSilenceHours: 336 },
   { key: 'skift',         label: 'Skift',             maxSilenceHours: 120 },
   { key: 'producthunt',   label: 'Product Hunt',      maxSilenceHours: 120 },
   // ator/kamgov/mchs_rss удалены 01.08 из RSS_SOURCES как мёртвые (404 /

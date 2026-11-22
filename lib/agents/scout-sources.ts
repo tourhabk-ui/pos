@@ -93,6 +93,20 @@ export const RSS_SOURCES: ScoutSource[] = [
     category: 'ai',
     kind: 'rss',
   },
+  // ── Официальные ленты релизов MCP / A2A / Cursor (22.11) ────────────────
+  //
+  // Слово владельца: «исправь источники разведки дополни». Пробел покрытия:
+  // разведка читала блоги и arXiv, но не сами релизы протоколов и редактора,
+  // с которыми работает ОС. Адреса проверены с машины правки (не РФ)
+  // 22.11 ~23:15 Камчатка: HTTP 200 и разбор parseRssItems (Atom / RSS 2.0).
+  // SVERT, официальные китайские ленты про безвиз, агрегаторы и 152-ФЗ
+  // отсюда НЕ добавлены: с этой машины они не открылись как стабильный
+  // парсируемый фид, выдумывать URL нельзя.
+  { key: 'mcp_spec',     url: 'https://github.com/modelcontextprotocol/modelcontextprotocol/releases.atom', label: 'MCP specification',  category: 'ai' },
+  { key: 'mcp_ts_sdk',   url: 'https://github.com/modelcontextprotocol/typescript-sdk/releases.atom',       label: 'MCP TypeScript SDK', category: 'ai' },
+  { key: 'mcp_py_sdk',   url: 'https://github.com/modelcontextprotocol/python-sdk/releases.atom',           label: 'MCP Python SDK',     category: 'ai' },
+  { key: 'a2a_releases', url: 'https://github.com/a2aproject/A2A/releases.atom',                            label: 'A2A protocol',       category: 'ai' },
+  { key: 'cursor_changelog', url: 'https://cursor.com/changelog/rss.xml',                                   label: 'Cursor changelog',   category: 'ai' },
   // Референсы и рынок — передовые travel-tech продукты и новинки, откуда берём
   // фичи/паттерны «сделать у себя». Раньше жили только в intelligence-monitor и
   // упирались в каналы — в эволюцию (evo_growth_issues) не доходили.

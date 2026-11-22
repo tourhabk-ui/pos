@@ -434,10 +434,14 @@ export const CRON_REGISTRY: CronEntry[] = [
     workflow: 'cron-intelligence.yml', cron: '3 4,10,16,22 * * *', schedule: 'каждые 6 ч · 4/10/16/22 UTC',
     everyMin: 360, tier: 'growth', agentId: 'intelligence', triggerable: true,
   },
-  // Scout-Innovator снят отсюда 29.08 (решение владельца): стадия переехала
-  // внутрь runEvoOrchestrator (см. 'evo' выше) — у cron-scout.yml нет
-  // schedule:, только workflow_dispatch. Своих agent_run_history записей у
-  // него нет, телеметрия — под agentId 'evo' и в /hub/admin/volcano.
+  // Scout-Innovator снят отсюда как отдельный cron 29.08 (решение владельца):
+  // стадия runScoutInnovator() живёт внутри runEvoOrchestrator (ключ 'evo'
+  // выше, cron-evo.yml, 3× в сутки). У cron-scout.yml по-прежнему нет
+  // schedule: — это только ручной повтор той же стадии. Отдельный cron
+  // Innovator снова не заводим: он задвоил бы evo. Своих записей
+  // agent_run_history у стадии нет, телеметрия — под agentId 'evo'.
+  // «0 прогонов за 14 дней» по списку workflow cron-scout.yml — ложная
+  // тревога: смотреть scoutInnovator в отчёте evo, а не отдельные runs.
   //
   // Scout Digest тем же решением уехал туда же, а 05.09 вернулся в свой крон:
   // замер прогона 389 — дайджест 321 с при бюджете evo.run в 300 с, три
@@ -446,7 +450,7 @@ export const CRON_REGISTRY: CronEntry[] = [
   // здесь честный, а не вечно стареющий.
   {
     key: 'scout-digest', label: 'Scout Digest',
-    description: '16 источников + safety-слой → AI-синтез → дайджест и пост в ИИ-канал.',
+    description: 'RSS/Telegram из RSS_SOURCES, лента X и safety-слой → AI-синтез → дайджест и пост в ИИ-канал.',
     workflow: 'cron-scout-digest.yml', cron: '3 5,17 * * *', schedule: '2× в сутки · 05/17 UTC',
     everyMin: 720, tier: 'growth', agentId: 'scout-digest', triggerable: true,
   },
