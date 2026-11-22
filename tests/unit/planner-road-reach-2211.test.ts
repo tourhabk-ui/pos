@@ -140,6 +140,19 @@ describe('аудит дорог 22.11: однодневный тур дальш�
     expect(roadCalls.every((b) => Math.abs(b[0] - 53.01) > 0.01 && Math.abs(b[0] - 53.1) > 0.01)).toBe(true);
   });
 
+  it('далёкий тур вне сезона поездки строкой не называется (прод 22.11: «Летняя рыбалка на кижуча» в ноябре)', async () => {
+    const SUMMER_FAR: Tour = { ...FISH_FAR, tourId: 't-fish-summer', title: 'Летняя рыбалка на кижуча',
+      seasonStart: `${NEXT}-07-20`, seasonEnd: `${NEXT}-09-30` };
+    KEEPS = { 't-fish36': false, 't-fish-summer': false, 't-snow': false };
+    ON_REQUEST = new Set(['fishing', 'snowmobile']);
+    TOURS = { 'avachinsky:fishing': [FISH_FAR, SUMMER_FAR], 'avachinsky:snowmobile': [SNOW] };
+    const rec = await recommendTrip({ ...WINTER, interests: ['fishing', 'snowmobile'] });
+    const text = rec.warnings.map((w) => w.message).join('\n');
+    expect(text).toContain('«Зимняя рыбалка: ноябрь — январь» — однодневный тур');
+    expect(text).not.toContain('Летняя рыбалка на кижуча');
+    expect(rec.days.some((d) => d.realTour?.tourId === 't-fish-summer')).toBe(false);
+  });
+
   it('тур без дороги в графе остаётся в плане, но сказано, что везёт оператор', async () => {
     KEEPS = { 't-boat': false, 't-snow': false };
     ON_REQUEST = new Set(['fishing', 'snowmobile']);

@@ -1524,8 +1524,12 @@ async function generateDayPlans(
           const road = await roadFromBase(t);
           if (road?.kind === 'road' && !tooFarForDayTrip(road)) roadOfTour.set(t.tourId, road);
           if (road && tooFarForDayTrip(road)) {
-            farTourLines.set(t.tourId, farDayTourLine(t.title, road));
-            missFor(interest, farDayTourReason(t.title, road));
+            // Строка — только про тур, чей сезон пересекает поездку: в плане
+            // на ноябрь «Летняя рыбалка на кижуча» была бы шумом (прод 22.11).
+            if (seasonMeetsTrip(t, profile.arrivalDate, profile.departureDate)) {
+              farTourLines.set(t.tourId, farDayTourLine(t.title, road));
+              missFor(interest, farDayTourReason(t.title, road));
+            }
             continue;
           }
           if (road?.kind === 'no_road') noRoadTours.set(t.tourId, t.title);
@@ -2551,6 +2555,14 @@ ${warningsSummary ? `Предупреждения:\n${warningsSummary}` : ''}
  */
 export interface RecommendTripOptions {
   itinerary?: 'ai' | 'plain';
+}
+
+/** Сезон тура (как записал оператор) пересекает даты поездки; нет записи — пересекает. */
+function seasonMeetsTrip(t: { seasonStart: string | null; seasonEnd: string | null }, from?: string, to?: string): boolean {
+  if (!from || !to) return true;
+  if (t.seasonEnd && t.seasonEnd.slice(0, 10) < from) return false;
+  if (t.seasonStart && t.seasonStart.slice(0, 10) > to) return false;
+  return true;
 }
 
 /**
