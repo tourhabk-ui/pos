@@ -85,6 +85,9 @@ describe('коды из данных за пределами карточки �
     expect(routeSeasonLabel('summer, autumn')).toBe('лето, осень');
     expect(routeSeasonLabel('лето')).toBe('лето');
     expect(routeSeasonLabel('xx')).toBeNull();
+    // Запятая внутри оговорки не режет русскую запись (22.11, Долина гейзеров).
+    expect(routeSeasonLabel('конец мая – конец сентября (в мае–июне ограничения, kronoki.ru)'))
+      .toBe('конец мая – конец сентября (в мае–июне ограничения, kronoki.ru)');
     expect(routeTypeLabel('radial')).toBe('радиальный');
     expect(routeTypeLabel('zigzag')).toBeNull();
     expect(routeDifficultyLabel('средняя')).toBe('средняя');

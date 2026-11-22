@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { pool } from '@/lib/db-pool';
 import { requirePageRole } from '@/lib/auth/server-page';
 import { ChannelsDashboardClient } from './_ChannelsDashboardClient';
@@ -30,7 +31,7 @@ async function getChannelStats() {
       count(*) FILTER (WHERE avito_listing_id IS NOT NULL)::text       AS with_avito,
       count(*) FILTER (WHERE sputnik8_product_id IS NOT NULL)::text    AS with_sputnik8
     FROM operator_tours
-    WHERE is_active = true AND is_published = true AND deleted_at IS NULL
+    WHERE ${publicTourSql('')}
   `);
 
   return { orders, tours: tours[0] };

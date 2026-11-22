@@ -69,11 +69,47 @@ export { CORRIDOR_VOLCANO_KM };
 
 const KM_PER_DEG_LAT = 111.32;
 
+/**
+ * Месяцы по-русски в порядке года. Корень без окончания: «июня», «июне»,
+ * «июнь». «Март» — раньше «мая»: иначе «ма» поймало бы «март».
+ */
+const RU_MONTH_STEMS: ReadonlyArray<readonly [RegExp, number]> = [
+  [/^январ/, 1], [/^феврал/, 2], [/^март/, 3], [/^апрел/, 4], [/^ма[йяею]$/, 5], [/^июн/, 6],
+  [/^июл/, 7], [/^август/, 8], [/^сентябр/, 9], [/^октябр/, 10], [/^ноябр/, 11], [/^декабр/, 12],
+];
+
+/**
+ * Окно сезона из записи вида «июль - октябрь», «конец мая – конец сентября»,
+ * «декабрь - май» (22.11, слово владельца: «если закрыт значит закрыт не хрен
+ * судьбу испытывать»). До этого разбирались только «лето/зима/круглый год», и
+ * Долина гейзеров с сезоном «конец мая – конец сентября (…)» получала «Идти»
+ * 22 ноября: сезон «не задан». Оговорка в скобках («в мае–июне ограничения»)
+ * в окно не входит. Месяц границы — в сезоне целиком: «конец мая» — май.
+ * Меньше двух месяцев — окна нет (null), а не догадка.
+ */
+export function seasonMonthWindow(season: string): { from: number; to: number } | null {
+  const head = season.toLowerCase().replace(/ё/g, 'е').replace(/\([^)]*\)?/g, ' ');
+  const months: number[] = [];
+  for (const word of head.split(/[^а-я]+/)) {
+    const hit = RU_MONTH_STEMS.find(([re]) => re.test(word));
+    if (hit) months.push(hit[1]);
+  }
+  if (months.length < 2) return null;
+  return { from: months[0], to: months[months.length - 1] };
+}
+
 /** Месяцы, в которые маршрут считается сезонным. */
 export function isInSeason(season: string | null, month: number): boolean | null {
   if (!season) return null; // сезон в данных не задан — судить не по чему
   const s = season.toLowerCase();
-  if (s.includes('all') || s.includes('круглогод')) return true;
+  if (s.includes('all') || s.includes('круглогод') || s.includes('круглый год')) return true;
+  const window = seasonMonthWindow(season);
+  if (window) {
+    // «декабрь - май» идёт через Новый год.
+    return window.from <= window.to
+      ? month >= window.from && month <= window.to
+      : month >= window.from || month <= window.to;
+  }
   const summer = month >= 6 && month <= 9;
   if (s.includes('summer') || s.includes('лет')) return summer;
   if (s.includes('winter') || s.includes('зим')) return !summer;

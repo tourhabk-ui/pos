@@ -19,7 +19,7 @@ import {
   X, ChevronDown, ChevronUp, Truck,
   ArrowRight, ExternalLink, Map as MapIcon, List, Pencil,
   Save, BookmarkCheck, PlaneLanding, PlaneTakeoff, Lock,
-  Send, ShieldAlert, Info, Baby, Dumbbell, Wallet,
+  Send, ShieldAlert, Baby, Dumbbell, Wallet,
   ArrowLeftRight, Coffee, CloudOff, Home,
   CheckCircle, Download, MessageCircle, Eye,
   Share2, Copy, Compass,
@@ -42,7 +42,12 @@ import { tripCalendarDays, dateOfTripDay } from '@/lib/planner/flow-balance';
 import { TRAVEL_STYLES, TRAVEL_STYLE_LABEL, REST_EVERY_DAYS, suggestRestDays, type TravelStyle } from '@/lib/planner/travel-style';
 import { TRIP_ORIGINS, TRIP_ORIGIN_LABEL, activeBudget, type TripOrigin } from '@/lib/planner/trip-origin';
 import { PLANNER_HEADER_OFFSET, CONTENT_BOTTOM_CLEARANCE, PAGE_ACTION_BAR_VAR } from './planner-layout';
-import { buildPlannerMarkers, plannerLegend, ROUTE_LINE_ID, parseDayPinId, nextDayOnPin, sameZoneCount } from '@/lib/planner/map-markers';
+import { buildPlannerMarkers, plannerLegend, ROUTE_LINE_ID, parseDayPinId, nextDayOnPin, sameZoneCount, planFocusPoints } from '@/lib/planner/map-markers';
+import { usePlannerMapDays } from '@/components/planner/usePlannerMapDays';
+import { PlannerDayStrip } from '@/components/planner/PlannerDayStrip';
+import { usePlannerDayCards } from '@/components/planner/usePlannerDayCards';
+import { DayPlaceCard } from '@/components/planner/DayPlaceCard';
+import type { DayPlaceCard as DayPlaceCardData } from '@/lib/planner/day-place-cards';
 import { loadBackgroundRoutes, BG_DEFAULT_TYPES, type BgRoutesResult } from '@/lib/planner/bg-routes';
 import { zoneName, zoneHex, planDayHex } from '@/lib/planner/zone-style';
 import { placeTypeLabel } from '@/lib/places/type-label';
@@ -85,6 +90,16 @@ import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 import { adultsFromParam, MAX_ADULTS } from '@/lib/planner/party-limits';
 import { dayCardWarning, planShapeWarnings, runLabel, safetyBlock, shortWeather, tourRuns, type TourRun } from '@/lib/planner/day-card-view';
 import { SafetyBlock } from '@/components/planner/SafetyBlock';
+import { PLANNER_NAME, PLANNING_MENU } from '@/lib/navigation/tool-names';
+import { DayPhoto } from '@/components/planner/DayPhoto';
+import { NotInPlan } from '@/components/planner/NotInPlan';
+import { PlanOverview } from '@/components/planner/PlanOverview';
+import { buildWaitLine, dayDateShort, notInPlanLines, splitPlanShape } from '@/lib/planner/plan-notes';
+import { dayWithOption, type DayOption } from '@/lib/planner/day-options';
+import { swapDays } from '@/lib/planner/weather-plan-b';
+import { DayCompare } from './DayCompare';
+import { DayPlanB } from './DayPlanB';
+import type { PrintPhoto } from '@/lib/planner/print-html';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -440,6 +455,14 @@ const DIFFICULTY_LABEL: Record<string, string> = {
 
 interface DayCardProps {
   day: DayPlan;
+  /** Под карточкой дня: «Сравнить и заменить» и «План Б» (DayCompare, DayPlanB). */
+  extra?: React.ReactNode;
+  /** Кадр тура с подписью автора (lib/planner/print-photos) — «день как журнал». */
+  photo?: PrintPhoto | null;
+  /** «ср, 26 ноя» — дата дня по началу поездки; дат нет — пусто. */
+  dateLabel?: string;
+  /** Карточка места/маршрута дня (lib/planner/day-place-cards); нет — null. */
+  placeCard?: DayPlaceCardData | null;
   idx: number;
   isEditing: boolean;
   transport: TransportType;
@@ -497,7 +520,7 @@ function DayPriceTag({ day }: { day: DayPlan }) {
 function DayCard({
   day, idx, isEditing, transport, flightBadge, isLocked, isConfirmed, topTour, requestArrival, requestGuests,
   onToggleEdit, onTransportChange, onShowPartners, onDelete, onShowMap, onConfirm, onRef, onAskSeats,
-  editRefusal = null, onDragDone, run,
+  editRefusal = null, onDragDone, run, photo = null, dateLabel = '', placeCard = null, extra = null,
 }: DayCardProps) {
   // Продолжение многодневного тура — в блоке его первого дня (21.11).
   const continuation = run !== undefined && run.first !== day.day;
@@ -540,6 +563,8 @@ function DayCard({
       data-day-continuation={continuation ? 'true' : undefined}
     >
       <div ref={onRef}>
+        {/* День как журнал (22.11): кадр тура с подписью автора — сверху. */}
+        {photo && day.type === 'activity' && <DayPhoto photo={photo} />}
         {/* Row 1 — clickable to toggle edit */}
         {/* С клавиатуры день тоже открывается (разбор 14.11, экран-14). */}
         <div
@@ -574,13 +599,17 @@ function DayCard({
             {day.day}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 min-w-0">
+            <div className="flex items-start gap-1.5 min-w-0">
               {run && (
-                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 whitespace-nowrap bg-[var(--accent)]/15 text-[var(--accent)]" data-tour-run>
+                <span className="mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 whitespace-nowrap bg-[var(--accent)]/15 text-[var(--accent)]" data-tour-run>
                   {runLabel(run)}
                 </span>
               )}
-              <p className="text-xs font-medium text-[var(--text-primary)] min-w-0 line-clamp-2 break-words" title={day.title}>{day.title}</p>
+              <p data-day-title className="text-sm font-semibold leading-snug text-[var(--text-primary)] min-w-0 line-clamp-2 break-words" title={day.title}>{day.title}</p>
+            </div>
+            {/* Метки — под названием (22.11): название читается целиком, а не
+                «Зимняя рыбалка:…» рядом с плашками. */}
+            <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-[var(--text-muted)]">
               {isSpecialDay && (
                 <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 whitespace-nowrap"
                   style={{ background: `color-mix(in srgb, ${typeConf.color} 15%, transparent)`, color: typeConf.color }}>
@@ -597,25 +626,37 @@ function DayCard({
                   {flightBadge}
                 </span>
               )}
-            </div>
-            <p className="text-[10px] text-[var(--text-muted)]">
-              <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle" style={{ background: zoneHex(shownZone(day)) }} />
-              {zoneName(shownZone(day))}
+              {dateLabel && <span className="font-medium text-[var(--text-secondary)] whitespace-nowrap" data-day-date>{dateLabel}</span>}
+              <span className="whitespace-nowrap">
+                <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle" style={{ background: zoneHex(shownZone(day)) }} />
+                {zoneName(shownZone(day))}
+              </span>
+              {/* Погода — в той же строке, что дата и зона (22.11); совет по
+                  одежде — в общем блоке. */}
+              {weatherShort && (
+                <span className="inline-flex items-center gap-1 whitespace-nowrap" data-day-weather>
+                  <CloudSun className="w-3 h-3 shrink-0" aria-hidden="true" />{weatherShort}
+                </span>
+              )}
               {isEditing && (editRefusal
-                ? <span className="ml-1.5 text-[var(--text-secondary)] font-medium">— {editRefusal}</span>
-                : <span className="ml-1.5 text-[var(--accent)] font-medium">— редактирование</span>)}
-            </p>
+                ? <span className="text-[var(--text-secondary)] font-medium">— {editRefusal}</span>
+                : <span className="text-[var(--accent)] font-medium">— редактирование</span>)}
+            </div>
           </div>
           <DayPriceTag day={day} />
         </div>
+        {/* Что в этот день — двумя строками, без «глаза» (22.11): программа
+            видна сразу; полный текст — в «Подробнее». */}
+        {day.description && !showDetail && (
+          <p className="px-3 pb-1 text-[12.5px] leading-snug text-[var(--text-secondary)] line-clamp-2" data-day-desc>{day.description}</p>
+        )}
+        {/* Место или маршрут дня — миниатюрой со ссылкой на его страницу (22.11). */}
+        {placeCard && <DayPlaceCard card={placeCard} />}
         {/* Row 2 — transport + actions */}
         <div className="flex items-center gap-2 px-3 pb-2.5 pt-0.5">
           {/* У дня с туром транспорт — часть тура: выбирать нечего (#3347). */}
           {dayOffersTransportChoice(day, isConfirmed) && (
             <TransportSelector selected={transport} onChange={t => onTransportChange(day.day, t)} allowed={day.allowedTransports} />
-          )}
-          {day.description && day.type !== 'activity' && (
-            <p className="text-[10px] text-[var(--text-muted)] italic">{day.description}</p>
           )}
           <div className="flex-1" />
           {/* Detail toggle */}
@@ -674,13 +715,7 @@ function DayCard({
             <span>{cardWarning}</span>
           </div>
         )}
-        {/* Погода — одной короткой строкой; совет по одежде — в общем блоке. */}
-        {weatherShort && (
-          <div className="mx-3 mb-2 flex items-center gap-1.5 text-[10px] text-[var(--text-secondary)]" data-day-weather>
-            <CloudSun className="w-3 h-3 shrink-0" aria-hidden="true" />
-            <span>{weatherShort}</span>
-          </div>
-        )}
+        {extra}
         {/* Expandable detail panel */}
         {showDetail && (
           <div className="mx-3 mb-2.5 p-3 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)] space-y-2.5">
@@ -1409,6 +1444,10 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
 
   // Plan
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
+  // Сколько секунд идёт сборка — для честной строки ожидания (22.11).
+  const [waitSec, setWaitSec] = useState(0);
+  // Кадры туров плана с подписью автора — для карточек дней и PDF (22.11).
+  const [dayPhotos, setDayPhotos] = useState<Record<string, PrintPhoto>>({});
   /**
    * Состав и уровень, на которые собран план (#2304). Смета считается по ним,
    * а не по форме: поменял человек форму и не пересобрал — план прежний, и
@@ -1570,6 +1609,27 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // перестановки, удаления или добавления дней показывала цену прежнего плана.
   // Машина напрокат (аудит 07.11, E7): за рулём трансфер аэропорта не нужен,
   // если его не отметили отдельно, — смета и заявка считают одинаково.
+  useEffect(() => {
+    if (!loading) return;
+    const t0 = Date.now();
+    const id = setInterval(() => setWaitSec(Math.floor((Date.now() - t0) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [loading]);
+
+  // Кадры туров с подписью автора: один раз на набор туров плана; не пришли —
+  // карточки без снимков (как и PDF).
+  const photoTourKey = useMemo(
+    () => [...new Set(days.filter((d) => d.type === 'activity' && d.realTour).map((d) => d.realTour!.tourId))].join(','),
+    [days],
+  );
+  useEffect(() => {
+    if (!photoTourKey) return;
+    let alive = true;
+    void loadPrintPhotos(photoTourKey.split(',')).then((p) => { if (alive) setDayPhotos(p); })
+      .catch((err) => { logSwallowedFailure('planner-photos', 'загрузка кадров туров плана', err); });
+    return () => { alive = false; };
+  }, [photoTourKey]);
+
   const estimate = useMemo(
     () => (planProfile && days.length > 0
       ? estimateGroup(days, { ...planProfile, arrivalDate: arrival || null, needs: { car: needsCar, transfer: needsAirportTransfer } }, planChoices)
@@ -1834,13 +1894,40 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
 
   // Карта: фоновые точки цветом своей зоны, дни плана — кружками с номером,
   // линия между зонами — построение. Правило — lib/planner/map-markers.
+  // Дни с туром без своей точки — в место тура по каталогу (map-tour-points).
+  const mapDays = usePlannerMapDays(days);
+  // Карточки мест/маршрутов у дней (day-place-cards) — в списке и в полосе карты.
+  const dayCards = usePlannerDayCards(days);
   const mapMarkers = useMemo(
     () => buildPlannerMarkers({
-      routes: bgRoutes, days, editingDayId,
+      routes: bgRoutes, days: mapDays, editingDayId,
       editingReplaceable: editingDayInfo?.refusal === null,
     }),
-    [days, bgRoutes, editingDayId, editingDayInfo],
+    [mapDays, bgRoutes, editingDayId, editingDayInfo],
   );
+  // Открыли день — карта едет к его пину; закрыли — показывает весь план.
+  const mapFocus = useMemo(() => {
+    const points = planFocusPoints(mapDays, editingDayId);
+    if (points.length === 0) return null;
+    return { key: editingDayId !== null ? `day_${editingDayId}` : `plan_${points.flat().join(',')}`, points };
+  }, [mapDays, editingDayId]);
+  const stripDays = useMemo(
+    () => mapDays.map(d => ({ ...d, dateLabel: arrival ? dayDateShort(dayDateFrom(arrival, d)) : '', place: dayCards[d.day] ?? null })),
+    [mapDays, arrival, dayCards],
+  );
+  // Полоса дней: день открывается/закрывается, карта едет к пину (mapFocus).
+  const pickDayFromStrip = useCallback((key: number) => {
+    setSelectedRoute(null);
+    setEditingDayId(prev => (prev === key ? null : key));
+    if (typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches) {
+      dayRefs.current.get(key)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, []);
+  const openDayFromStrip = useCallback((key: number) => {
+    setEditingDayId(key);
+    setMobileTab('plan');
+    requestAnimationFrame(() => dayRefs.current.get(key)?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+  }, []);
   const mapLegend = useMemo(() => plannerLegend(bgRoutes), [bgRoutes]);
   // Что карта искала — подписями плиток (lib/planner/bg-routes): плитка
   // места — маршруты через место этого вида, занятие — маршруты этого вида.
@@ -1880,10 +1967,10 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       setSelectedRoute(null);
       setEditingDayId(next);
       if (next !== null) {
-        const el = dayRefs.current.get(next);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        // На телефоне — вкладка «План», где этот день виден.
+        // На телефоне — вкладка «План», где этот день виден. Прокрутка — после
+        // показа вкладки: в скрытой колонке scrollIntoView не двигал ничего.
         setMobileTab('plan');
+        requestAnimationFrame(() => dayRefs.current.get(next)?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
       }
       return;
     }
@@ -2000,6 +2087,39 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     }
   }
 
+  /** Сколько едет и с какой даты — как у перечитки цены (rereadMovedTours). */
+  const planPeople = builtFor ? builtFor.adults + builtFor.children.length : adults + knownChildAges.length;
+  const planStart = builtFor?.arrival ?? arrival;
+
+  /**
+   * «Поставить» из «Сравнить и заменить» и «Плана Б» (супер-планер, 22.11):
+   * тур встаёт в день, цена и места на дату перечитываются, смета следом.
+   */
+  function putOptionOnDay(dayNum: number, option: DayOption) {
+    const ages = builtFor ? builtFor.children : knownChildAges;
+    const youngest = ages.length > 0 ? Math.min(...ages) : null;
+    const next = daysRef.current.map((d) => (d.day === dayNum ? dayWithOption(d, option, planPeople, youngest) : d));
+    daysRef.current = next;
+    setDays(next);
+    setEditNote(null);
+    // Выбор транспорта и отметка были о прежнем туре — новый их не наследует (как replaceDay).
+    setTransportByDay((prev) => { const n = { ...prev }; delete n[dayNum]; return n; });
+    setConfirmedDays((prev) => { if (!prev.has(dayNum)) return prev; const n = new Set(prev); n.delete(dayNum); return n; });
+    scheduleValidation(next);
+    rereadMovedTours(next);
+  }
+
+  /** «Поменять местами» из «Плана Б»: прогноз остаётся у своей даты. */
+  function swapPlanDays(a: number, b: number) {
+    const { days: next, newNumbers } = swapDays(daysRef.current, a, b);
+    daysRef.current = next;
+    setDays(next);
+    setEditNote(null);
+    followNewNumbers(newNumbers);
+    scheduleValidation(next);
+    rereadMovedTours(next);
+  }
+
   function scheduleValidation(list: DayPlan[]) {
     if (validationTimerRef.current) clearTimeout(validationTimerRef.current);
     if (list.length < 2) return;
@@ -2098,6 +2218,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         meta: `${zoneName(shownZone(d))}${d.type === 'activity' ? ` | ${d.detailsUnknown ? 'сложность не записана' : DIFFICULTY_LABEL[d.difficulty] ?? d.difficulty}` : ''}`,
         warnings: d.dayWarnings ?? [],
         weatherKit: d.weatherKit ?? null,
+        place: dayCards[d.day] ? { kind: dayCards[d.day].kind, title: dayCards[d.day].title, href: dayCards[d.day].href } : null,
         // Макет 21.11: многодневный тур — одним блоком, ссылка и QR на тур.
         dayType: d.type,
         tourId: d.type === 'activity' ? d.realTour?.tourId ?? null : null,
@@ -2108,12 +2229,22 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       warnings: recommendation?.warnings ?? [],
       fmt,
     };
-    const html = buildPlanPrintHtml(printInput);
+    // Кадры уже пришли для карточек — документ сразу с ними (обложка — кадр
+    // первого тура), без второй загрузки.
+    const known = printInput.days.map((d) => (d.tourId ? dayPhotos[d.tourId] : undefined)).filter((p): p is PrintPhoto => Boolean(p));
+    const html = buildPlanPrintHtml(known.length > 0 ? { ...printInput, photos: dayPhotos, cover: known[0] } : printInput);
 
     const win = window.open('', '_blank');
     if (!win) return;
     win.document.write(html);
     win.document.close();
+    if (known.length > 0) {
+      // Печать — когда кадры догрузились (или через 3 с), иначе обложка пустая.
+      const imgs = Array.from(win.document.images);
+      const ready = Promise.all(imgs.map((im) => (im.complete ? null : new Promise((r) => { im.onload = r; im.onerror = r; }))));
+      void Promise.race([ready, new Promise((r) => setTimeout(r, 3000))]).then(() => { win.print(); });
+      return;
+    }
     // Снимки туров с подписью автора (обложка и превью) — догружаются: окно
     // открыто сразу (блокировщик окон), документ переписывается, когда кадры
     // пришли; не пришли — печатается без них.
@@ -2209,6 +2340,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     if (interests.length === 0) { setError('Выберите место или активность'); return; }
     if (childAgeMissing) { setError(CHILD_AGE_MISSING); return; }
     setError('');
+    setWaitSec(0);
     setLoading(true);
     // Номер сборки: ответ прежней сборки не ложится поверх новой (разбор
     // 14.11, экран-15: вторая быстрая фраза во время сборки запускала
@@ -2477,7 +2609,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         {/* H1 страницы — что это за страница, а не название шага: поисковик
             видел H1 «Когда» (аудит 29.09, Н14). Название шага — H2 ниже. */}
         <h1 className="text-xs font-medium text-[var(--text-secondary)]">
-          Конструктор маршрута по Камчатке · <span aria-live="polite">шаг {step} из 4</span>
+          {PLANNER_NAME} · <span aria-live="polite">шаг {step} из 4</span>
         </h1>
         {recommendation && (
           <button type="button" onClick={() => { setFormOpen(false); setStepError(''); }}
@@ -2974,6 +3106,12 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />{error}
         </p>
       )}
+      {/* Честное ожидание (22.11): что делается и сколько уже идёт, без «за секунды». */}
+      {loading && step === 4 && (
+        <p role="status" aria-live="polite" data-build-wait className="mb-2 text-xs text-[var(--text-secondary)]">
+          {buildWaitLine(waitSec)}
+        </p>
+      )}
       {draftRestored && (
         <p className="mb-2 text-xs text-[var(--text-secondary)] flex flex-wrap items-center gap-x-2" data-form-draft="restored">
           Анкета восстановлена с этого устройства (без заметок о здоровье).
@@ -3005,44 +3143,36 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const runs = tourRuns(days);
   const resultsView = (
     <div className="p-4 space-y-4" style={{ paddingBottom: CONTENT_BOTTOM_CLEARANCE }}>
+      {recommendation && days.length > 0 && (
+        <PlanOverview
+          title={`${days.length} ${pluralDaysRu(days.length)} на Камчатке`}
+          sub={[tripDays ? `${shortDate(arrival)} — ${shortDate(departure)}` : '', `${planProfile?.adults ?? adults} взр.${(planProfile?.children ?? childAges).length > 0 ? `, детей ${(planProfile?.children ?? childAges).length}` : ''}`].filter(Boolean).join(' · ')}
+          estimate={estimate ?? null}
+          onShowMap={() => setMobileTab('map')}
+          estimateAnchor="plan-estimate"
+        />
+      )}
       {summaryCard}
       {preferenceNotesBlock}
 
       {/* Results */}
       {recommendation && (
         <>
-          {planShapeWarnings(recommendation.warnings ?? []).length > 0 && (
+          {/* Сверху — только критичное о плане («план не собрался»); остальные
+              заметки о плане — одним свёрнутым блоком под днями (22.11). */}
+          {planShapeWarnings(recommendation.warnings ?? []).some(w => w.severity === 'critical') && (
             <div className="space-y-1.5">
               {planShapeWarnings(recommendation.warnings ?? []).filter(w => w.severity === 'critical').map((w, i) => (
                 <div key={`crit-${i}`} className="flex items-start gap-2 p-3 bg-[var(--danger)]/10 border border-[var(--danger)]/30 rounded-lg">
                   <ShieldAlert className="w-4 h-4 text-[var(--danger)] shrink-0 mt-0.5" />
-                  <p className="text-xs text-[var(--danger)]">
-                    {w.type === 'mchs' && <span className="font-bold mr-1">МЧС</span>}
-                    {w.message}
-                  </p>
-                </div>
-              ))}
-              {planShapeWarnings(recommendation.warnings ?? []).filter(w => w.severity === 'important').map((w, i) => (
-                <div key={`imp-${i}`} className="flex items-start gap-2 p-3 bg-[var(--warning)]/10 border border-[var(--warning)]/30 rounded-lg">
-                  <AlertTriangle className="w-4 h-4 text-[var(--warning)] shrink-0 mt-0.5" />
-                  <p className="text-xs text-[var(--warning)]">
-                    {w.type === 'mchs' && <span className="font-bold mr-1">МЧС</span>}
-                    {w.type === 'crowd' && <span className="font-bold mr-1">Загрузка</span>}
-                    {w.message}
-                  </p>
-                </div>
-              ))}
-              {planShapeWarnings(recommendation.warnings ?? []).filter(w => w.severity === 'info').map((w, i) => (
-                <div key={`info-${i}`} className="flex items-start gap-2 p-3 bg-[var(--ocean)]/10 border border-[var(--ocean)]/20 rounded-lg">
-                  <Info className="w-4 h-4 text-[var(--ocean)] shrink-0 mt-0.5" />
-                  <p className="text-xs text-[var(--ocean)]">
-                    {w.type === 'crowd' && <span className="font-bold mr-1">Загрузка</span>}
-                    {w.message}
-                  </p>
+                  <p className="text-xs text-[var(--danger)]">{w.message}</p>
                 </div>
               ))}
             </div>
           )}
+          {/* Что из просьбы не вошло — спокойным списком; остальные оговорки
+              о плане — в одном свёрнутом блоке под днями (lib/planner/plan-notes). */}
+          <NotInPlan lines={notInPlanLines(recommendation.warnings ?? [], builtFor?.interests ?? allInterests, days, (id) => ACTIVITY_LABEL[id] ?? tileLabel(id))} />
 
           <PlanStaleNotice reasons={staleReasons} onRebuild={() => { void getRecommendation(); }} busy={loading} />
 
@@ -3107,6 +3237,20 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                     editRefusal={day.day === editingDayId ? (editingDayInfo?.refusalShort ?? null) : null}
                     onDragDone={finishReorder}
                     run={runs.get(day.day)}
+                    photo={day.realTour ? dayPhotos[day.realTour.tourId] ?? null : null}
+                    placeCard={dayCards[day.day] ?? null}
+                    dateLabel={arrival ? dayDateShort(dayDateFrom(arrival, day)) : ''}
+                    extra={(
+                      // key по дате: после обмена дней варианты прежней даты не остаются (ревью #3708).
+                      <>
+                        <DayPlanB key={`planb-${planStart ? dayDateFrom(planStart, day) : ''}`} day={day} days={days} people={planPeople}
+                          date={planStart ? dayDateFrom(planStart, day) : ''}
+                          dateOf={(n) => (planStart ? dayDateShort(planDayDate(planStart, n - 1)) : '')}
+                          onPut={putOptionOnDay} onSwap={swapPlanDays} />
+                        <DayCompare key={`compare-${planStart ? dayDateFrom(planStart, day) : ''}`} day={day} days={days} people={planPeople}
+                          date={planStart ? dayDateFrom(planStart, day) : ''} onPut={putOptionOnDay} />
+                      </>
+                    )}
                     onRef={(el) => {
                       if (el) dayRefs.current.set(day.day, el as HTMLElement);
                       else dayRefs.current.delete(day.day);
@@ -3115,7 +3259,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                 ))}
               </Reorder.Group>
 
-              <SafetyBlock items={safetyBlock(days, recommendation.warnings ?? [])} />
+              <SafetyBlock items={safetyBlock(days, recommendation.warnings ?? [])} planItems={splitPlanShape(recommendation.warnings ?? []).aboutPlan.map((w) => w.message)} />
 
               {editNote && (
                 <p role="status" className="px-3 py-2 rounded-lg text-xs font-medium mt-1.5 flex items-start gap-2 bg-[var(--warning)]/10 text-[var(--warning)] border border-[var(--warning)]/20">
@@ -3153,7 +3297,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                 Добавить день
               </button>
 
-              {estimate && <GroupEstimateBlock estimate={estimate} />}
+              {estimate && <div id="plan-estimate" className="scroll-mt-4"><GroupEstimateBlock estimate={estimate} /></div>}
             </div>
           )}
 
@@ -3207,6 +3351,10 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                 <Download className="w-4 h-4" />
                 Скачать PDF маршрута
               </button>
+              {/* Взаимная ссылка (22.11): поход — чек-лист и офлайн-карта. */}
+              <p className="text-[11px] text-center text-[var(--text-muted)]">
+                Идёте в поход сами? <Link href="/planning" className="text-[var(--ocean)] hover:underline">{PLANNING_MENU}</Link>: чек-лист и карта без интернета.
+              </p>
             </div>
           )}
 
@@ -3329,7 +3477,16 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         // Подгонка вида оставляет плашки карты над точками: на телефоне
         // легенда поперёк верха закрывала север края.
         fitClearOf={mapOverlayRef}
+        focus={mapFocus}
+        bottomInset={days.length > 0 && !selectedRoute ? (editingDayId !== null ? 104 : 72) : 0}
       />
+
+      {/* Дни плана полосой внизу карты (components/planner/PlannerDayStrip). */}
+      {days.length > 0 && !selectedRoute && (
+        <div className="absolute left-2 right-[4.25rem] bottom-2 lg:left-4 lg:right-4 lg:bottom-3 z-10 pointer-events-none">
+          <PlannerDayStrip days={stripDays} activeDay={editingDayId} onPick={pickDayFromStrip} onOpen={openDayFromStrip} />
+        </div>
+      )}
 
       {/* Что на карте — словами: замена дня, загрузка/отказ/пусто, легенда зон
           тем же цветом, что пины, и что делать с точкой. */}
@@ -3409,7 +3566,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         </div>
 
         {/* Plan panel (right on desktop, shown when plan tab active on mobile) */}
-        <div className={`w-full lg:w-[420px] shrink-0 min-h-0 flex-col lg:border-l border-[var(--border)] bg-[var(--bg-primary)] ${
+        <div className={`w-full lg:w-[460px] xl:w-[500px] shrink-0 min-h-0 flex-col lg:border-l border-[var(--border)] bg-[var(--bg-primary)] ${
           mobileTab === 'plan' ? 'flex' : 'hidden'
         } lg:flex`}>
           {planPanel}

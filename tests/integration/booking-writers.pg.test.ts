@@ -866,7 +866,7 @@ withPg('общая вставка и гейт брони на настоящем
       );
       const { PLATFORM_WEEK_SQL } = await import('@/lib/agents/platform-week-stats');
       const { rows } = await pool.query<{
-        tours_visible: number; tours_hidden: number; hidden_draft: number; hidden_inactive: number; hidden_both: number;
+        tours_visible: number; tours_hidden: number; hidden_draft: number; hidden_inactive: number; hidden_both: number; hidden_test_profile: number;
         funnel_booking_submitted: number; funnel_booking_rejected: number; funnel_top_reject_reason: string | null; funnel_top_reject_count: number;
       }>(PLATFORM_WEEK_SQL);
       const s = rows[0]!;
@@ -874,7 +874,7 @@ withPg('общая вставка и гейт брони на настоящем
       expect(s.hidden_draft).toBeGreaterThanOrEqual(1);
       expect(s.hidden_inactive).toBeGreaterThanOrEqual(1);
       expect(s.hidden_both).toBeGreaterThanOrEqual(1);
-      expect(s.hidden_draft + s.hidden_inactive + s.hidden_both).toBe(s.tours_hidden);
+      expect(s.hidden_draft + s.hidden_inactive + s.hidden_both + s.hidden_test_profile).toBe(s.tours_hidden);
       expect(s.funnel_booking_submitted).toBeGreaterThanOrEqual(1);
       expect(s.funnel_booking_rejected).toBeGreaterThanOrEqual(1);
       expect(s.funnel_top_reject_reason).toBe('MAX_EXCEEDED');

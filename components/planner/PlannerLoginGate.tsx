@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { Map, LogIn, UserPlus, RefreshCw, MessageCircle, Compass } from 'lucide-react';
 import { plannerLoginHref, PLANNER_PATH, type PlannerGate } from '@/lib/planner/login-gate';
 import { kuzmichAskHref } from '@/lib/kuzmich/ask-link';
+import { PLANNER_NAME, PLANNING_MENU, PLANS_MENU } from '@/lib/navigation/tool-names';
 
 /**
  * Без входа — не тупик (21.11, разбор уходов: на экране входа визит
@@ -22,8 +23,11 @@ export function PlannerLoginGate({ gate }: { gate: PlannerGate }) {
       <section className="ds-card max-w-xl w-full p-8 space-y-5" aria-labelledby="planner-gate-title">
         <Map className="w-8 h-8 text-[var(--ocean)]" aria-hidden="true" />
         <h1 id="planner-gate-title" className="font-playfair text-3xl font-bold text-[var(--text-primary)]">
-          {gate === 'unchecked' ? 'Не смогли проверить вход' : 'Планер поездки — после входа'}
+          {PLANNER_NAME}
         </h1>
+        <p className="text-sm font-medium text-[var(--text-secondary)]" data-gate-status>
+          {gate === 'unchecked' ? 'Не смогли проверить вход' : 'Открывается после входа'}
+        </p>
         {gate === 'unchecked' ? (
           <p className="text-[var(--text-secondary)]">
             Сервер не ответил, вошли ли вы. Это не значит, что вы не вошли. Обновите страницу через минуту.
@@ -63,8 +67,14 @@ export function PlannerLoginGate({ gate }: { gate: PlannerGate }) {
               <Link href="/routes" className="ds-btn ds-btn-secondary inline-flex items-center gap-2">
                 <Map className="w-4 h-4" aria-hidden="true" />Маршруты
               </Link>
+              <Link href="/plans" className="ds-btn ds-btn-secondary inline-flex items-center gap-2">
+                <Compass className="w-4 h-4" aria-hidden="true" />{PLANS_MENU}
+              </Link>
             </div>
             <p className="text-xs text-[var(--text-muted)]">План из чата в личном кабинете не сохраняется.</p>
+            <p className="text-xs text-[var(--text-muted)]">
+              Идёте в поход сами? <Link href="/planning" className="text-[var(--ocean)] hover:underline">{PLANNING_MENU}</Link> — чек-лист и карта без интернета, без входа.
+            </p>
           </div>
         )}
       </section>

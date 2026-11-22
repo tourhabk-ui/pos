@@ -29,9 +29,10 @@ import QRCode from 'qrcode';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { countedLine, NO_PRICES_YET } from '@/lib/planner/estimate';
 import {
-  dayCardWarning, planShapeWarnings, runLabel, safetyBlock, safetyItemText, SAFETY_BLOCK_TITLE, tourRuns,
+  dayCardWarning, runLabel, safetyBlock, safetyItemText, SAFETY_BLOCK_TITLE, tourRuns,
   type ViewDay,
 } from '@/lib/planner/day-card-view';
+import { splitPlanShape } from '@/lib/planner/plan-notes';
 
 export interface PrintPlanDay {
   /** Номер карточки в списке (1, 2, 3 …), а не ключ дня. */
@@ -54,6 +55,8 @@ export interface PrintPlanDay {
   tourTitle?: string | null;
   /** Адрес страницы тура на vedarai.ru (абсолютный или путь сайта). */
   tourHref?: string | null;
+  /** Место или маршрут дня (lib/planner/day-place-cards): название и страница на vedarai.ru. */
+  place?: { kind: 'place' | 'route'; title: string; href: string } | null;
 }
 
 export interface PrintPlanEstimate {
@@ -116,8 +119,13 @@ function style(origin: string): string {
   .contents strong { color: ${C.night}; }
   h2 { font-size: 20px; color: ${C.night}; margin: 0 0 10px; }
   .section { margin-bottom: 18px; }
+  /* Заголовок не отрывается от своего содержимого (прод 22.11: «Смета на
+     группу» внизу страницы, таблица — на следующей). */
+  h2 { break-after: avoid; page-break-after: avoid; }
+  .estimate-block { break-inside: avoid; page-break-inside: avoid; }
+  table.estimate thead { display: table-header-group; }
+  table.estimate tr { break-inside: avoid; page-break-inside: avoid; }
   .note { font-size: 10.5px; color: ${C.mist}; margin: 0 0 8px; }
-  .plan-note { font-size: 10.5px; border-left: 3px solid ${C.lava}; padding: 4px 8px; margin: 0 0 6px; background: ${C.cream}; }
   .row { display: grid; grid-template-columns: 22mm 1fr auto; gap: 10px; padding: 9px 0; border-top: 1px solid ${C.line}; page-break-inside: avoid; }
   .row:first-of-type { border-top: 0; }
   .day-num { font-weight: 700; color: ${C.lava}; font-size: 12px; white-space: nowrap; }
@@ -129,6 +137,8 @@ function style(origin: string): string {
   .day-desc { font-size: 10.5px; color: ${C.mist}; margin-top: 2px; }
   .day-meta { font-size: 10px; color: ${C.mist}; margin-top: 3px; }
   .day-warn { font-size: 10px; color: ${C.warn}; margin-top: 3px; }
+  .day-place { font-size: 10.5px; color: ${C.ink}; margin-top: 3px; }
+  .day-place span { color: ${C.ocean}; word-break: break-all; }
   .day-link { font-size: 10px; color: ${C.ocean}; margin-top: 3px; word-break: break-all; }
   .aside { display: flex; gap: 8px; align-items: flex-start; }
   .thumb { width: 34mm; }
@@ -145,6 +155,13 @@ function style(origin: string): string {
   .price-row { display: flex; justify-content: space-between; font-size: 11px; margin-top: 4px; }
   .counted { font-size: 10.5px; color: ${C.night}; font-weight: 600; margin-top: 6px; }
   .safety { page-break-before: always; }
+  .keep { break-inside: avoid; page-break-inside: avoid; }
+  .estimate-block { margin-top: 14px; }
+  .not-in-plan { margin-top: 12px; padding: 8px 10px; border: 1px solid ${C.line}; border-radius: 8px; break-inside: avoid; page-break-inside: avoid; }
+  .not-in-plan .nip-title { font-weight: 700; font-size: 11.5px; color: ${C.night}; margin-bottom: 4px; }
+  .not-in-plan p { font-size: 10.5px; color: ${C.mist}; margin: 0 0 3px; }
+  .about-plan { margin-bottom: 10px; }
+  .sub { font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: ${C.mist}; font-weight: 700; margin: 8px 0 4px; }
   .warning { font-size: 10.5px; padding: 5px 0 5px 10px; border-left: 3px solid ${C.line}; margin-bottom: 5px; }
   .warning-critical { border-color: ${C.danger}; color: ${C.danger}; }
   .warning-important { border-color: ${C.lava}; }
@@ -266,6 +283,10 @@ export function buildPlanPrintHtml(input: PrintPlanInput): string {
     const photoHtml = photo
       ? `<figure class="thumb"><img data-print-photo src="${e(safeUrl(photo.src, origin)!)}" alt=""/><figcaption>${e(photo.caption)}</figcaption></figure>`
       : '';
+    const placeHref = d.place ? safeUrl(d.place.href, origin) : null;
+    const placeHtml = d.place && placeHref
+      ? `<div class="day-place">${d.place.kind === 'route' ? 'Маршрут' : 'Место'}: <strong>${e(d.place.title)}</strong> — <span>${e(placeHref.replace(/^https:\/\//, ''))}</span></div>`
+      : '';
     const desc = d.description.length > 220 ? `${d.description.slice(0, 219).trimEnd()}…` : d.description;
     return `<div class="row${d.confirmed ? ' confirmed' : ''}">
   <div><div class="day-num">${run ? 'Дни ' : 'День '}${e(label)}</div>${when(d.num, run?.last)}</div>
@@ -274,14 +295,20 @@ export function buildPlanPrintHtml(input: PrintPlanInput): string {
     ${desc ? `<div class="day-desc">${e(desc)}</div>` : ''}
     <div class="day-meta">${e(d.meta)}${weather ? ` · ${e(weather)}` : ''}</div>
     ${warn ? `<div class="day-warn">${e(warn)}</div>` : ''}
+    ${placeHtml}
     ${href ? `<div class="day-link">${e(href.replace(/^https:\/\//, ''))}</div>` : ''}
   </div>
   <div class="aside">${photoHtml}${href ? qrSvg(href) : ''}</div>
 </div>`;
   }).filter(Boolean).join('\n');
 
-  const shape = planShapeWarnings(input.warnings.map((w) => ({ type: w.type ?? '', severity: w.severity, message: w.message })));
-  const planNotes = shape.map((w) => `<p class="plan-note">${e(w.message)}</p>`).join('');
+  // Над программой — не стопка оговорок (22.11): что из просьбы не вошло —
+  // коротким списком «Этого в плане нет», остальное — разделом «О плане»
+  // на странице «Безопасность и разрешения» (lib/planner/plan-notes).
+  const { notInPlan, aboutPlan } = splitPlanShape(input.warnings.map((w) => ({ type: w.type ?? '', severity: w.severity, message: w.message })));
+  const notInPlanHtml = notInPlan.length > 0
+    ? `<div class="not-in-plan"><div class="nip-title">Этого в плане нет</div>${notInPlan.map((w) => `<p>${e(w.message)}</p>`).join('')}</div>`
+    : '';
 
   const est = input.estimate;
   // Сумма — только цены туров и выбранного жилья (слово владельца 14.11
@@ -289,20 +316,24 @@ export function buildPlanPrintHtml(input: PrintPlanInput): string {
   // итога нет: «0 ₽» его бы выдумал.
   const priced = est ? est.lines.some((l) => l.total) : false;
   const estimateHtml = est ? `<div class="section estimate-block">
-  <h2>Смета на группу · ${e(est.people)} чел.</h2>
+  <div class="keep"><h2>Смета на группу · ${e(est.people)} чел.</h2>
   <p class="note">Цены туров — от операторов, выбранного жилья — по ценам на платформе; остальное называет исполнитель. Без авиабилетов до Камчатки.</p>
   <table class="estimate"><thead><tr><th>Позиция</th><th>Основа</th><th class="sum">Сумма</th></tr></thead>
   <tbody>${est.lines.map((l) => `<tr><td>${e(l.label)}</td><td>${e(l.basis)}${l.source === 'offer' ? ' · выбрано' : ''}</td><td class="sum${l.total ? '' : ' none'}"><span>${l.total ? e(rubRange(l.total)) : 'цены нет'}</span></td></tr>`).join('')}</tbody>
-  <tfoot><tr><td colspan="2">Итого на группу</td><td class="sum">${priced ? e(rubRange(est.total)) : 'не посчитано'}</td></tr></tfoot></table>
+  <tfoot><tr><td colspan="2">Итого на группу</td><td class="sum">${priced ? e(rubRange(est.total)) : 'не посчитано'}</td></tr></tfoot></table></div>
   <div class="counted">${e(countedLine(est.lines))}${priced && est.unpriced && est.unpriced.length > 0 ? ` — не вошло в итог: ${e(est.unpriced.join('; '))}` : ''}</div>
   ${priced ? `<div class="price-row"><span>На человека</span><span>${e(rubRange(est.perPerson))}</span></div>` : `<div class="price-row"><span>${e(NO_PRICES_YET)}</span><span></span></div>`}
   ${est.assumptions.map((a) => `<p class="note" style="margin-top:4px">${e(a)}</p>`).join('')}
 </div>` : '';
 
   const items = safetyBlock(view, input.warnings.map((w) => ({ type: w.type ?? '', severity: w.severity, message: w.message })));
-  const safetyHtml = items.length > 0 ? `<div class="section safety">
+  const aboutPlanHtml = aboutPlan.length > 0
+    ? `<div class="about-plan"><div class="sub">О плане</div>${aboutPlan.map((w) => `<div class="warning warning-info">${e(w.message)}</div>`).join('\n')}</div>${items.length > 0 ? '<div class="sub">Безопасность</div>' : ''}`
+    : '';
+  const safetyHtml = items.length > 0 || aboutPlan.length > 0 ? `<div class="section safety">
   <h2>${e(SAFETY_BLOCK_TITLE)}</h2>
   <p class="note">Всё, что касается безопасности, разрешений и снаряжения, — один раз, с днями, к которым относится. Обстановку на свои даты проверьте ближе к выезду.</p>
+  ${aboutPlanHtml}
   ${items.map((it) => `<div class="warning warning-${WARNING_CLASSES.has(it.severity) ? it.severity : 'info'}">${e(safetyItemText(it))}</div>`).join('\n')}
 </div>` : '';
 
@@ -328,8 +359,8 @@ export function buildPlanPrintHtml(input: PrintPlanInput): string {
 </section>
 <section class="section program">
   <h2>Программа по дням</h2>
-  ${planNotes}
   ${rows}
+  ${notInPlanHtml}
 </section>
 ${estimateHtml}
 ${safetyHtml}

@@ -13,7 +13,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   BarChart3, Map, Calendar, CalendarDays, Users, CreditCard,
   Settings, Bell, HelpCircle, CheckCircle, Inbox, User,
-  Download, BookMarked, MessageSquareText, Contact, Bot, Percent, ListChecks, BellDot, Star, UsersRound, Code2,
+  Download, BookMarked, MessageSquare, MessageSquareText, Contact, Bot, Percent, ListChecks, BellDot, Star, UsersRound, Code2,
 } from 'lucide-react';
 import { paymentsOpen } from '@/lib/payments/launch';
 import { isManagerSeat, type OperatorSeat } from '@/components/operator/use-operator-seat';
@@ -50,6 +50,10 @@ const ALL_OPERATOR_MENU: OperatorMenuItem[] = [
   { href: '/hub/operator/leads', label: 'Заявки с сайта', icon: Inbox, section: 'Продажи', access: 'team' },
   { href: '/hub/operator/selections', label: 'Подборки', icon: BookMarked, section: 'Продажи', access: 'team' },
   { href: '/hub/operator/inbox', label: 'Входящие', icon: BellDot, section: 'Продажи', access: 'team' },
+  // Беседы с туристами — страницей, а не плавающей кнопкой (22.11, #2770):
+  // на телефоне кнопка накрывала «Создать тур». Сервер отдаёт беседы того,
+  // кто вошёл, — менеджеру его собственные.
+  { href: '/hub/operator/messages', label: 'Сообщения', icon: MessageSquare, section: 'Продажи', access: 'team' },
   { href: '/hub/operator/clients', label: 'Клиенты', icon: Users, section: 'Продажи', access: 'team' },
   { href: '/hub/operator/tasks', label: 'Задачи', icon: ListChecks, section: 'Продажи', access: 'team' },
   { href: '/hub/operator/reviews', label: 'Отзывы', icon: Star, section: 'Продажи', access: 'team' },

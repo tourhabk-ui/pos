@@ -16,6 +16,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { offerOrderDay, orderOffersBy } from '@/lib/tours/offer-order';
@@ -73,7 +74,7 @@ export async function topToursByActivity(
         FROM operator_tours ot
         JOIN partners p ON p.id = ot.operator_id
         WHERE ot.activity_type = ANY($1::text[])
-          AND ot.is_active = true AND ot.is_published = true AND ot.deleted_at IS NULL
+          AND ${publicTourSql('ot')}
       `, [rawTypesFor(activity)]);
       const [first] = orderOffersBy(rows, (r) => ({ id: String(r.id), nearestFreeDate: r.nearest_free_date ?? null, anyDayOpen: r.any_day_open ?? null }), { day });
       if (first) {
@@ -114,7 +115,7 @@ export async function toursByIds(ids: string[]): Promise<Record<string, TopTour>
       FROM operator_tours ot
       JOIN partners p ON p.id = ot.operator_id
       WHERE ot.id::text = ANY($1::text[])
-        AND ot.is_active = true AND ot.is_published = true AND ot.deleted_at IS NULL
+        AND ${publicTourSql('ot')}
     `, [unique]);
     return Object.fromEntries(rows.map((r) => [String(r.id), r]));
   } catch (e) {

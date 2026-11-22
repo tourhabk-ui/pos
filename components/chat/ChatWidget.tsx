@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { ChatButton } from './ChatButton';
-import { ConversationList } from './ConversationList';
+import { ConversationList, conversationFromApi } from './ConversationList';
 import { MessageThread } from './MessageThread';
 
 interface ConversationItem {
@@ -39,20 +39,7 @@ export function ChatWidget() {
       const result = await res.json();
 
       if (result.success) {
-        const items: ConversationItem[] = result.data.conversations.map(
-          (c: Record<string, unknown>) => ({
-            id: c.id as string,
-            type: c.type as string,
-            subject: c.subject as string | null,
-            otherParticipantName: c.other_participant_name as string | null,
-            otherParticipantRole: c.other_participant_role as string | null,
-            otherParticipantId: c.other_participant_id as string | null,
-            lastMessageContent: c.last_message_content as string | null,
-            lastMessageAt: c.last_message_at as string | null,
-            lastMessageSenderName: c.last_message_sender_name as string | null,
-            unreadCount: parseInt(String(c.unread_count)) || 0,
-          })
-        );
+        const items: ConversationItem[] = result.data.conversations.map(conversationFromApi);
         setConversations(items);
       }
     } catch {

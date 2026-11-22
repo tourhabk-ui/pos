@@ -58,7 +58,11 @@ describe('шаблоны', () => {
     for (const k of ['datePublished', 'dateModified', "author: { '@id': 'https://vedarai.ru/#organization' }", 'image:', 'BreadcrumbJsonLd']) expect(detail).toContain(k);
     const index = code('app/fish/page.tsx');
     expect(index).toContain("'@type': 'ItemList'");
-    expect(index).toContain('datePublished');
+    expect(index).toContain('fishArticleJsonLd');
+    const article = code('lib/seo/fish-page.ts');
+    expect(article).toContain('datePublished');
+    expect(article).toContain('dateModified');
+    expect(article).toContain("name: FISH_AUTHOR");
   });
 
   it('хлебные на /catalog, /places, /articles/*; место — второй шаг «Места»', () => {

@@ -50,6 +50,10 @@ import {
   parseRentalCabinetPress, rentalCabinetAsk, rentalCabinetBar, withRentalCabinetBar, type CabinetButton,
 } from '@/lib/rental/cabinet-bar';
 import { appendMenu, menuRows, type MenuButton } from '@/lib/roles/chat-menu';
+import {
+  WIZARD_BUTTON, WIZARD_START, decodeWizard, encodeWizard, isWizardPayload, wizardScreen, wizardStale,
+  type WizardScreen,
+} from '@/lib/chat/trip-wizard';
 import { adminMenu, menuRoleOf, parseRoleMenuPress, partnerMenu, roleMenuAsk } from '@/lib/roles/role-menu';
 import { PARTNER_PD_UNDELIVERED, roleMenuScreen, type RoleScreen } from '@/lib/roles/role-screen';
 import { sellsOwnTours } from '@/lib/partners/tour-seller';
@@ -532,9 +536,40 @@ async function handleLeadCallback(payload: string, chatId: number): Promise<void
   }
 }
 
+// ── «Спланировать поездку» ────────────────────────────────────────────────────
+
+/**
+ * Экран мастера (lib/chat/trip-wizard): правкой нажатого сообщения, не
+ * принята — новым. Кнопки-ссылки — `link`, шаги — `callback` с кодами без ПД.
+ */
+async function sendWizardMax(chatId: number, screen: WizardScreen, editMid: string | null): Promise<void> {
+  const rows: MaxButton[][] = screen.buttons.map((row) => row.map((b): MaxButton => (
+    b.url ? { type: 'link' as const, text: b.text, url: b.url } : { type: 'callback' as const, text: b.text, payload: b.payload ?? '' }
+  )));
+  const api = getApi();
+  if (editMid && api) {
+    try {
+      const res = await (api.editMessage as (id: string, extra: unknown) => Promise<{ success?: boolean }>)(editMid, {
+        text: screen.text,
+        format: 'html',
+        attachments: rows.length ? [{ type: 'inline_keyboard', payload: { buttons: rows } }] : [],
+      });
+      if (res?.success !== false) return;
+    } catch (err) {
+      logFailure('правка шага «Спланировать поездку»', err);
+    }
+  }
+  if (rows.length === 0) await maxReply(chatId, screen.text);
+  else await maxReplyWithButtons(chatId, screen.text, rows);
+}
+
+const WIZARD_UNVERIFIED = 'План кнопками в MAX сейчас не собираю: бот не может проверить нажатие. Собрать план можно в планере на сайте vedarai.ru/planner.';
+
 // ── Стартовое меню ────────────────────────────────────────────────────────────
 
 const START_MENU: MaxButton[][] = [
+  // «Спланировать поездку» (22.11): план по дням кнопками, без модели — lib/chat/trip-wizard.
+  [{ type: 'callback', text: WIZARD_BUTTON, payload: encodeWizard(WIZARD_START), intent: 'positive' }],
   [
     { type: 'callback', text: 'Рыбалка', payload: 'topic_fishing' },
     { type: 'callback', text: 'Вулканы', payload: 'topic_volcanoes' },
@@ -2111,6 +2146,36 @@ async function handleUpdate(update: MaxUpdate, opts?: { verifiedOrigin?: boolean
         return;
       }
       await sendMyTrip(resolvedChatId);
+      return;
+    }
+
+    // «Спланировать поездку» (22.11): шаги и сборка плана без модели. Сборка
+    // пишет черновик плана — только по заверенному апдейту.
+    if (isWizardPayload(payload)) {
+      const now = Date.now();
+      const editMid = typeof update.message?.body?.mid === 'string' ? update.message.body.mid : null;
+      const state = decodeWizard(payload);
+      if (!state || wizardStale(state, now)) {
+        await sendWizardMax(resolvedChatId, { text: 'Эта кнопка устарела — начнём заново.', buttons: wizardScreen(WIZARD_START, now).buttons }, editMid);
+        return;
+      }
+      if (state.step < 5) {
+        // Шаг 0 — новым сообщением: стартовое меню и готовый план остаются.
+        await sendWizardMax(resolvedChatId, wizardScreen(state, now), state.step === 0 ? null : editMid);
+        return;
+      }
+      if (opts?.verifiedOrigin !== true) {
+        await maxReply(resolvedChatId, WIZARD_UNVERIFIED);
+        return;
+      }
+      const { runWizardPlan, wizardBuildAllowed, WIZARD_BUSY_TEXT } = await import('@/lib/chat/trip-wizard-run');
+      if (!wizardBuildAllowed('max', resolvedChatId, now)) {
+        await maxReply(resolvedChatId, WIZARD_BUSY_TEXT);
+        return;
+      }
+      await sendWizardMax(resolvedChatId, { text: 'Собираю план по дням…', buttons: [] }, editMid);
+      // План встаёт на место «Собираю план…» — заглушка без кнопок не остаётся.
+      await sendWizardMax(resolvedChatId, await runWizardPlan(state), editMid);
       return;
     }
 

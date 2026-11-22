@@ -219,7 +219,6 @@ describe('осторожность называет свою причину', ()
   const cases: Array<[string, Partial<RouteSignals>, string]> = [
     ['оранжевый вулкан', { volcanoes: [{ name: 'Мутновский', acc: 'orange' }] }, 'volcano_orange'],
     ['предупреждение важности 1', { alerts: [{ title: 'Ограничение проезда', severity: 1 }] }, 'alert_warning'],
-    ['вне сезона', { inSeason: false }, 'out_of_season'],
   ];
 
   for (const [name, patch, code] of cases) {
@@ -229,6 +228,29 @@ describe('осторожность называет свою причину', ()
       expect(v.code).toBe(code);
     });
   }
+});
+
+describe('вне сезона — «Не сегодня» (22.11: «если закрыт значит закрыт»)', () => {
+  it('маршрут вне своего сезона при чистом дне — «Не сегодня», код out_of_season', () => {
+    const v = goVerdict({ ...CLEAR, inSeason: false });
+    expect(v.status).toBe('no');
+    expect(v.code).toBe('out_of_season');
+  });
+
+  it('вне сезона сильнее «данных мало»: незнание не делает закрытый маршрут «Осторожно»', () => {
+    const v = goVerdict({ ...CLEAR, inSeason: false, weather: null, volcanoes: null });
+    expect(v.status).toBe('no');
+    expect(v.code).toBe('out_of_season');
+  });
+
+  it('прямой запрет МЧС остаётся первой причиной', () => {
+    const v = goVerdict({ ...CLEAR, inSeason: false, alerts: [{ title: 'Не приближаться', severity: 2 }] });
+    expect(v.code).toBe('alert_ban');
+  });
+
+  it('сезон не задан (null) — не «вне сезона»', () => {
+    expect(goVerdict({ ...CLEAR, inSeason: null }).code).not.toBe('out_of_season');
+  });
 });
 
 describe('код причины стабилен и отделён от текста', () => {

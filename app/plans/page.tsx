@@ -17,16 +17,42 @@ import { JsonLd } from '@/components/seo/JsonLd';
 import { PLAN_PRESETS, plansHubLastModified } from '@/lib/plans/presets';
 import { buildPlansFaq } from '@/lib/plans/faq';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { PARTNERS_MENU, PLANNING_MENU, PLANS_NAME } from '@/lib/navigation/tool-names';
+import { applyExactTextLinks } from '@/lib/landings/contextual-links';
+import type { ReactNode } from 'react';
+
+const PLANS_TEXT_LINKS = [
+  { text: 'Когда ехать на Камчатку', href: '/kogda-ehat-na-kamchatku' },
+  { text: 'Безопасно ли ехать на Камчатку', href: '/safety' },
+  { text: 'памятке перед маршрутом', href: '/prepare' },
+  { text: 'регистрации в МЧС', href: '/prepare' },
+  { text: 'рыбалка', href: '/fish' },
+  { text: 'медведи', href: '/medvedi-kamchatki' },
+] as const;
+
+function linkedText(text: string): ReactNode {
+  const parts = applyExactTextLinks(text, PLANS_TEXT_LINKS);
+  if (parts.length === 1 && !parts[0]!.href) return text;
+  return parts.map((part, i) =>
+    part.href ? (
+      <Link key={`${part.href}-${i}`} href={part.href} className="underline" style={{ color: 'var(--ocean)' }}>
+        {part.text}
+      </Link>
+    ) : (
+      part.text
+    ),
+  );
+}
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 export const metadata: Metadata = {
-  title: 'Туры на Камчатку: готовые планы на 5, 7, 10 и 14 дней',
-  description: 'Готовые планы поездки на Камчатку по дням: вулканы, рыбалка, медведи, океан. У каждого дня — тур оператора с ценой, статус безопасности и заявка.',
+  title: 'Маршрут по Камчатке на 5, 7, 10 и 14 дней',
+  description: 'Готовые маршруты по Камчатке по дням: вулканы, рыбалка, медведи, океан. Для каждого дня — тур местного оператора, статус безопасности и заявка.',
   alternates: { canonical: `${SITE}/plans` },
   openGraph: {
     images: defaultOgImages(),
-    title: 'Туры на Камчатку: готовые планы поездки',
+    title: 'Маршрут по Камчатке на 5, 7, 10 и 14 дней',
     description: 'Планы на 5, 7, 10 и 14 дней с реальными турами, ценами и статусом безопасности.',
     url: `${SITE}/plans`,
   },
@@ -75,13 +101,13 @@ export default function PlansHubPage() {
         <div className={`${pageContainer('reading')} py-8 space-y-8`}>
           <header className="space-y-3">
             <h1 className="font-playfair text-3xl sm:text-4xl font-bold" style={{ color: 'var(--text-primary)' }}>
-              Туры на Камчатку: готовые планы поездки
+              {PLANS_NAME}
             </h1>
             {/* Прямой ответ на запрос — в первом экране, чтобы его можно было
                 процитировать целиком. Числа — из пресетов. */}
             <p className="text-base leading-relaxed" style={{ color: 'var(--text-primary)' }}>
               {PLAN_PRESETS.length} готовых планов на {DAY_GROUPS.join(', ').replace(/, (\d+)$/, ' и $1')} дней:
-              вулканы, рыбалка, медведи, океан, сезонные и для первой поездки. Каждый план собран
+              вулканы, {linkedText('рыбалка, медведи')}, океан, сезонные и для первой поездки. Каждый план собран
               движком платформы по дням из реальных данных: точки, сезонность, занятость туров.
               У каждого дня — тур оператора с ценой и датой, статус безопасности и заявка оператору,
               которую подтверждает человек.
@@ -118,7 +144,7 @@ export default function PlansHubPage() {
                     {f.question}
                   </summary>
                   <p className="text-sm mt-2 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                    {f.answer}
+                    {linkedText(f.answer)}
                   </p>
                 </details>
               ))}
@@ -132,6 +158,11 @@ export default function PlansHubPage() {
             <Link href="/planner" className="ds-btn ds-btn-primary inline-flex px-6 py-3">
               Открыть планировщик
             </Link>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Идёте в поход сами — <Link href="/planning" className="underline" style={{ color: 'var(--ocean)' }}>{PLANNING_MENU.toLowerCase()}</Link>: чек-лист и карта без интернета.
+              Билеты до Петропавловска и отели — <Link href="/partners" className="underline" style={{ color: 'var(--ocean)' }}>{PARTNERS_MENU.toLowerCase()}</Link>.
+              Собрать план под свои даты можно и с <Link href="/kuzmich" className="underline" style={{ color: 'var(--ocean)' }}>Кузьмичом</Link>.
+            </p>
           </section>
         </div>
       </main>

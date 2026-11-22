@@ -74,8 +74,42 @@ export const INBOX_NOT_HERE: Readonly<Record<PartnerCategory, readonly string[]>
   agent: ['У агента входящих пока нет: заявок и чата с туристами у роли ещё нет.'],
 };
 
-/** У каких ролей есть чат с туристами (виджет в кабинете) — им показываем непрочитанное. */
+/** У каких ролей есть чат с туристами на сайте — им показываем непрочитанное. */
 export const INBOX_CHAT_CATEGORIES: ReadonlySet<PartnerCategory> = new Set(['operator', 'guide']);
+
+/** Страница «Сообщения» кабинета туроператора. */
+export const OPERATOR_MESSAGES_PATH = '/hub/operator/messages';
+
+/** Откуда туроператору приходят беседы — подпись страницы и её пустого списка. */
+export const OPERATOR_MESSAGES_HINT = 'Туристы пишут вам с карточки тура кнопкой «Написать оператору».';
+
+/**
+ * Отказ двери создания беседы без карточки партнёра: собеседника называет
+ * только номер карточки, а не аккаунт из тела запроса (ревью #3701, 22.11).
+ */
+export const CHAT_NO_PARTNER_TEXT = 'Не указано, кому писать: беседу с компанией открывает кнопка «Написать оператору» на карточке тура.';
+
+/**
+ * Где на сайте партнёр читает чат с туристами: одно место на «Входящие» и на
+ * ссылку «Открыть чат» в уведомлении о сообщении. У туроператора с 22.11 —
+ * страница «Сообщения», беседа открывается по её номеру: плавающая кнопка
+ * чата на телефоне накрывала «Создать тур» (#2770, слово владельца 22.11
+ * «да»). У гида — кнопка чата внизу экрана кабинета, как было. `null` — у
+ * роли чата с туристами нет.
+ */
+export function partnerChatPath(category: PartnerCategory, conversationId?: string): string | null {
+  if (category === 'operator') {
+    return conversationId ? `${OPERATOR_MESSAGES_PATH}?c=${encodeURIComponent(conversationId)}` : OPERATOR_MESSAGES_PATH;
+  }
+  if (category === 'guide') return '/hub/guide';
+  return null;
+}
+
+/** Как «Входящие» называют, где открыть чат: ссылкой на страницу или словами о кнопке. */
+export function inboxChatHint(category: PartnerCategory): { text: string; href: string | null } {
+  if (category === 'operator') return { text: 'Открыть сообщения', href: OPERATOR_MESSAGES_PATH };
+  return { text: 'чат открывается кнопкой внизу экрана', href: null };
+}
 
 export const INBOX_KIND_LABELS: Readonly<Record<InboxKind, string>> = {
   operator_booking: 'Бронь тура',

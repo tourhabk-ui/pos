@@ -217,8 +217,8 @@ describe('одобрение: онбординг агента подаёт за�
     expect(src).toMatch(/const isAgent = partner\.category === 'agent'/);
     expect(src).toMatch(/Кабинет агента открыт/);
     expect(src).toMatch(/профиль агента/);
-    // Агент не становится публичным от одобрения.
-    expect(src).toMatch(/CASE WHEN category = 'agent' THEN is_public ELSE TRUE END/);
+    // Агент (и тестовый профиль, 1495) не становится публичным от одобрения.
+    expect(src).toMatch(/CASE WHEN category = 'agent' OR is_test IS TRUE THEN is_public ELSE TRUE END/);
   });
 
   it('заявка на выплату закрыта до одобрения', () => {

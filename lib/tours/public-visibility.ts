@@ -26,6 +26,8 @@
  * `tests/integration/public-tour-gate.pg.test.ts`.
  */
 
+import { testPartnerTourSql } from '@/lib/partners/test-profile';
+
 /**
  * SQL-условие «тур на витрине». Алиас — имя таблицы `operator_tours` в
  * запросе; пустая строка — без префикса. Алиас задаёт код, не пользователь,
@@ -37,26 +39,31 @@ export function publicTourSql(alias = 'ot'): string {
     throw new Error(`publicTourSql: недопустимый алиас «${alias}»`);
   }
   const p = alias ? `${alias}.` : '';
-  return `(${p}is_active = true AND ${p}is_published = true AND ${p}deleted_at IS NULL)`;
+  // Тур тестового партнёра на витрину не выходит (миграция 1495, #2770):
+  // каталог, поиск, план, Кузьмич и MCP зовут этот шлюз.
+  return `(${p}is_active = true AND ${p}is_published = true AND ${p}deleted_at IS NULL AND NOT ${testPartnerTourSql(alias)})`;
 }
 
 /**
  * Почему тур НЕ на витрине — SQL-предикаты тех же трёх флагов, что у шлюза
  * (#2881, 30.10). Нужны переписям («не видны туристу 12: черновики 7,
- * выключены 4, и то и другое 1»): у шлюза ровно два флага, и других причин
- * невидимости он не знает — тур без цены, дат или линии маршрута турист
- * ВИДИТ. Живут здесь, а не в переписи, чтобы семантика флагов имела одного
- * хозяина (сторож `public-tour-gate` считает копии условия по `app/` и `lib/`).
+ * выключены 4, и то и другое 1»): у шлюза два флага тура и отметка партнёра
+ * «тестовый профиль» (1495), других причин невидимости он не знает — тур без
+ * цены, дат или линии маршрута турист ВИДИТ. Живут здесь, а не в переписи,
+ * чтобы семантика флагов имела одного хозяина (сторож `public-tour-gate`
+ * считает копии условия по `app/` и `lib/`).
  *
- *   draft    — включён, но не опубликован (черновик оператора; `storefrontState` → 'draft')
- *   inactive — опубликован, но выключен оператором (→ 'hidden')
+ *   draft       — включён, но не опубликован (черновик оператора; `storefrontState` → 'draft')
+ *   inactive    — опубликован, но выключен оператором (→ 'hidden')
+ *   testProfile — тур тестового партнёра (→ 'hidden' по ответу шлюза); у
+ *                 переписи эта причина старше флагов
  *
  * Третьего предиката нет намеренно: «остальное невидимое» (выключен и не
  * опубликован, либо флаг не записан) перепись считает как «невидим и не
  * черновик и не выключен», и сумма трёх вёдер равна числу невидимых по
  * построению, а не по удаче.
  */
-export function hiddenTourReasonSql(alias = 'ot'): { draft: string; inactive: string } {
+export function hiddenTourReasonSql(alias = 'ot'): { draft: string; inactive: string; testProfile: string } {
   if (alias !== '' && !/^[a-z_][a-z0-9_]*$/i.test(alias)) {
     throw new Error(`hiddenTourReasonSql: недопустимый алиас «${alias}»`);
   }
@@ -64,6 +71,8 @@ export function hiddenTourReasonSql(alias = 'ot'): { draft: string; inactive: st
   return {
     draft: `(${p}is_active IS TRUE AND ${p}is_published IS FALSE)`,
     inactive: `(${p}is_active IS FALSE AND ${p}is_published IS TRUE)`,
+    // Тур тестового партнёра (1495): шлюз прячет его при любых флагах.
+    testProfile: testPartnerTourSql(alias),
   };
 }
 

@@ -44,8 +44,10 @@ describe('правило готовности одно на всех', () => {
   });
 
   it('старое условие «активен и опубликован» больше не единственное', () => {
-    // Оно осталось в общем запросе как ПЕРВЫЙ фильтр, но решает не оно.
-    expect(SELECT).toMatch(/ot\.is_active = true[\s\S]{0,80}ot\.is_published = true/);
+    // Первый фильтр общего запроса — шлюз витрины (активен, опубликован, не
+    // удалён, не тестовый профиль 1495, ревью #3703), но решает не он.
+    // Поведение шлюза в ленте — tests/integration/partner-test-profile.pg.test.ts.
+    expect(SELECT).toMatch(/WHERE \$\{publicTourSql\('ot'\)\}/);
     expect(SELECT).toMatch(/missingFields\(/);
     expect(SELECT).toMatch(/if \(missing\.length === 0\) \{ tours\.push/);
   });

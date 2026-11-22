@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import Logo from '@/components/shared/Logo';
@@ -100,6 +100,7 @@ import { coordIsTrustworthy, coordSourceLabel, asCoordSource, type CoordSource }
 import { useGeofenceZones, useGeofenceBreach, refreshGeofenceZones } from '@/hooks/useGeofence';
 import { GeofenceAlert } from '@/components/safety/GeofenceAlert';
 import { geolocationOnce, geolocationWatch } from '@/lib/geo/current-position';
+import { PLANNER_NAME } from '@/lib/navigation/tool-names';
 
 /** Ключ памяти «лист развёрнут» (см. sheetOpen). */
 const SHEET_OPEN_KEY = 'field_sheet_open_v1';
@@ -5446,7 +5447,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
 
 // ─── Планирование tab ─────────────────────────────────────────────────────────
 
-function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => void }) {
+function PlanningTab({ onStartTrail, intro }: { onStartTrail?: (routeId: string) => void; intro?: ReactNode }) {
   const [checklist, setChecklist] = useState<ChecklistItem[]>(DEFAULT_CHECKLIST);
   const [routes, setRoutes] = useState<RoutePreview[]>([]);
   /**
@@ -5690,7 +5691,8 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
   const doneCount = effectiveChecklist.filter(i => i.done).length;
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6 pb-32 space-y-6">
+    <main className="max-w-2xl mx-auto px-4 py-6 pb-32 space-y-6">
+      {intro}
       {/* Kuzmich recommendation banner */}
       <div className="rounded-lg overflow-hidden"
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
@@ -5724,12 +5726,12 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
           <Link href="/planner"
             className="flex items-center justify-center gap-2 w-full py-3 rounded-xl font-semibold text-sm text-white transition-opacity hover:opacity-90"
             style={{ background: 'var(--accent)' }}>
-            Собрать поездку по дням <ChevronRight className="w-4 h-4" />
+            {PLANNER_NAME} <ChevronRight className="w-4 h-4" />
           </Link>
           {/* Конструктор открывается после входа (слово владельца 14.11 «6-3»):
               сказать это до нажатия, а не экраном входа после (21.11). */}
           <p className="text-xs text-center mt-2" style={{ color: 'var(--text-muted)' }}>
-            Конструктор поездки — после входа: план сохранится в личном кабинете.
+            Поездка по дням с турами операторов — после входа: план сохранится в личном кабинете.
           </p>
         </div>
       </div>
@@ -5955,13 +5957,15 @@ function PlanningTab({ onStartTrail }: { onStartTrail?: (routeId: string) => voi
           label="112"
         />
       </div>
-    </div>
+    </main>
   );
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 interface PlanningClientProps {
+  /** Видимый H1 и вводный текст страницы — серверной разметкой (page.tsx, 22.11). */
+  intro?: ReactNode;
   /**
    * Адрес хранилища пакетов своей карты. Приходит с СЕРВЕРА (page.tsx),
    * а не из process.env здесь: `NEXT_PUBLIC_*` вшивается при сборке, а
@@ -5972,7 +5976,7 @@ interface PlanningClientProps {
   mapPackBaseUrl?: string | null;
 }
 
-export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = {}) {
+export function PlanningClient({ mapPackBaseUrl = null, intro = null }: PlanningClientProps = {}) {
   const [tab, setTab] = useState<string>('planning');
 
   useEffect(() => {
@@ -6056,12 +6060,18 @@ export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = 
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
+    // Шапка сайта — position: fixed высотой var(--header-h) (64px + safe area):
+    // в потоке её нет, и до 22.11 полоса вкладок липла на 56px (на 8px под
+    // шапкой), а начало вкладки — видимый H1 «Подготовка к походу» — уезжало
+    // под шапку и полосу. Отступ на высоту шапки и липкость ровно под ней.
+    <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]"
+      style={tab === 'planning' ? { paddingTop: 'var(--header-h)' } : undefined}
+      data-planning-root>
       {tab === 'planning' && <Header />}
 
       {/* Tab bar */}
-      <div ref={tabBarRef} className={`sticky z-40 ${tab === 'planning' ? 'top-[56px]' : 'top-0'}`}
-        style={{ background: tab === 'trail' ? 'var(--bg-primary)' : 'var(--bg-card)', borderBottom: `1px solid ${tab === 'trail' ? 'var(--bg-card)' : 'var(--border)'}` }}>
+      <div ref={tabBarRef} className="sticky z-40"
+        style={{ top: tab === 'planning' ? 'var(--header-h)' : 0, background: tab === 'trail' ? 'var(--bg-primary)' : 'var(--bg-card)', borderBottom: `1px solid ${tab === 'trail' ? 'var(--bg-card)' : 'var(--border)'}` }}>
         <div className={`max-w-2xl mx-auto flex gap-0 ${tab === 'trail' ? 'pl-1 pr-4' : 'px-4'}`}>
           {/* Домой (владелец 26.09: «маленький косячок — нет домой»). На
               «На маршруте» нет ни общей шапки, ни нижнего меню — выйти с
@@ -6107,7 +6117,7 @@ export function PlanningClient({ mapPackBaseUrl = null }: PlanningClientProps = 
         </div>
       </div>
 
-      {tab === 'planning' && <PlanningTab onStartTrail={handleStartTrail} />}
+      {tab === 'planning' && <PlanningTab onStartTrail={handleStartTrail} intro={intro} />}
       {tab === 'trail' && <OnTrailTab mapPackBaseUrl={mapPackBaseUrl} topInset={tabBarH} />}
     </div>
   );

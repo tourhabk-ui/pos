@@ -3,7 +3,7 @@
 import React from 'react';
 import { MessageCircle, Loader2 } from 'lucide-react';
 
-interface Conversation {
+export interface Conversation {
   id: string;
   type: string;
   subject: string | null;
@@ -21,6 +21,24 @@ interface ConversationListProps {
   loading: boolean;
   activeId: string | null;
   onSelect: (id: string) => void;
+  /** Подсказка под «Нет бесед»: туристу — где начать, партнёру — откуда пишут. */
+  emptyHint?: string;
+}
+
+/** Строка беседы из ответа GET /api/chat/conversations — один разбор на виджет и страницу. */
+export function conversationFromApi(c: Record<string, unknown>): Conversation {
+  return {
+    id: c.id as string,
+    type: c.type as string,
+    subject: c.subject as string | null,
+    otherParticipantName: c.other_participant_name as string | null,
+    otherParticipantRole: c.other_participant_role as string | null,
+    otherParticipantId: c.other_participant_id as string | null,
+    lastMessageContent: c.last_message_content as string | null,
+    lastMessageAt: c.last_message_at as string | null,
+    lastMessageSenderName: c.last_message_sender_name as string | null,
+    unreadCount: parseInt(String(c.unread_count)) || 0,
+  };
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -48,7 +66,10 @@ function formatTime(dateStr: string | null): string {
   return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 }
 
-export function ConversationList({ conversations, loading, activeId, onSelect }: ConversationListProps) {
+export function ConversationList({
+  conversations, loading, activeId, onSelect,
+  emptyHint = 'Начните общение с оператором на странице тура',
+}: ConversationListProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -63,7 +84,7 @@ export function ConversationList({ conversations, loading, activeId, onSelect }:
         <MessageCircle className="w-8 h-8 text-[var(--text-muted)] mb-3" />
         <p className="text-sm text-[var(--text-muted)]">Нет бесед</p>
         <p className="text-xs text-[var(--text-muted)] mt-1">
-          Начните общение с оператором на странице тура
+          {emptyHint}
         </p>
       </div>
     );

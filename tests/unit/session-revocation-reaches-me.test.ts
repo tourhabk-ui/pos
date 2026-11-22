@@ -192,7 +192,7 @@ describe('серверные страницы сверяют строку сес
     sessionRow = 'revoked';
     const revoked = await render(PlannerPage);
     expect(revoked).not.toContain('data-user=');
-    expect(revoked).toContain('Планер поездки — после входа');
+    expect(revoked).toContain('Открывается после входа');
     sessionRow = 'db-down';
     const down = await render(PlannerPage);
     expect(down).not.toContain('data-user=');

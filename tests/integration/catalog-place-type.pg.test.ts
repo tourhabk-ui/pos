@@ -134,6 +134,28 @@ withPg('поиск маршрута по виду места пути', () => {
     expect((await titles({ place_type: 'volcano', hasCoords: 'true' })).titles).not.toContain('Т Без координат');
   });
 
+  it('сложность (22.11): колонка маршрута главнее payload, слово и код — одно, «сложные» включают экстремальные, неизвестная — null', async () => {
+    await pool.query(`UPDATE kamchatka_routes SET difficulty = 'extreme' WHERE title = 'Т Путь через вулкан'`);
+    await pool.query(`UPDATE kamchatka_routes SET difficulty = 'сложный' WHERE title = 'Т Озеро'`);
+    await pool.query(`UPDATE kamchatka_routes SET difficulty = NULL, metadata = jsonb_build_object('difficulty', 'easy') WHERE title = 'Т Горячий источник'`);
+    await pool.query(`UPDATE kamchatka_routes SET difficulty = 'easy', metadata = jsonb_build_object('difficulty', 'hard') WHERE title = 'Т Термальная зона'`);
+    await pool.query(`UPDATE kamchatka_routes SET difficulty = NULL, metadata = '{}'::jsonb WHERE title = 'Т Связь не размечена'`);
+
+    const { items } = await queryCatalog(schema.parse({ limit: '2000', kind: 'route' }));
+    const diff = Object.fromEntries(items.map((i) => [i.title, i.difficulty]));
+    expect(diff['Т Путь через вулкан']).toBe('extreme');
+    expect(diff['Т Озеро']).toBe('hard');
+    expect(diff['Т Горячий источник']).toBe('easy');
+    expect(diff['Т Термальная зона']).toBe('easy');
+    expect(diff['Т Связь не размечена']).toBeNull();
+
+    const hard = await titles({ kind: 'route', difficulty: 'hard' });
+    expect(hard.titles).toEqual(['Т Озеро', 'Т Путь через вулкан']);
+    expect(hard.total).toBe(2);
+    const easy = await titles({ kind: 'route', difficulty: 'easy' });
+    expect(easy.titles).toEqual(['Т Горячий источник', 'Т Термальная зона']);
+  });
+
   it('несколько видов через запятую — любой из них; сами места в выдачу не идут', async () => {
     const r = await titles({ place_type: 'hot_spring,thermal', hasCoords: 'true' });
     expect(r.titles).toEqual(['Т Горячий источник', 'Т Термальная зона']);
