@@ -17,3 +17,5 @@ export const PLANS_NAME = 'Готовые маршруты по Камчатке
 export const PLANS_MENU = 'Готовые маршруты';
 /** /partners — авиабилеты, отели, трансферы, страховка. */
 export const PARTNERS_MENU = 'Билеты и отели';
+/** /prepare — памятка перед выходом (связь, SOS, офлайн); title страницы прежний (22.11). */
+export const PREPARE_MENU = 'Памятка перед маршрутом';

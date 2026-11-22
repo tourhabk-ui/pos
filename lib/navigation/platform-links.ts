@@ -19,7 +19,7 @@
  * «Готовые маршруты», /partners — «Билеты и отели». Слова «планирование» в
  * меню нет: им звались сразу две страницы, и пункт вёл не туда.
  */
-import { PLANNER_MENU, PLANNING_MENU, PLANS_MENU, PARTNERS_MENU } from '@/lib/navigation/tool-names';
+import { PLANNER_MENU, PLANNING_MENU, PLANS_MENU, PARTNERS_MENU, PREPARE_MENU } from '@/lib/navigation/tool-names';
 import type { LucideIcon } from 'lucide-react';
 import {
   Shield, Radio, Siren, WifiOff, ClipboardCheck, Leaf, Ticket, CalendarDays, Flame, Layers, ListChecks, Route, BedDouble, Plane, Fish, Award, Bus, MapPin, Waypoints, Map, Newspaper, BookOpen, Info, CircleHelp, LifeBuoy, Briefcase, Handshake, UserPlus, Bot, MessageSquare, Smartphone, ShieldAlert, FileText, ScrollText, Receipt, Backpack, CloudSun, Heart, Languages, Car, PlaneTakeoff, Trees,
@@ -44,7 +44,7 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
     links: [
       { label: 'Безопасность',        href: '/safety',               icon: Shield },
       { label: 'Погода на Камчатке',  href: '/weather',              icon: CloudSun },
-      { label: 'Подготовка к поездке', href: '/prepare',              icon: Backpack },
+      { label: PREPARE_MENU,              href: '/prepare',              icon: Backpack },
       { label: 'Связь на маршруте',   href: '/safety/communication', icon: Radio },
       { label: 'Инциденты и алерты',  href: '/safety/incidents',     icon: Siren },
       { label: 'Офлайн-инструкции',   href: '/safety/offline',       icon: WifiOff },

@@ -13,6 +13,7 @@ export const OWN_FOOTER_PATHS = [
   '/',        // главная: подвал внутри своей сетки
   '/catalog', // CatalogFooter: на телефоне — строка реквизитов вместо меню
   '/catalog/tours/[id]', // карточка тура: подвал только на md+, на телефоне — панель брони
+  '/planner', // экран входа планера — с подвалом в серверном HTML; сам планер — полноэкранный, без подвала (22.11)
 ] as const;
 
 /** Маршрут Next ('/blog/[slug]') — проверка пути ('/blog/x'). */
@@ -25,7 +26,7 @@ function routeMatches(route: string, p: string): boolean {
  *  с меню сайта им мешает (полноэкранная вёрстка) и поиску не нужен. */
 export const NO_FOOTER_PREFIXES = [
   '/map', '/auth', '/oauth', '/admin', '/profile', '/kuzmich', '/sos', '/offline',
-  '/widget', '/p/', '/r/', '/trip', '/planner', '/field-check', '/watch', '/team',
+  '/widget', '/p/', '/r/', '/trip', '/field-check', '/watch', '/team',
   '/checkin-ok', '/partner-site', '/en', '/zh', '/video', '/menu',
   '/booking-success', '/confirm', '/request-status', '/request-resume', '/return',
   '/seat-request', '/tp-verify', '/wishlist',
