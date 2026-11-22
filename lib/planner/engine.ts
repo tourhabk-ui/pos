@@ -2684,6 +2684,21 @@ ${warningsSummary ? `Предупреждения:\n${warningsSummary}` : ''}
  */
 export interface RecommendTripOptions {
   itinerary?: 'ai' | 'plain';
+  /**
+   * Замер этапов сборки (фича 7, 23.11): имя этапа и сколько он занял, мс.
+   * Только числа — без данных плана; зовущий кладёт их в Server-Timing/лог.
+   */
+  onStage?: (stage: string, ms: number) => void;
+}
+
+/** Секундомер этапов: каждый `mark` — время с прошлого `mark`. */
+function stageClock(onStage?: (stage: string, ms: number) => void): (stage: string) => void {
+  let last = performance.now();
+  return (stage) => {
+    const now = performance.now();
+    onStage?.(stage, Math.round(now - last));
+    last = now;
+  };
 }
 
 /**
@@ -2760,12 +2775,14 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
 
   const tripDays = getTripDays(profile);
   const cache = createPlannerCache();
+  const mark = stageClock(opts.onStage);
 
   // Fetch context data in parallel
   const [alertsRead, mchs] = await Promise.all([
     fetchSafetyAlerts(profile.arrivalDate, profile.departureDate),
     loadActiveWarnings(),
   ]);
+  mark('alerts');
   const alerts = alertsRead ?? [];
 
   // Каталог спрашивается ОДИН раз и кормит все три места, где решает
@@ -2787,6 +2804,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     ? null
     : new Set([...onRequestByMonth.values()].flatMap((v) => [...(v ?? [])]));
   const season = buildTripSeason(months, scheduled, onRequestByMonth);
+  mark('season');
   /** Открытое каталогом хотя бы в одном месяце поездки; `null` — ни один месяц не прочитался. */
   const catalogueOpen = months.every((m) => season.openIn(m) === null)
     ? null
@@ -2799,6 +2817,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   const planProfile: TripProfile = childBlocked.length > 0 ? { ...profile, interests: plannable } : profile;
 
   const zones = await scoreZones(planProfile, cache, season);
+  mark('zones');
   // Дни собираются ДО предупреждений (27.09): предупреждения о разрешениях и
   // удалённых зонах должны считаться по зонам ГОТОВОГО плана, а не по
   // зонам-кандидатам. До этой правки человек с планом по Авачинской и
@@ -2820,6 +2839,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // в стиле «сам» — со своей причиной: туров там нет по определению (22.11).
   const honest = replaceIdeaDays(generated.days, (profile.travelStyle ?? 'mixed') === 'self');
   const days = honest.days;
+  mark('days');
   // Соседние туры далеко друг от друга (аудит дорог 22.11, п. 5).
   await markFarAdjacentTours(days);
   // Ночь вне Авачинской зоны без тура с проживанием — только там, где на
@@ -2833,6 +2853,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
       return null;
     }
   }, profile.arrivalDate ?? null);
+  mark('roads_nights');
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
   const warnings = collectWarnings(profile, zones, tripDays, alerts, season, plannedZones, days.some((d) => d.type === 'buffer'),
     days.some((d) => d.type === 'activity' && d.defaultTransport === 'helicopter'),
@@ -3221,6 +3242,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     }
   }
 
+  mark('safety');
   // Прогноз к дням плана — по ДАТЕ дня, от даты приезда. До 25.09 прогноз
   // брался от сегодня и раскладывался по номеру дня: при приезде через неделю
   // первый день плана получал сегодняшнюю погоду, и она же уходила в промпт.
@@ -3256,6 +3278,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   }
 
   const priceBreakdown = calculatePriceBreakdown(days);
+  mark('weather');
 
   // AI itinerary — include seasickness context
   let itinerary = `Маршрут на ${tripDays} дней по Камчатке: ${zones.map(z => ZONE_NAMES[z.zone]).join(', ')}.`;
@@ -3274,6 +3297,7 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
       console.error('[planner] AI-маршрут не получен:', err instanceof Error ? err.message : String(err));
     }
   }
+  mark('ai_itinerary');
   itinerary = mchs.ok
     ? appendOfferingFlags(itinerary, mchsTrip.forTrip)
     : appendUnreadSafety(itinerary, true);
