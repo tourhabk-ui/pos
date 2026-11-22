@@ -373,6 +373,36 @@ export const PARK_PATHS: ReadonlyArray<{ readonly key: ParkPathKey; readonly wha
 /** «Место или маршрут в парке `pk`» — любой из путей. */
 export const PARK_MEMBERSHIP_SQL = PARK_PATHS.map((p) => `(${p.sql})`).join('\n         OR ');
 
+/**
+ * Проверено: точка места вне контура парка `pk` (миграция 1499, #3487,
+ * решение владельца 22.11 «вариант 1»). Запись сильнее путей по имени и
+ * через маршрут: Озеро Плоское под Петропавловском было красным из-за
+ * закрытия Ключевского парка по совпадению корня «плоск».
+ *
+ * Действует, пока точка места та же, что проверена: поправленная координата
+ * возвращает место под обычные пути, а не прячет настоящее закрытие. Связь
+ * «внутри контура» того же парка (place_park_links) сильнее записи «вне».
+ * Маршрута запись не касается: у строки маршрута нет записи места.
+ */
+export const PARK_OUTSIDE_SQL = `
+    EXISTS (
+      SELECT 1
+        FROM places pl
+        JOIN place_park_outside ppo ON ppo.place_id = pl.id::text AND ppo.park_slug = pk.slug
+       WHERE pl.ark_id = ark.id
+         AND pl.lat = ppo.checked_lat
+         AND pl.lng = ppo.checked_lng
+         AND NOT EXISTS (
+           SELECT 1 FROM place_park_links ppl
+            WHERE ppl.place_id = pl.id::text AND ppl.park_slug = pk.slug
+         )
+    )
+`;
+
+/** Правило «в парке» целиком: любой из путей, если точка не проверена вне контура. */
+export const PARK_SCOPE_SQL = `(${PARK_MEMBERSHIP_SQL})
+         AND NOT ${PARK_OUTSIDE_SQL}`;
+
 export const PARK_SCOPED_SQL = `
   ea.alert_type IN ('park_closure', '${PARK_STATUS_UNKNOWN_TYPE}')
   AND ea.affected_parks IS NOT NULL
@@ -381,7 +411,7 @@ export const PARK_SCOPED_SQL = `
       FROM parks pk
      WHERE pk.slug = ANY(ea.affected_parks)
        AND (
-         ${PARK_MEMBERSHIP_SQL}
+         ${PARK_SCOPE_SQL}
        )
   )
 `;
