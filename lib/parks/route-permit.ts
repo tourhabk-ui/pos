@@ -40,6 +40,7 @@ import {
   KRONOKI_REQUESTS,
   KRONOKI_ORDER_RU,
   FEDERAL_PERMIT_UNKNOWN_RU,
+  PERMIT_NOT_MCHS_RU,
   type FederalizedPark,
   type KronokiTerritory,
   type NoPermitTerritory,
@@ -228,9 +229,8 @@ export function permitCaseKey(c: RoutePermitCase): string | null {
   }
 }
 
-/** Разрешение территории и регистрация в МЧС — разные обязанности. */
-export const PERMIT_NOT_MCHS_RU =
-  'Разрешение территории — не регистрация в МЧС: это разные обязанности, одно не заменяет другое.';
+/** Разрешение территории и регистрация в МЧС — разные обязанности. Строка живёт в справочнике (без базы). */
+export { PERMIT_NOT_MCHS_RU };
 
 /**
  * Способы КГБУ строками. Ссылка стоит в конце строки или отделена пробелами:
