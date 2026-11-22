@@ -159,7 +159,7 @@ vi.mock('@/lib/db-pool', () => ({
   },
 }));
 
-import { recommendTrip, type DayPlan, type TripProfile } from '@/lib/planner/engine';
+import { recommendTrip, aiItineraryText, type DayPlan, type TripProfile } from '@/lib/planner/engine';
 import {
   activitySelfBlocker, routeSelfBlocker, fitRestDays, SELF_SAFETY_UNKNOWN,
 } from '@/lib/planner/travel-style';
@@ -415,6 +415,19 @@ describe('здоровье не уходит в модель', () => {
     expect(all).not.toContain('астма');
     expect(all).not.toContain('колено');
     expect(all).not.toMatch(/безбарьерн|подвижност|коляск/i);
+  });
+
+  it('через «Подробную программу» (JSON туда-обратно) — тоже не уходит (ревью #3743)', async () => {
+    for (const mobilityLevel of ['wheelchair', 'limited'] as const) {
+      const profile: TripProfile = { ...BASE, mobilityLevel };
+      const rec = await recommendTrip(profile, { itinerary: 'plain' });
+      const back = JSON.parse(JSON.stringify(rec)) as typeof rec;
+      expect(back.warnings.some((w) => /безбарьерн|подвижност/i.test(w.message))).toBe(true);
+      aiPrompts.length = 0;
+      await aiItineraryText(profile, back.zones, back.days, back.warnings);
+      expect(aiPrompts.length).toBe(1);
+      expect(aiPrompts.join('\n')).not.toMatch(/безбарьерн|подвижност|коляск/i);
+    }
   });
 
   it('а человеку предупреждение о подвижности показывается', async () => {

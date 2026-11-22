@@ -768,6 +768,23 @@ function groupSize(profile: TripProfile): number {
  */
 const HEALTH_DERIVED = new WeakSet<TripWarning>();
 
+/**
+ * Тексты тех же предупреждений. С 23.11 «Подробная программа» зовётся
+ * отдельным роутом: предупреждения едут в браузер и обратно новыми
+ * объектами, тождество WeakSet через JSON не переживает. Поэтому признак —
+ * ещё и сам текст (ревью безопасности #3743).
+ */
+const HEALTH_WARNING_TEXT = {
+  wheelchair: 'Камчатка имеет крайне ограниченную безбарьерную инфраструктуру. Доступные варианты: термальные источники Паратунки, обзорные вертолётные экскурсии.',
+  limited: 'Ограниченная подвижность: маршруты адаптированы, исключены многочасовые переходы и крутые подъёмы.',
+} as const;
+const HEALTH_TEXTS = new Set<string>(Object.values(HEALTH_WARNING_TEXT));
+
+/** Выведено из данных о здоровье — в промпт модели не идёт. */
+export function isHealthDerivedWarning(w: TripWarning): boolean {
+  return HEALTH_DERIVED.has(w) || HEALTH_TEXTS.has(String(w.message ?? '').trim());
+}
+
 function collectWarnings(
   profile: TripProfile,
   zones: ZoneRecommendation[],
@@ -990,14 +1007,14 @@ function collectWarnings(
   if (profile.mobilityLevel === 'wheelchair') {
     const w: TripWarning = {
       type: 'safety', severity: 'critical',
-      message: 'Камчатка имеет крайне ограниченную безбарьерную инфраструктуру. Доступные варианты: термальные источники Паратунки, обзорные вертолётные экскурсии.',
+      message: HEALTH_WARNING_TEXT.wheelchair,
     };
     HEALTH_DERIVED.add(w);
     warnings.push(w);
   } else if (profile.mobilityLevel === 'limited') {
     const w: TripWarning = {
       type: 'fitness', severity: 'important',
-      message: 'Ограниченная подвижность: маршруты адаптированы, исключены многочасовые переходы и крутые подъёмы.',
+      message: HEALTH_WARNING_TEXT.limited,
     };
     HEALTH_DERIVED.add(w);
     warnings.push(w);
@@ -2645,7 +2662,7 @@ function buildAIPrompt(profile: TripProfile, zones: ZoneRecommendation[], days: 
   }).join('\n');
 
   const warningsSummary = warnings
-    .filter(w => !HEALTH_DERIVED.has(w))
+    .filter(w => !isHealthDerivedWarning(w))
     .filter(w => w.severity === 'critical' || w.severity === 'important')
     .map(w => `- ${w.message}`)
     .join('\n');
@@ -2672,6 +2689,28 @@ ${warningsSummary ? `Предупреждения:\n${warningsSummary}` : ''}
 - Если есть прогноз погоды — кратко упомяни что ожидать
 - Если среди предупреждений есть МЧС, не называй эти места безопасными или без риска
 - Не нумеруй дни, пиши связным текстом`;
+}
+
+/**
+ * «Подробная программа» — текст модели по готовому плану. С 23.11 (фича 7)
+ * веб-планер зовёт его по кнопке (/api/planner/itinerary), а не на каждую
+ * сборку: план показывается сразу. Нет ответа — `null`, отказ назван в логе.
+ */
+export async function aiItineraryText(
+  profile: TripProfile, zones: ZoneRecommendation[], days: DayPlan[], warnings: TripWarning[],
+): Promise<string | null> {
+  try {
+    const messages: ChatMessage[] = [
+      { role: 'system', content: 'Ты ассистент по туристическому планированию Камчатки.' },
+      { role: 'user', content: buildAIPrompt(profile, zones, days, warnings) },
+    ];
+    const aiResponse = await callAIWithModelDirect(messages, getModelForAgent('planner'));
+    return aiResponse?.trim() ? aiResponse : null;
+  } catch (err) {
+    // Запасной текст уже стоит; отказ модели называется в логе (§4.0).
+    console.error('[planner] AI-маршрут не получен:', err instanceof Error ? err.message : String(err));
+    return null;
+  }
 }
 
 // ─── Main export ─────────────────────────────────────────────────────────────
@@ -3284,18 +3323,8 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   let itinerary = `Маршрут на ${tripDays} дней по Камчатке: ${zones.map(z => ZONE_NAMES[z.zone]).join(', ')}.`;
 
   if (opts.itinerary !== 'plain') {
-    try {
-      const aiPrompt = buildAIPrompt(profile, zones, days, warnings);
-      const messages: ChatMessage[] = [
-        { role: 'system', content: 'Ты ассистент по туристическому планированию Камчатки.' },
-        { role: 'user', content: aiPrompt },
-      ];
-      const aiResponse = await callAIWithModelDirect(messages, getModelForAgent('planner'));
-      if (aiResponse?.trim()) itinerary = aiResponse;
-    } catch (err) {
-      // Запасной текст уже стоит; отказ модели называется в логе (§4.0).
-      console.error('[planner] AI-маршрут не получен:', err instanceof Error ? err.message : String(err));
-    }
+    const aiResponse = await aiItineraryText(profile, zones, days, warnings);
+    if (aiResponse) itinerary = aiResponse;
   }
   mark('ai_itinerary');
   itinerary = mchs.ok

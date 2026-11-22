@@ -78,6 +78,7 @@ import type {
 import { planStaleReasons, planStaleText, type PlanSnapshot } from '@/lib/planner/plan-stale';
 import { PhraseEdit, type PhraseApplied } from './PhraseEdit';
 import { TripToday } from '@/components/planner/TripToday';
+import { PlanProgram } from './PlanProgram';
 import type { BriefWeather } from '@/lib/planner/day-brief';
 import { PlanStaleNotice } from '@/components/planner/PlanStaleNotice';
 import { dayFrame } from '@/lib/planner/day-frame';
@@ -1465,7 +1466,6 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // Отказ правки дня (plan-ops): показывается под списком дней — баннер
   // error живёт в панели шагов анкеты, на экране плана его не видно.
   const [editNote, setEditNote] = useState<string | null>(null);
-  const [showItinerary, setShowItinerary] = useState(false);
 
   // Level 2
   const [transportByDay, setTransportByDay] = useState<Record<number, TransportType>>({});
@@ -2434,7 +2434,6 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         setConfirmedDays(new Set());
         setSelectedRoute(null);
         setEditingDayId(null);
-        setShowItinerary(false);
         // Результат получен и показан — вторая ступень воронки. Дедуп на
         // приёмнике (60 минут), повторные пересборки план не задваивают.
         funnelBeacon('planner_result_viewed');
@@ -3369,22 +3368,29 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
               party={{ adults: planProfile?.adults ?? adults, children: planProfile?.children ?? knownChildAges }} />
           )}
 
-          {/* AI itinerary */}
+          {/* Подробная программа — по кнопке (фича 7): план на экране сразу. */}
           {recommendation.itinerary && (
-            <div>
-              <button onClick={() => setShowItinerary(v => !v)}
-                className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors">
-                {showItinerary ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                {showItinerary ? 'Скрыть программу' : 'Подробная программа'}
-              </button>
-              {showItinerary && (
-                <div className="mt-2 text-sm text-[var(--text-secondary)] leading-relaxed space-y-1.5 p-3 bg-[var(--bg-hover)] rounded-lg">
-                  {recommendation.itinerary.split('\n').filter(l => l.trim()).map((line, i) => (
-                    <p key={i}>{line}</p>
-                  ))}
-                </div>
-              )}
-            </div>
+            <PlanProgram key={recommendation.itinerary + days.length} plain={recommendation.itinerary} body={() => (builtFor ? {
+              profile: {
+                adults: builtFor.adults, children: [...builtFor.children], fitnessLevel, budgetTier: builtFor.budgetTier,
+                ...(builtFor.arrival ? { arrivalDate: builtFor.arrival } : {}), ...(builtFor.departure ? { departureDate: builtFor.departure } : {}),
+              },
+              zones: recommendation.zones.slice(0, 5).map((z) => ({ zone: z.zone, score: Math.max(0, Math.min(100, Math.round(z.score))) })),
+              // Без свободного текста: id тура, типы и числа; названия — из БД на сервере (ревью #3743).
+              days: days.slice(0, 40).map((d) => ({
+                day: d.day, type: d.type, zone: d.zone,
+                ...(/^[a-z_]{1,30}$/.test(d.activityType ?? '') ? { activityType: d.activityType } : {}),
+                ...(d.type === 'activity' && d.realTour?.tourId ? { tourId: d.realTour.tourId } : {}),
+                ...(d.realPrice ? { realPrice: d.realPrice } : {}),
+                ...(d.priceMissing ? { priceMissing: true } : {}),
+                ...(() => {
+                  const f = (d as { weatherForecast?: { tempMin?: number; tempMax?: number } }).weatherForecast;
+                  return f && Number.isFinite(f.tempMin) && Number.isFinite(f.tempMax)
+                    ? { temp: { min: f.tempMin as number, max: f.tempMax as number } } : {};
+                })(),
+              })),
+              warnings: (recommendation.warnings ?? []).slice(0, 30).map((w) => ({ type: w.type, severity: w.severity })),
+            } : null)} />
           )}
 
           {/* Confirmation progress + PDF export */}

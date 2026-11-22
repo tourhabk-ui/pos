@@ -135,11 +135,13 @@ export async function POST(req: NextRequest) {
       if (problem) return NextResponse.json({ success: false, error: problem }, { status: 400 });
     }
 
+    // План — сразу, без ожидания модели (фича 7, слово владельца 23.11):
+    // «Подробная программа» — по кнопке, /api/planner/itinerary.
     // Замер этапов (фича 7, 23.11): только имена этапов и миллисекунды —
     // в заголовок Server-Timing (видно во вкладке Network) и строкой в лог.
     const stages: Array<[string, number]> = [];
     const t0 = performance.now();
-    const recommendation = await recommendTrip(parsed, { onStage: (stage, ms) => { stages.push([stage, ms]); } });
+    const recommendation = await recommendTrip(parsed, { itinerary: 'plain', onStage: (stage, ms) => { stages.push([stage, ms]); } });
     const totalMs = Math.round(performance.now() - t0);
 
     // Fire-and-forget: persist preferences for authenticated users
