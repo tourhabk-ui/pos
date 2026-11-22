@@ -7,35 +7,31 @@
  * сообщение о беде идёт Кузьмичу (блок 112) с номером, заменённым на
  * «[номер скрыт]». В строку восстановления апдейта номер тоже не попадает.
  *
- * Номер — от 10 до 15 цифр подряд с пробелами, дефисами, скобками и «+»:
- * так пишут российские и зарубежные мобильные. Даты (8 цифр) и цены не
- * задеваются.
+ * Номер распознаёт тот же детектор, что стоит на границе ПД перед моделью
+ * (`redactPII`): он уже отличает телефоны от диапазонов дат, сумм и
+ * координат. Почта в маскированном тексте тоже скрывается.
  */
 
-const CANDIDATE_RE = /\+?\d[\d\s\-().]{8,22}\d/g;
-const MIN_DIGITS = 10;
-const MAX_DIGITS = 15;
+import { redactPII } from '@/lib/security/pii-redact';
+
+const DETECTOR_PHONE = '[телефон]';
 
 export const PHONE_MASK = '[номер скрыт]';
 export const SITE_REQUEST_URL = 'https://vedarai.ru/contact';
 export const MAX_KUZMICH_URL = 'https://max.ru/id4101147649_biz';
 
-function isPhone(candidate: string): boolean {
-  const digits = candidate.replace(/\D/g, '').length;
-  return digits >= MIN_DIGITS && digits <= MAX_DIGITS;
-}
+const count = (text: string, part: string): number => text.split(part).length - 1;
 
 /** Есть ли в тексте номер телефона. */
 export function hasPhone(text: string): boolean {
   if (!text) return false;
-  for (const m of text.matchAll(CANDIDATE_RE)) if (isPhone(m[0])) return true;
-  return false;
+  return count(redactPII(text), DETECTOR_PHONE) > count(text, DETECTOR_PHONE);
 }
 
-/** Текст с номерами, заменёнными на «[номер скрыт]». */
+/** Текст с номерами, заменёнными на «[номер скрыт]» (почта — на «[email]»). */
 export function maskPhones(text: string): string {
   if (!text) return text;
-  return text.replace(CANDIDATE_RE, (m) => (isPhone(m) ? PHONE_MASK : m));
+  return redactPII(text).split(DETECTOR_PHONE).join(PHONE_MASK);
 }
 
 export const TG_PHONE_REFUSAL_TEXT = [
