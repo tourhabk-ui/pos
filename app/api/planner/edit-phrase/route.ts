@@ -21,6 +21,8 @@ import { applyPlanEdit, planEstimate, type EditablePlan, type TouchedTour } from
 import { readPlanEdit } from '@/lib/kuzmich/trip-plan-tool';
 import { ACTIVITY_NAMES } from '@/lib/planner/constants';
 import type { DayPlan } from '@/lib/planner/engine';
+import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,6 +55,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: false, error: 'План или фраза пришли не целиком — обновите страницу.' }, { status: 400 });
   }
   const { phrase, params } = parsedBody.data;
+  // План приходит из браузера: туры дней — только с витрины (ревью безопасности
+  // #3736). Иначе правка перечитала бы занятость любого id — черновика, снятого
+  // или удалённого тура — как это закрыто в /api/tours/[id]/slots.
+  const tourIds = [...new Set(parsedBody.data.days.flatMap((d) => {
+    const ids: unknown[] = [(d as { realTour?: { tourId?: unknown } }).realTour?.tourId, (d as { roadLeg?: { tourId?: unknown } }).roadLeg?.tourId];
+    return ids.filter((x) => x !== undefined && x !== null).map(String);
+  }))];
+  if (tourIds.length > 0) {
+    try {
+      const { rows } = await pool.query<{ id: string }>(
+        `SELECT ot.id::text AS id FROM operator_tours ot WHERE ot.id::text = ANY($1::text[]) AND ${publicTourSql('ot')}`,
+        [tourIds],
+      );
+      if (rows.length !== tourIds.length) {
+        return NextResponse.json({ success: false, error: 'В плане есть тур, которого сейчас нет на витрине, — пересоберите план. План не менял.' }, { status: 400 });
+      }
+    } catch (err) {
+      console.error('[planner/edit-phrase] туры плана не проверились:', err instanceof Error ? err.message : String(err));
+      return NextResponse.json({ success: false, error: 'Не смогли проверить туры плана — план не менял. Попробуйте ещё раз.' }, { status: 503 });
+    }
+  }
   const phraseParse = parsePlanPhrase(phrase);
   if (!phraseParse.ok) return NextResponse.json({ success: false, error: phraseParse.error });
 

@@ -6,7 +6,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const { apply } = vi.hoisted(() => ({ apply: vi.fn() }));
+const { apply, query } = vi.hoisted(() => ({ apply: vi.fn(), query: vi.fn() }));
+vi.mock('@/lib/db-pool', () => ({ pool: { query } }));
 vi.mock('@/lib/planner/require-session', () => ({ plannerSession: vi.fn(async () => ({ userId: 'u1' })) }));
 vi.mock('@/lib/planner/plan-edit', () => ({
   applyPlanEdit: apply,
@@ -26,7 +27,12 @@ const call = (phrase: string) => POST(new NextRequest('http://x/api/planner/edit
   method: 'POST', body: JSON.stringify({ phrase, params, days }), headers: { 'content-type': 'application/json' },
 }));
 
-beforeEach(() => { apply.mockReset(); });
+beforeEach(() => {
+  apply.mockReset();
+  query.mockReset();
+  // по умолчанию все туры плана — на витрине
+  query.mockImplementation(async (_sql: string, [ids]: [string[]]) => ({ rows: ids.map((id) => ({ id })) }));
+});
 
 describe('edit-phrase', () => {
   it('«без рыбалки» → remove_day дня 2 через applyPlanEdit, смета до/после', async () => {
@@ -52,5 +58,21 @@ describe('edit-phrase', () => {
     const body = await (await call('без рыбалки, замени день 3')).json();
     expect(body.success).toBe(false);
     expect(body.plan).toBeUndefined();
+  });
+
+  it('тур не с витрины (черновик, снят, удалён) — отказ 400, applyPlanEdit не зовётся', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    const res = await call('нас трое');
+    expect(res.status).toBe(400);
+    expect((await res.json()).success).toBe(false);
+    expect(query.mock.calls[0][0]).toContain('is_published = true');
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  it('витрина не проверилась — 503, план не трогается', async () => {
+    query.mockRejectedValueOnce(new Error('db down'));
+    const res = await call('без рыбалки');
+    expect(res.status).toBe(503);
+    expect(apply).not.toHaveBeenCalled();
   });
 });
