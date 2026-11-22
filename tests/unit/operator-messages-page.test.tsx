@@ -33,6 +33,11 @@ vi.mock('@/components/layout/HubLayout', () => ({
 vi.mock('@/components/operator/ForcePasswordChangeBanner', () => ({ ForcePasswordChangeBanner: () => null }));
 vi.mock('@/components/hub/PartnerChannelBanner', () => ({ PartnerChannelBanner: () => null }));
 vi.mock('@/components/operator/MemberChannelBanner', () => ({ MemberChannelBanner: () => null }));
+// Роль страницы на сервере держит tests/unit/hub-server-pages-role-gate.test.ts
+// (вызовом страницы с поддельной кукой); здесь вход подставлен.
+vi.mock('@/lib/auth/server-page', () => ({
+  requirePageRole: vi.fn(async () => ({ userId: 'op-user-1', role: 'operator' })),
+}));
 vi.mock('@/components/chat/MessageThread', () => ({
   MessageThread: ({ conversationId }: { conversationId: string }) => <p>переписка {conversationId}</p>,
 }));

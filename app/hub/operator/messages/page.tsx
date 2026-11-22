@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import { MessageSquare } from 'lucide-react';
 import { ConversationsPanel } from '@/components/chat/ConversationsPanel';
-import { OPERATOR_MESSAGES_HINT } from '@/lib/crm/inbox-kinds';
+import { requirePageRole } from '@/lib/auth/server-page';
+import { OPERATOR_MESSAGES_HINT, OPERATOR_MESSAGES_PATH } from '@/lib/crm/inbox-kinds';
 
 export const metadata: Metadata = {
   title: 'Сообщения | Оператор',
@@ -17,9 +18,15 @@ export const metadata: Metadata = {
  */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+export const dynamic = 'force-dynamic';
+
 export default async function OperatorMessagesPage({ searchParams }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  // Роль — на сервере, до всего остального (аудит 15.10, P3-22, сторож
+  // hub-server-pages-role-gate): клиентский HubLayout проверяет её уже после
+  // ответа сервера.
+  await requirePageRole(['operator', 'admin'], OPERATOR_MESSAGES_PATH);
   const raw = (await searchParams).c;
   const initialId = typeof raw === 'string' && UUID_RE.test(raw) ? raw : null;
   return (
