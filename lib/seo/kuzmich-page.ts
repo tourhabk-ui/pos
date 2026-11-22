@@ -122,6 +122,11 @@ export const KUZMICH_TEXT_LINKS = [
   { text: 'сторонние приложения', href: '/ai-tools', external: false },
   { text: 'обработку персональных данных', href: '/legal/privacy', external: false },
   { text: 'оставьте заявку на сайте', href: '/request', external: false },
+  { text: 'туры с витрины', href: '/catalog', external: false },
+  { text: 'собрать поездку по дням', href: '/plans', external: false },
+  { text: 'план поездки по дням', href: '/plans', external: false },
+  { text: 'подготовиться к поездке', href: '/prepare', external: false },
+  { text: 'сводку обстановки по краю', href: '/safety', external: false },
 ] as const;
 
 const SITE = 'https://vedarai.ru';
