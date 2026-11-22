@@ -21,6 +21,7 @@
  * не «дешевле выше», как до 29.10. Потолок `limit` — после порядка.
  */
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/database';
@@ -103,9 +104,7 @@ export async function GET(req: NextRequest) {
     CROSS JOIN LATERAL (
       ${occupiedOnDaySql({ booking: 'ob', day: 'a.date', tourId: 'a.operator_tour_id' })}
     ) occ
-    WHERE t.is_published  = TRUE
-      AND t.is_active     = TRUE
-      AND t.deleted_at    IS NULL
+    WHERE ${publicTourSql('t')}
       AND GREATEST(0, LEAST(a.available_slots, COALESCE(t.max_participants, a.available_slots)) - occ.taken) >= $3
       ${activityFilter}
   `;

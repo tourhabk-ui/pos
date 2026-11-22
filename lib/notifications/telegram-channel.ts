@@ -7,6 +7,7 @@
  */
 
 import { maxFetch } from '@/lib/max/max-fetch';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { channelHeadline, channelKicker, channelFacts, channelPost, escHtml } from '@/lib/notifications/channel-style';
 import { query } from '@/lib/database';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
@@ -1217,7 +1218,7 @@ export async function postKuzmichTour(): Promise<{ ok: boolean; tourId?: number;
          WHERE action_type IN ('kuzmich_tour_post', 'tour_channel_post')
            AND metadata->>'tour_id' = ot.id::text
       ) lp ON TRUE
-     WHERE ot.is_published = TRUE AND ot.is_active = TRUE AND ot.deleted_at IS NULL
+     WHERE ${publicTourSql('ot')}
        -- Тур без фотографий в канал не идёт ВООБЩЕ (правило владельца 05.08):
        -- рисованной обложки у тура быть не может, а голый текст продаёт хуже,
        -- чем не продаёт. Фильтр здесь, а не после выбора.

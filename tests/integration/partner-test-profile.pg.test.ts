@@ -163,6 +163,35 @@ withPg('тестовый профиль партнёра — не на витр�
     expect(await partnerAdmitted(LIVE.id)).toBe(true);
   });
 
+  it('тур тестового партнёра не уходит в ленты площадок и на страницы готовых планов (ревью #3703)', async () => {
+    // Оба тура готовы к выкладке на чужую витрину: без шлюза тестовый ушёл бы
+    // в ленту Авито и Яндекса. Снятие отметки ниже показывает, что он и правда
+    // готов, — значит, держит его именно шлюз, а не нехватка полей.
+    await pool.query(
+      `UPDATE operator_tours
+          SET description = repeat('Описание тура. ', 40), photos = ARRAY['/images/tp.jpg'],
+              pickup_type = 'hotel_pickup', cancellation_policy = 'Бесплатная отмена за 3 дня',
+              latitude = 53.0, longitude = 158.6
+        WHERE id = ANY($1::int[])`,
+      [[tourId.live, tourId.test]],
+    );
+    await pool.query(
+      `UPDATE partners SET contacts = '{"site":"https://example.test"}'::jsonb WHERE id = ANY($1::uuid[])`,
+      [[LIVE.id, TEST.id]],
+    );
+    const { selectFeedTours } = await import('@/lib/channels/ready-tours');
+    // В базе схемы есть и туры из миграций — судим только свои два.
+    const ours = new Set([tourId.live, tourId.test]);
+    const sel = await selectFeedTours();
+    expect(sel.tours.map((t) => String(t.id)).filter((id) => ours.has(id))).toEqual([tourId.live]);
+
+    const { topToursByActivity, toursByIds } = await import('@/lib/tours/top-tour-by-activity');
+    const top = await topToursByActivity([TEST.activity, LIVE.activity]);
+    expect(top[TEST.activity]).toBeUndefined();
+    expect(String(top[LIVE.activity]?.id)).toBe(tourId.live);
+    expect(Object.keys(await toursByIds([tourId.test, tourId.live]))).toEqual([tourId.live]);
+  });
+
   it('недельная сводка: тур тестового партнёра — своя причина, сумма вёдер — все невидимые', async () => {
     const { PLATFORM_WEEK_SQL } = await import('@/lib/agents/platform-week-stats');
     const { rows } = await pool.query<{
@@ -189,6 +218,10 @@ withPg('тестовый профиль партнёра — не на витр�
     const { getRecommendations } = await import('@/lib/search/tour-recommend');
     expect((await getRecommendations('b2200000-0000-4000-8000-0000000000aa', 6, TEST.activity)).map((r) => String(r.id)))
       .toEqual([tourId.test]);
+    const { selectFeedTours } = await import('@/lib/channels/ready-tours');
+    const ours = new Set([tourId.live, tourId.test]);
+    expect((await selectFeedTours()).tours.map((t) => String(t.id)).filter((id) => ours.has(id)).sort())
+      .toEqual([tourId.live, tourId.test].sort());
   });
 
   it('миграция 1495 ставит отметку карточке FLO по почте; повторный прогон не ломается', async () => {

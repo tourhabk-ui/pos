@@ -18,6 +18,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import type { ChannelTour } from '@/lib/channels/types';
 import { missingFields, type ReadinessRow } from '@/lib/tours/readiness';
 import { catalogAvailability } from '@/lib/tours/catalog-availability';
@@ -74,9 +75,8 @@ const SQL = `
     (p.contacts IS NOT NULL AND p.contacts::text <> '{}')                 AS has_operator_contact
   FROM operator_tours ot
   LEFT JOIN partners p ON p.id = ot.operator_id
-  WHERE ot.is_active = true
-    AND ot.is_published = true
-    AND ot.deleted_at IS NULL
+  -- Шлюз витрины: тур тестового партнёра (1495) в ленты площадок не уходит.
+  WHERE ${publicTourSql('ot')}
   ORDER BY ot.id
 `;
 
