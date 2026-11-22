@@ -88,7 +88,7 @@ describe('четыре шага по порядку', () => {
   it('Когда → Кто едет → Как хотите ехать → Что интересно', () => {
     render(<PlannerClient />);
     expect(screen.getByText('шаг 1 из 4')).toBeTruthy();
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(/^Конструктор маршрута по Камчатке/);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(/^План поездки с Кузьмичом · /);
     expect(heading()).toBe('Когда');
     // Быстрый путь — сверху первого шага.
     expect(screen.getByLabelText(/Опишите поездку/)).toBeTruthy();

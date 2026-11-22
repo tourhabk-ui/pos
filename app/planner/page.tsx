@@ -5,11 +5,12 @@ import { verifySessionToken } from '@/lib/auth/jwt';
 import { Header } from '@/components/layout/Header';
 import { PlannerClient } from './_PlannerClient';
 import { PlannerLoginGate } from '@/components/planner/PlannerLoginGate';
+import { PLANNER_NAME } from '@/lib/navigation/tool-names';
 
 export const metadata: Metadata = {
   alternates: { canonical: '/planner' },
-  title: 'Конструктор маршрута — Камчатка',
-  description: 'Постройте маршрут по Камчатке: выберите активности, получите план по дням и настройте каждый день поездки. План хранится в личном кабинете.',
+  title: PLANNER_NAME,
+  description: 'Соберите план поездки по Камчатке по дням вместе с Кузьмичом: выберите активности, поправьте каждый день и сохраните план в личном кабинете.',
   // С 14.11 планер открывается только после входа (слово владельца «6-3»):
   // поисковику страница показывает экран входа — индексировать нечего.
   robots: { index: false, follow: true },

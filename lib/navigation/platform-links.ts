@@ -14,10 +14,12 @@
  * что каждая публичная страница из sitemap достижима с телефона за два
  * касания: таб-бар, шапка или этот реестр.
  *
- * Подписи — по заголовкам самих страниц, не по желаемому: «Планирование
- * поездки» ведёт на /partners, потому что так называется та страница
- * (авиабилеты, отели, трансферы), а конструктор маршрута — /planner.
+ * Подписи — по заголовкам самих страниц (lib/navigation/tool-names, 22.11):
+ * /planner — «План с Кузьмичом», /planning — «Подготовка к походу», /plans —
+ * «Готовые маршруты», /partners — «Билеты и отели». Слова «планирование» в
+ * меню нет: им звались сразу две страницы, и пункт вёл не туда.
  */
+import { PLANNER_MENU, PLANNING_MENU, PLANS_MENU, PARTNERS_MENU } from '@/lib/navigation/tool-names';
 import type { LucideIcon } from 'lucide-react';
 import {
   Shield, Radio, Siren, WifiOff, ClipboardCheck, Leaf, Ticket, CalendarDays, Flame, Layers, ListChecks, Route, BedDouble, Plane, Fish, Award, Bus, MapPin, Waypoints, Map, Newspaper, BookOpen, Info, CircleHelp, LifeBuoy, Briefcase, Handshake, UserPlus, Bot, MessageSquare, Smartphone, ShieldAlert, FileText, ScrollText, Receipt, Backpack, CloudSun, Heart, Languages, Car, PlaneTakeoff, Trees,
@@ -72,11 +74,12 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       { label: 'Календарь туров',         href: '/calendar',       icon: CalendarDays },
       { label: 'Популярное',              href: '/trending',       icon: Flame },
       { label: 'Подборки маршрутов',      href: '/collections',    icon: Layers },
-      { label: 'Готовые планы поездок',   href: '/plans',          icon: ListChecks },
+      { label: PLANS_MENU,                href: '/plans',          icon: ListChecks },
       // Посчитаны из базы (разбор видимости в ответах ИИ, 19.11).
       { label: 'Сколько стоит поездка',   href: '/skolko-stoit-poezdka-na-kamchatku', icon: Ticket },
       { label: 'Когда ехать на Камчатку', href: '/kogda-ehat-na-kamchatku', icon: CalendarDays },
-      { label: 'Конструктор маршрута',    href: '/planner',        icon: Route },
+      { label: PLANNER_MENU,              href: '/planner',        icon: Route },
+      { label: PLANNING_MENU,             href: '/planning',       icon: Backpack },
       { label: 'Жильё',                   href: '/accommodations', icon: BedDouble },
       { label: 'Избранное',               href: '/wishlist',       icon: Heart },
       // Трансфер — машина целиком под заказ (владелец 13.10), не места в ней.
@@ -85,7 +88,7 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       { label: 'Аренда автомобилей',         href: '/car-rental', icon: Car },
       // Табло Елизово (29.10, #2788) — задержки и отмены по табло аэропорта.
       { label: 'Табло аэропорта Елизово',    href: '/flights',    icon: PlaneTakeoff },
-      { label: 'Планирование поездки',    href: '/partners',       icon: Plane },
+      { label: PARTNERS_MENU,             href: '/partners',       icon: Plane },
       { label: 'Камчатская рыбалка',      href: '/hub/fishing',    icon: Fish },
       { label: 'Сертифицированные гиды',  href: '/guides',         icon: Award },
     ],

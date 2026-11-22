@@ -116,7 +116,7 @@ describe('мелочи метаданных (аудит 29.09, Н14)', () => {
   it('у планера H1 — что за страница, название шага — H2', () => {
     const c = read('app/planner/_PlannerClient.tsx');
     const header = c.slice(c.indexOf('const stepHeader = ('), c.indexOf('{PLANNER_STEPS[step - 1].lead}'));
-    expect(header).toMatch(/<h1[^>]*>\s*Конструктор маршрута по Камчатке/);
+    expect(header).toMatch(/<h1[^>]*>\s*\{PLANNER_NAME\} · /);
     expect(header).toMatch(/<h2[^>]*>\s*\{PLANNER_STEPS\[step - 1\]\.title\}\s*<\/h2>/);
     expect(header.match(/<h1/g)).toHaveLength(1);
   });
