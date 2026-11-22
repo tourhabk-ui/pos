@@ -14,6 +14,7 @@
 import { randomUUID } from 'node:crypto';
 import { SignJWT, jwtVerify } from 'jose';
 import { ownedRoles } from '@/lib/auth/role-switch';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const MAGIC_LINK_TTL_SEC = 5 * 60;
 
@@ -94,6 +95,7 @@ export async function redeemMagicJti(db: MagicQueryable, jti: string, userId: st
     [jti, userId],
   );
   // Уборка старых отметок: ссылка живёт 5 минут, сутки — с запасом.
-  void db.query(`DELETE FROM magic_link_redemptions WHERE redeemed_at < NOW() - INTERVAL '1 day'`).catch(() => {});
+  void db.query(`DELETE FROM magic_link_redemptions WHERE redeemed_at < NOW() - INTERVAL '1 day'`)
+    .catch((err) => logSwallowedFailure('auth/magic-link', 'уборка старых отметок', err));
   return res.rows.length === 1;
 }
