@@ -6,7 +6,7 @@
  *  - пятидневный термальный тур встаёт блоком «Дни 2–6», пустых дней нет;
  *  - «вертолёт без оператора — не сезон» не пишется, когда вертолёт с
  *    оператором в плане есть;
- *  - заметки о плане — одним блоком под днями (PlanNotes), сверху только
+ *  - заметки о плане — в свёрнутом блоке под днями (SafetyBlock, «О плане»), сверху только
  *    критичное.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -124,13 +124,16 @@ describe('/planner: кейс владельца 24.11–04.12', () => {
     expect(planShapeWarnings(rec.warnings).filter((w) => w.severity === 'critical')).toHaveLength(0);
   });
 
-  it('экран планера: заметки о плане под днями одним блоком, над днями — только критичное', () => {
+  it('экран планера: над днями — только критичное и «Этого в плане нет», остальные заметки — в свёрнутом блоке под днями', () => {
     const src = readFileSync('app/planner/_PlannerClient.tsx', 'utf8');
-    const notesAt = src.indexOf("PlanNotes notes={planShapeWarnings(recommendation.warnings ?? []).filter(w => w.severity !== 'critical')}");
+    const notInPlanAt = src.indexOf('notInPlanLines(recommendation.warnings ?? []');
+    const notesAt = src.indexOf('planItems={splitPlanShape(recommendation.warnings ?? []).aboutPlan');
     const safetyAt = src.indexOf('SafetyBlock items={safetyBlock(days');
     const daysAt = src.indexOf('Reorder.Group');
-    expect(notesAt).toBeGreaterThan(daysAt);
-    expect(safetyAt).toBeGreaterThan(notesAt);
+    expect(notInPlanAt).toBeGreaterThan(0);
+    expect(notInPlanAt).toBeLessThan(daysAt);
+    expect(safetyAt).toBeGreaterThan(daysAt);
+    expect(notesAt).toBeGreaterThan(safetyAt);
     expect(src).not.toMatch(/filter\(w => w\.severity === 'important'\)\.map/);
   });
 });

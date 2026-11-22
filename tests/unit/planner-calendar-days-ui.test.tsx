@@ -146,7 +146,7 @@ function cards() {
   return [...document.querySelectorAll<HTMLElement>('[data-testid="day-card"]')].map((el) => ({
     el,
     num: Number(el.querySelector('.rounded-full.w-6')?.textContent),
-    title: el.querySelector('p.text-xs.font-medium')?.textContent ?? '',
+    title: el.querySelector('[data-day-title]')?.textContent ?? '',
   }));
 }
 const shown = () => cards().map((c) => `${c.num}:${c.title}`);

@@ -19,7 +19,7 @@ import {
   X, ChevronDown, ChevronUp, Truck,
   ArrowRight, ExternalLink, Map as MapIcon, List, Pencil,
   Save, BookmarkCheck, PlaneLanding, PlaneTakeoff, Lock,
-  Send, ShieldAlert, Info, Baby, Dumbbell, Wallet,
+  Send, ShieldAlert, Baby, Dumbbell, Wallet,
   ArrowLeftRight, Coffee, CloudOff, Home,
   CheckCircle, Download, MessageCircle, Eye,
   Share2, Copy, Compass,
@@ -85,7 +85,11 @@ import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 import { adultsFromParam, MAX_ADULTS } from '@/lib/planner/party-limits';
 import { dayCardWarning, planShapeWarnings, runLabel, safetyBlock, shortWeather, tourRuns, type TourRun } from '@/lib/planner/day-card-view';
 import { SafetyBlock } from '@/components/planner/SafetyBlock';
-import { PlanNotes } from '@/components/planner/PlanNotes';
+import { DayPhoto } from '@/components/planner/DayPhoto';
+import { NotInPlan } from '@/components/planner/NotInPlan';
+import { PlanOverview } from '@/components/planner/PlanOverview';
+import { buildWaitLine, dayDateShort, notInPlanLines, splitPlanShape } from '@/lib/planner/plan-notes';
+import type { PrintPhoto } from '@/lib/planner/print-html';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -441,6 +445,10 @@ const DIFFICULTY_LABEL: Record<string, string> = {
 
 interface DayCardProps {
   day: DayPlan;
+  /** Кадр тура с подписью автора (lib/planner/print-photos) — «день как журнал». */
+  photo?: PrintPhoto | null;
+  /** «ср, 26 ноя» — дата дня по началу поездки; дат нет — пусто. */
+  dateLabel?: string;
   idx: number;
   isEditing: boolean;
   transport: TransportType;
@@ -498,7 +506,7 @@ function DayPriceTag({ day }: { day: DayPlan }) {
 function DayCard({
   day, idx, isEditing, transport, flightBadge, isLocked, isConfirmed, topTour, requestArrival, requestGuests,
   onToggleEdit, onTransportChange, onShowPartners, onDelete, onShowMap, onConfirm, onRef, onAskSeats,
-  editRefusal = null, onDragDone, run,
+  editRefusal = null, onDragDone, run, photo = null, dateLabel = '',
 }: DayCardProps) {
   // Продолжение многодневного тура — в блоке его первого дня (21.11).
   const continuation = run !== undefined && run.first !== day.day;
@@ -541,6 +549,8 @@ function DayCard({
       data-day-continuation={continuation ? 'true' : undefined}
     >
       <div ref={onRef}>
+        {/* День как журнал (22.11): кадр тура с подписью автора — сверху. */}
+        {photo && day.type === 'activity' && <DayPhoto photo={photo} />}
         {/* Row 1 — clickable to toggle edit */}
         {/* С клавиатуры день тоже открывается (разбор 14.11, экран-14). */}
         <div
@@ -575,13 +585,17 @@ function DayCard({
             {day.day}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 min-w-0">
+            <div className="flex items-start gap-1.5 min-w-0">
               {run && (
-                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 whitespace-nowrap bg-[var(--accent)]/15 text-[var(--accent)]" data-tour-run>
+                <span className="mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 whitespace-nowrap bg-[var(--accent)]/15 text-[var(--accent)]" data-tour-run>
                   {runLabel(run)}
                 </span>
               )}
-              <p className="text-xs font-medium text-[var(--text-primary)] min-w-0 line-clamp-2 break-words" title={day.title}>{day.title}</p>
+              <p data-day-title className="text-sm font-semibold leading-snug text-[var(--text-primary)] min-w-0 line-clamp-2 break-words" title={day.title}>{day.title}</p>
+            </div>
+            {/* Метки — под названием (22.11): название читается целиком, а не
+                «Зимняя рыбалка:…» рядом с плашками. */}
+            <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-[var(--text-muted)]">
               {isSpecialDay && (
                 <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 whitespace-nowrap"
                   style={{ background: `color-mix(in srgb, ${typeConf.color} 15%, transparent)`, color: typeConf.color }}>
@@ -598,25 +612,35 @@ function DayCard({
                   {flightBadge}
                 </span>
               )}
-            </div>
-            <p className="text-[10px] text-[var(--text-muted)]">
-              <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle" style={{ background: zoneHex(shownZone(day)) }} />
-              {zoneName(shownZone(day))}
+              {dateLabel && <span className="font-medium text-[var(--text-secondary)] whitespace-nowrap" data-day-date>{dateLabel}</span>}
+              <span className="whitespace-nowrap">
+                <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle" style={{ background: zoneHex(shownZone(day)) }} />
+                {zoneName(shownZone(day))}
+              </span>
+              {/* Погода — в той же строке, что дата и зона (22.11); совет по
+                  одежде — в общем блоке. */}
+              {weatherShort && (
+                <span className="inline-flex items-center gap-1 whitespace-nowrap" data-day-weather>
+                  <CloudSun className="w-3 h-3 shrink-0" aria-hidden="true" />{weatherShort}
+                </span>
+              )}
               {isEditing && (editRefusal
-                ? <span className="ml-1.5 text-[var(--text-secondary)] font-medium">— {editRefusal}</span>
-                : <span className="ml-1.5 text-[var(--accent)] font-medium">— редактирование</span>)}
-            </p>
+                ? <span className="text-[var(--text-secondary)] font-medium">— {editRefusal}</span>
+                : <span className="text-[var(--accent)] font-medium">— редактирование</span>)}
+            </div>
           </div>
           <DayPriceTag day={day} />
         </div>
+        {/* Что в этот день — двумя строками, без «глаза» (22.11): программа
+            видна сразу; полный текст — в «Подробнее». */}
+        {day.description && !showDetail && (
+          <p className="px-3 pb-1 text-[12.5px] leading-snug text-[var(--text-secondary)] line-clamp-2" data-day-desc>{day.description}</p>
+        )}
         {/* Row 2 — transport + actions */}
         <div className="flex items-center gap-2 px-3 pb-2.5 pt-0.5">
           {/* У дня с туром транспорт — часть тура: выбирать нечего (#3347). */}
           {dayOffersTransportChoice(day, isConfirmed) && (
             <TransportSelector selected={transport} onChange={t => onTransportChange(day.day, t)} allowed={day.allowedTransports} />
-          )}
-          {day.description && day.type !== 'activity' && (
-            <p className="text-[10px] text-[var(--text-muted)] italic">{day.description}</p>
           )}
           <div className="flex-1" />
           {/* Detail toggle */}
@@ -673,13 +697,6 @@ function DayCard({
           <div className="mx-3 mb-2 flex items-start gap-1.5 px-2 py-1 rounded bg-[var(--warning)]/8 text-[10px] text-[var(--warning)]" data-day-warning>
             <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
             <span>{cardWarning}</span>
-          </div>
-        )}
-        {/* Погода — одной короткой строкой; совет по одежде — в общем блоке. */}
-        {weatherShort && (
-          <div className="mx-3 mb-2 flex items-center gap-1.5 text-[10px] text-[var(--text-secondary)]" data-day-weather>
-            <CloudSun className="w-3 h-3 shrink-0" aria-hidden="true" />
-            <span>{weatherShort}</span>
           </div>
         )}
         {/* Expandable detail panel */}
@@ -1410,6 +1427,10 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
 
   // Plan
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
+  // Сколько секунд идёт сборка — для честной строки ожидания (22.11).
+  const [waitSec, setWaitSec] = useState(0);
+  // Кадры туров плана с подписью автора — для карточек дней и PDF (22.11).
+  const [dayPhotos, setDayPhotos] = useState<Record<string, PrintPhoto>>({});
   /**
    * Состав и уровень, на которые собран план (#2304). Смета считается по ним,
    * а не по форме: поменял человек форму и не пересобрал — план прежний, и
@@ -1571,6 +1592,27 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   // перестановки, удаления или добавления дней показывала цену прежнего плана.
   // Машина напрокат (аудит 07.11, E7): за рулём трансфер аэропорта не нужен,
   // если его не отметили отдельно, — смета и заявка считают одинаково.
+  useEffect(() => {
+    if (!loading) return;
+    const t0 = Date.now();
+    const id = setInterval(() => setWaitSec(Math.floor((Date.now() - t0) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [loading]);
+
+  // Кадры туров с подписью автора: один раз на набор туров плана; не пришли —
+  // карточки без снимков (как и PDF).
+  const photoTourKey = useMemo(
+    () => [...new Set(days.filter((d) => d.type === 'activity' && d.realTour).map((d) => d.realTour!.tourId))].join(','),
+    [days],
+  );
+  useEffect(() => {
+    if (!photoTourKey) return;
+    let alive = true;
+    void loadPrintPhotos(photoTourKey.split(',')).then((p) => { if (alive) setDayPhotos(p); })
+      .catch((err) => { logSwallowedFailure('planner-photos', 'загрузка кадров туров плана', err); });
+    return () => { alive = false; };
+  }, [photoTourKey]);
+
   const estimate = useMemo(
     () => (planProfile && days.length > 0
       ? estimateGroup(days, { ...planProfile, arrivalDate: arrival || null, needs: { car: needsCar, transfer: needsAirportTransfer } }, planChoices)
@@ -2109,12 +2151,22 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       warnings: recommendation?.warnings ?? [],
       fmt,
     };
-    const html = buildPlanPrintHtml(printInput);
+    // Кадры уже пришли для карточек — документ сразу с ними (обложка — кадр
+    // первого тура), без второй загрузки.
+    const known = printInput.days.map((d) => (d.tourId ? dayPhotos[d.tourId] : undefined)).filter((p): p is PrintPhoto => Boolean(p));
+    const html = buildPlanPrintHtml(known.length > 0 ? { ...printInput, photos: dayPhotos, cover: known[0] } : printInput);
 
     const win = window.open('', '_blank');
     if (!win) return;
     win.document.write(html);
     win.document.close();
+    if (known.length > 0) {
+      // Печать — когда кадры догрузились (или через 3 с), иначе обложка пустая.
+      const imgs = Array.from(win.document.images);
+      const ready = Promise.all(imgs.map((im) => (im.complete ? null : new Promise((r) => { im.onload = r; im.onerror = r; }))));
+      void Promise.race([ready, new Promise((r) => setTimeout(r, 3000))]).then(() => { win.print(); });
+      return;
+    }
     // Снимки туров с подписью автора (обложка и превью) — догружаются: окно
     // открыто сразу (блокировщик окон), документ переписывается, когда кадры
     // пришли; не пришли — печатается без них.
@@ -2210,6 +2262,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     if (interests.length === 0) { setError('Выберите место или активность'); return; }
     if (childAgeMissing) { setError(CHILD_AGE_MISSING); return; }
     setError('');
+    setWaitSec(0);
     setLoading(true);
     // Номер сборки: ответ прежней сборки не ложится поверх новой (разбор
     // 14.11, экран-15: вторая быстрая фраза во время сборки запускала
@@ -2975,6 +3028,12 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />{error}
         </p>
       )}
+      {/* Честное ожидание (22.11): что делается и сколько уже идёт, без «за секунды». */}
+      {loading && step === 4 && (
+        <p role="status" aria-live="polite" data-build-wait className="mb-2 text-xs text-[var(--text-secondary)]">
+          {buildWaitLine(waitSec)}
+        </p>
+      )}
       {draftRestored && (
         <p className="mb-2 text-xs text-[var(--text-secondary)] flex flex-wrap items-center gap-x-2" data-form-draft="restored">
           Анкета восстановлена с этого устройства (без заметок о здоровье).
@@ -3006,6 +3065,14 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
   const runs = tourRuns(days);
   const resultsView = (
     <div className="p-4 space-y-4" style={{ paddingBottom: CONTENT_BOTTOM_CLEARANCE }}>
+      {recommendation && days.length > 0 && (
+        <PlanOverview
+          title={`${days.length} ${pluralDaysRu(days.length)} на Камчатке`}
+          sub={[tripDays ? `${shortDate(arrival)} — ${shortDate(departure)}` : '', `${planProfile?.adults ?? adults} взр.${(planProfile?.children ?? childAges).length > 0 ? `, детей ${(planProfile?.children ?? childAges).length}` : ''}`].filter(Boolean).join(' · ')}
+          estimate={estimate ?? null}
+          estimateAnchor="plan-estimate"
+        />
+      )}
       {summaryCard}
       {preferenceNotesBlock}
 
@@ -3024,6 +3091,9 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
               ))}
             </div>
           )}
+          {/* Что из просьбы не вошло — спокойным списком; остальные оговорки
+              о плане — в одном свёрнутом блоке под днями (lib/planner/plan-notes). */}
+          <NotInPlan lines={notInPlanLines(recommendation.warnings ?? [], builtFor?.interests ?? allInterests, days, (id) => ACTIVITY_LABEL[id] ?? tileLabel(id))} />
 
           <PlanStaleNotice reasons={staleReasons} onRebuild={() => { void getRecommendation(); }} busy={loading} />
 
@@ -3088,6 +3158,8 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                     editRefusal={day.day === editingDayId ? (editingDayInfo?.refusalShort ?? null) : null}
                     onDragDone={finishReorder}
                     run={runs.get(day.day)}
+                    photo={day.realTour ? dayPhotos[day.realTour.tourId] ?? null : null}
+                    dateLabel={arrival ? dayDateShort(dayDateFrom(arrival, day)) : ''}
                     onRef={(el) => {
                       if (el) dayRefs.current.set(day.day, el as HTMLElement);
                       else dayRefs.current.delete(day.day);
@@ -3096,8 +3168,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                 ))}
               </Reorder.Group>
 
-              <PlanNotes notes={planShapeWarnings(recommendation.warnings ?? []).filter(w => w.severity !== 'critical')} />
-              <SafetyBlock items={safetyBlock(days, recommendation.warnings ?? [])} />
+              <SafetyBlock items={safetyBlock(days, recommendation.warnings ?? [])} planItems={splitPlanShape(recommendation.warnings ?? []).aboutPlan.map((w) => w.message)} />
 
               {editNote && (
                 <p role="status" className="px-3 py-2 rounded-lg text-xs font-medium mt-1.5 flex items-start gap-2 bg-[var(--warning)]/10 text-[var(--warning)] border border-[var(--warning)]/20">
@@ -3135,7 +3206,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                 Добавить день
               </button>
 
-              {estimate && <GroupEstimateBlock estimate={estimate} />}
+              {estimate && <div id="plan-estimate" className="scroll-mt-4"><GroupEstimateBlock estimate={estimate} /></div>}
             </div>
           )}
 
@@ -3391,7 +3462,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         </div>
 
         {/* Plan panel (right on desktop, shown when plan tab active on mobile) */}
-        <div className={`w-full lg:w-[420px] shrink-0 min-h-0 flex-col lg:border-l border-[var(--border)] bg-[var(--bg-primary)] ${
+        <div className={`w-full lg:w-[460px] xl:w-[500px] shrink-0 min-h-0 flex-col lg:border-l border-[var(--border)] bg-[var(--bg-primary)] ${
           mobileTab === 'plan' ? 'flex' : 'hidden'
         } lg:flex`}>
           {planPanel}
