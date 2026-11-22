@@ -76,6 +76,7 @@ import type {
   RoutePoint, Partner, TourPreview, ValidationResult, MobileTab, TripExtrasData,
 } from './planner-types';
 import { planStaleReasons, planStaleText, type PlanSnapshot } from '@/lib/planner/plan-stale';
+import { PhraseEdit, type PhraseApplied } from './PhraseEdit';
 import { PlanStaleNotice } from '@/components/planner/PlanStaleNotice';
 import { dayFrame } from '@/lib/planner/day-frame';
 import { PlanReturnWarning } from '@/components/planner/PlanReturnWarning';
@@ -2120,6 +2121,51 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     rereadMovedTours(next);
   }
 
+  // Правка фразой (фича 5): сервер правит тем же путём, что MCP edit_trip_plan;
+  // прежний план — в ref, «Отменить» возвращает его одним нажатием.
+  const phraseUndoRef = useRef<null | {
+    days: DayPlan[]; arrival: string; departure: string; adults: number; budgetTier: BudgetTier;
+    builtFor: PlanSnapshot | null; planProfile: EstimateProfile | null;
+  }>(null);
+  function phraseCurrent(): PhraseApplied<DayPlan> | null {
+    if (!builtFor) return null;
+    return {
+      params: {
+        interests: [...builtFor.interests], arrivalDate: builtFor.arrival, departureDate: builtFor.departure,
+        adults: builtFor.adults, children: [...builtFor.children], budgetTier: builtFor.budgetTier as BudgetTier,
+        travelStyle, restDays,
+      },
+      days: daysRef.current,
+    };
+  }
+  function restorePhraseState(list: DayPlan[], arr: string, dep: string, ad: number, tier: BudgetTier) {
+    daysRef.current = list;
+    setDays(list);
+    setArrival(arr);
+    setDeparture(dep);
+    setAdults(ad);
+    setBudgetTier(tier);
+    setEditNote(null);
+    setTransportByDay({});
+    setConfirmedDays(new Set());
+    scheduleValidation(list);
+  }
+  function applyPhrase(next: PhraseApplied<DayPlan>) {
+    phraseUndoRef.current = { days: daysRef.current, arrival, departure, adults, budgetTier, builtFor, planProfile };
+    const p = next.params;
+    setBuiltFor((b) => (b ? { ...b, arrival: p.arrivalDate, departure: p.departureDate, adults: p.adults, budgetTier: p.budgetTier } : b));
+    setPlanProfile((pp) => (pp ? { ...pp, adults: p.adults, budgetTier: p.budgetTier } : pp));
+    restorePhraseState(withUiKeys(next.days), p.arrivalDate, p.departureDate, p.adults, p.budgetTier);
+  }
+  function undoPhrase() {
+    const u = phraseUndoRef.current;
+    if (!u) return;
+    phraseUndoRef.current = null;
+    setBuiltFor(u.builtFor);
+    setPlanProfile(u.planProfile);
+    restorePhraseState(u.days, u.arrival, u.departure, u.adults, u.budgetTier);
+  }
+
   function scheduleValidation(list: DayPlan[]) {
     if (validationTimerRef.current) clearTimeout(validationTimerRef.current);
     if (list.length < 2) return;
@@ -3181,6 +3227,11 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
 
           {/* Дня на возвращение из дальней зоны нет — после правки на экране (экран-4). */}
           <PlanReturnWarning days={days} origin={tripOrigin} shown={recommendation.warnings.map((w) => w.message)} />
+
+          {/* Правка фразой — над днями: что сделано и смета до/после, с отменой. */}
+          {days.length > 0 && builtFor && (
+            <PhraseEdit<DayPlan> current={phraseCurrent} onApply={applyPhrase} onUndo={undoPhrase} />
+          )}
 
           {/* Days */}
           {days.length > 0 && (
