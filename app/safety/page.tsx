@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { Header } from '@/components/layout/Header';
+import BottomNav from '@/components/shared/BottomNav';
 import { SectionSwipeBar, SAFETY_SECTION_ITEMS } from '@/components/layout/SectionSwipeBar';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { defaultOgImages } from '@/lib/seo/og-image';
@@ -53,6 +54,7 @@ export default function SafetyPage() {
           <SafetyLive />
         </Suspense>
       </div>
+      <BottomNav activePath="/safety" />
     </>
   );
 }

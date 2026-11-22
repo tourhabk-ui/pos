@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Activity, Flame, Thermometer, RefreshCw, ChevronDown, ChevronUp, Phone, ShieldCheck, BookOpen, CheckCircle2 } from 'lucide-react';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
-import BottomNav from '@/components/shared/BottomNav';
 import { zoneName } from '@/lib/safety/zone-names';
 import { ZONE_RISK_LABELS } from '@/lib/safety/severity-words';
 import { actionLabel } from '@/lib/safety/action-label';
@@ -659,7 +658,7 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
     // H1, шапка и прямой ответ — в серверном HTML страницы, выше этого
     // блока (Сыщик, 22.11). Здесь остаётся живая обстановка. paddingBottom
     // страницы — под фиксированный таб-бар: без него последняя карточка
-    // пряталась за панелью. Сам таб-бар — ЕДИНЫЙ BottomNav платформы.
+    // пряталась за панелью. Таб-бар — ЕДИНЫЙ BottomNav платформы, его рисует page.tsx.
     <>
       <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 16 }}>Камчатка · обстановка обновляется автоматически</p>
 
@@ -1036,7 +1035,6 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
       {/* AI Спасатель — общий с /sos (components/safety/RescueChat, 04.10). */}
       <RescueChat style={{ marginBottom: 32 }} />
 
-      <BottomNav activePath="/safety" />
     </>
   );
 }
