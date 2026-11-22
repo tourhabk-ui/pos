@@ -190,7 +190,6 @@ export const ALLOWED_FINDINGS: readonly AllowedFinding[] = [
   { file: 'lib/requests/request-chat-service.ts', sink: 'sendPdAlert stub', expr: 'tr ← r.guestName', reason: 'имя идёт в перевод списком для маски, а не в текст' },
   { file: 'app/api/cron/tour-review-request/route.ts', sink: 'sendTelegramMessage', expr: 'text ← b.tourist_name', reason: OWN_CHAT },
   { file: 'app/api/hub/admin/support/tickets/[id]/route.ts', sink: 'telegramService.sendMessage', expr: 'userName', reason: OWN_CHAT },
-  { file: 'app/api/telegram/webhook/route.ts', sink: 'telegramService.sendMessage', expr: 'touristLines ← phone', reason: OWN_CHAT },
   { file: 'lib/leads/proposal-delivery.ts', sink: 'tgSend', expr: 'text ← lead.name', reason: OWN_CHAT },
   { file: 'lib/notifications/booking-notifications.ts', sink: 'telegramService.sendMessage', expr: 'firstName', reason: OWN_CHAT },
   { file: 'lib/notifications/booking-notifications.ts', sink: 'telegramService.sendMessage', expr: 'lines ← firstName', reason: OWN_CHAT },
