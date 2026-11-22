@@ -23,6 +23,7 @@ import { zoneName } from '@/lib/planner/zone-style';
 import { dayCardWarning, runLabel, safetyBlock, shortWeatherLine, tourRuns } from '@/lib/planner/day-card-view';
 import { placeTouchesZones } from '@/lib/safety/place-zones';
 import { SafetyBlock } from '@/components/planner/SafetyBlock';
+import { TripToday } from '@/components/planner/TripToday';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -248,6 +249,16 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
             </div>
           )}
         </div>
+
+        {/* В поездке (фича 4): сегодня/завтра — прогноз и запасные туры из share-API, предупреждения дня. */}
+        <TripToday arrival={trip.arrival_date} zoneLabel={zoneName} days={trip.days.map((d) => {
+          const w = trip.weather?.[String(d.day)];
+          return {
+            day: d.day, title: d.title, zone: d.zone, dayWarnings: d.dayWarnings,
+            weather: w ? { tempMin: w.tempMin, tempMax: w.tempMax, description: w.description, windKmh: w.windKmh, precipMm: w.precipMm, bad: w.bad } : null,
+            planB: (trip.plan_b?.[String(d.day)] ?? []).map((t) => t.title),
+          };
+        })} />
 
         {mapMarkers.length > 0 && (
           <div id="trip-map" className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)', scrollMarginTop: 72 }}>
