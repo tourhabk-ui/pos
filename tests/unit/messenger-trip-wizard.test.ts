@@ -154,6 +154,17 @@ describe('диалог целиком', () => {
     expect(out.buttons.flat().some((b) => b.text === 'Открыть план целиком')).toBe(false);
   });
 
+  it('план сохранён, а дни не прочитались — кнопка «Открыть план целиком» остаётся', async () => {
+    const s: WizardState = { step: 5, start: '2027-01-01', days: 5, adults: 2, kid: 0, mask: 1 };
+    const out = await buildWizardPlan(s, {
+      makePlan: async () => `${'длинный текст '.repeat(200)}\nСтраница плана: https://vedarai.ru/trip/${ID}`,
+      loadDays: async () => { throw new Error('db'); },
+      site: 'https://vedarai.ru',
+    });
+    expect(out.text).toMatch(/План собран/);
+    expect(out.buttons.flat().map((b) => b.url).filter(Boolean)).toContain(`https://vedarai.ru/trip/${ID}`);
+  });
+
   it('движок упал — честный отказ, без падения', async () => {
     const s: WizardState = { step: 5, start: '2027-01-01', days: 5, adults: 2, kid: 0, mask: 1 };
     const out = await buildWizardPlan(s, { makePlan: async () => { throw new Error('db'); }, loadDays: async () => null });

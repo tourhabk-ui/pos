@@ -324,7 +324,15 @@ export async function buildWizardPlan(s: WizardState, deps: WizardDeps): Promise
   }
   const id = TRIP_ID_RE.exec(full)?.[1] ?? null;
   const days = id ? await deps.loadDays(id).catch(() => null) : null;
-  if (!id || !days || days.length === 0) {
+  if (id && (!days || days.length === 0)) {
+    // План сохранён, но дни не прочитались (сбой чтения черновика) — ссылка
+    // на план целиком всё равно ведёт на него.
+    return {
+      text: `План собран. Дни, цены и места — в плане целиком.\n\n${WIZARD_FOOTER}`,
+      buttons: [[{ text: 'Открыть план целиком', url: `${site}/trip/${id}` }], [planner], [RESTART]],
+    };
+  }
+  if (!id || !days) {
     // Отказ движка (не сезон, возраст, даты) — его же словами, коротко.
     const reason = full.trim().slice(0, 1200);
     return { text: esc(reason), buttons: [[planner], [RESTART]] };

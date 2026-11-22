@@ -1992,7 +1992,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         return;
       }
       if (mid !== null) {
-        await Promise.resolve(telegramService.editMessageText({ chatId: wizChat, messageId: mid, text: 'Собираю план по дням…', parseMode: 'HTML' }))
+        await Promise.resolve(telegramService.editMessageText({ chatId: wizChat, messageId: mid, text: 'Собираю план по дням…', parseMode: 'HTML', replyMarkup: { inline_keyboard: [] } }))
           .catch((err) => logSwallowedFailure('telegram/webhook', 'правка «Собираю план»', err));
       }
       await sendWizardTg(wizChat, await runWizardPlan(state), null);
