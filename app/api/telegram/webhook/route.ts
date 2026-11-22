@@ -1361,10 +1361,11 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       }
 
       const { magicLinkAllowed, signMagicToken, MAGIC_LINK_REFUSED_TEXT } = await import('@/lib/auth/magic-link');
-      const mfa = await query<{ mfa_enabled: boolean | null }>(
-        'SELECT mfa_enabled FROM users WHERE id = $1', [linkedUser.id],
-      ).then((r) => r.rows[0]?.mfa_enabled ?? null).catch(() => null);
-      if (!magicLinkAllowed({ role: linkedUser.role, mfa_enabled: mfa })) {
+      // Не прочиталось — ссылку не выдаём: решение «можно» без данных было бы угадыванием.
+      const gate = await query<{ mfa_enabled: boolean | null; preferences: unknown }>(
+        'SELECT mfa_enabled, preferences FROM users WHERE id = $1', [linkedUser.id],
+      ).then((r) => r.rows[0] ?? null).catch(() => null);
+      if (!gate || !magicLinkAllowed({ role: linkedUser.role, mfa_enabled: gate.mfa_enabled, preferences: gate.preferences })) {
         await sendHTML(chatId, esc(MAGIC_LINK_REFUSED_TEXT));
         return;
       }

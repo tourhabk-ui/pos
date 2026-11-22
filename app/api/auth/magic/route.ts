@@ -10,29 +10,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createToken } from '@/lib/auth/jwt';
 import { pool } from '@/lib/db-pool';
-import { magicLinkAllowed, readMagicToken, redeemMagicJti } from '@/lib/auth/magic-link';
+import { MAGIC_USER_COLUMNS, magicLinkAllowed, readMagicToken, redeemMagicJti } from '@/lib/auth/magic-link';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token');
   if (!token) {
-    return NextResponse.redirect(new URL('/auth/signin?error=no_token', req.url));
+    return NextResponse.redirect(new URL('/auth/login?error=no_token', req.url));
   }
 
   try {
     const read = await readMagicToken(token);
     if (!read) {
-      return NextResponse.redirect(new URL('/auth/signin?error=expired', req.url));
+      return NextResponse.redirect(new URL('/auth/login?error=expired', req.url));
     }
 
-    const { rows } = await pool.query<{ id: string; email: string; name: string; role: string; mfa_enabled: boolean | null }>(
-      'SELECT id, email, name, role, mfa_enabled FROM users WHERE id = $1',
+    const { rows } = await pool.query<{ id: string; email: string; name: string; role: string; mfa_enabled: boolean | null; preferences: unknown }>(
+      `SELECT ${MAGIC_USER_COLUMNS} FROM users WHERE id = $1`,
       [read.userId]
     );
 
     if (!rows[0]) {
-      return NextResponse.redirect(new URL('/auth/signin?error=not_found', req.url));
+      return NextResponse.redirect(new URL('/auth/login?error=not_found', req.url));
     }
 
     const user = rows[0];
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
 
     // Одноразовость: погашение одной вставкой. Уже погашена — входа нет.
     if (!(await redeemMagicJti(pool, read.jti, user.id))) {
-      return NextResponse.redirect(new URL('/auth/signin?error=expired', req.url));
+      return NextResponse.redirect(new URL('/auth/login?error=expired', req.url));
     }
 
     // Создаём полноценный auth_token (7 дней)
@@ -81,6 +81,6 @@ export async function GET(req: NextRequest) {
     return res;
 
   } catch {
-    return NextResponse.redirect(new URL('/auth/signin?error=expired', req.url));
+    return NextResponse.redirect(new URL('/auth/login?error=expired', req.url));
   }
 }

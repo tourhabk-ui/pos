@@ -30,6 +30,11 @@ function fakeDb() {
 
 describe('magic link: роль', () => {
   it('admin — нет', () => expect(magicLinkAllowed({ role: 'admin' })).toBe(false));
+  it('админ, переключившийся на другую роль (admin в preferences.roles), — нет', () => {
+    expect(magicLinkAllowed({ role: 'tourist', preferences: { roles: ['admin', 'tourist'] } })).toBe(false);
+    expect(magicLinkAllowed({ role: 'operator', preferences: { roles: ['operator', 'tourist'] } })).toBe(true);
+    expect(magicLinkAllowed({ role: 'tourist', preferences: null })).toBe(true);
+  });
   it('двухфакторная проверка включена — нет', () => expect(magicLinkAllowed({ role: 'tourist', mfa_enabled: true })).toBe(false));
   it('турист, оператор, гид — да', () => {
     for (const role of ['tourist', 'operator', 'guide']) expect(magicLinkAllowed({ role, mfa_enabled: false })).toBe(true);

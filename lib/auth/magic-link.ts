@@ -13,6 +13,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { SignJWT, jwtVerify } from 'jose';
+import { ownedRoles } from '@/lib/auth/role-switch';
 
 export const MAGIC_LINK_TTL_SEC = 5 * 60;
 
@@ -20,14 +21,26 @@ export interface MagicUser {
   id: string;
   role: string;
   mfa_enabled?: boolean | null;
+  /** users.preferences — роли, которыми человек владеет (preferences.roles). */
+  preferences?: unknown;
 }
 
-/** Можно ли этой учётной записи входить по ссылке из бота. */
-export function magicLinkAllowed(user: Pick<MagicUser, 'role' | 'mfa_enabled'>): boolean {
-  if (user.role === 'admin') return false;
+/**
+ * Можно ли этой учётной записи входить по ссылке из бота. Админ — по ЛЮБОЙ
+ * роли, которой владеет (preferences.roles), а не только по активной:
+ * переключившийся на другую роль остаётся админом.
+ */
+export function magicLinkAllowed(user: Pick<MagicUser, 'role' | 'mfa_enabled' | 'preferences'>): boolean {
+  const prefsRoles = user.preferences && typeof user.preferences === 'object'
+    ? (user.preferences as { roles?: unknown }).roles
+    : undefined;
+  if (ownedRoles(prefsRoles, user.role).includes('admin')) return false;
   if (user.mfa_enabled === true) return false;
   return true;
 }
+
+/** Поля пользователя для решения о ссылке — одним запросом. */
+export const MAGIC_USER_COLUMNS = 'id, email, name, role, mfa_enabled, preferences';
 
 export const MAGIC_LINK_REFUSED_TEXT =
   'Для этой учётной записи вход по ссылке из бота выключен. Войдите на сайте обычным способом: https://vedarai.ru/auth/login';
