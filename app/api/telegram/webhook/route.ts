@@ -36,6 +36,10 @@ import { repairTelegramHtml, splitTelegramHtmlReport, TELEGRAM_CAPTION_LIMIT } f
 import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
+import {
+  WIZARD_BUTTON, WIZARD_START, decodeWizard, isWizardPayload, wizardScreen, wizardStale,
+  type WizardButton, type WizardScreen,
+} from '@/lib/messenger/trip-wizard';
 import { verifyWebhookSecret, refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
 import { isRepeatedTelegramUpdate } from '@/lib/telegram/update-dedup';
 import { admitInbound, markInboundDone, claimStaleTelegram } from '@/lib/chat/inbound-seen';
@@ -297,6 +301,28 @@ async function sendRoleRows(chatId: string, text: string, buttons: MenuButton[][
   await sendHtmlKeyboard(chatId, text, roleKeyboard(buttons), 'ответ меню роли');
 }
 
+/** Кнопки мастера «Спланировать поездку» → строки меню (ссылка или нажатие). */
+function wizardRows(buttons: WizardButton[][]): MenuButton[][] {
+  return buttons.map((row) => row.map((b) => ({ text: b.text, payload: b.payload ?? '', ...(b.url ? { url: b.url } : {}) })));
+}
+
+/**
+ * Экран мастера: правкой нажатого сообщения (шаги не копятся в чате), не
+ * принята — новым сообщением.
+ */
+async function sendWizardTg(chatId: string, screen: WizardScreen, editMessageId: number | null): Promise<void> {
+  const replyMarkup = roleKeyboard(wizardRows(screen.buttons));
+  if (editMessageId !== null) {
+    try {
+      const edited = await telegramService.editMessageText({ chatId, messageId: editMessageId, text: screen.text, parseMode: 'HTML', replyMarkup });
+      if (edited.success) return;
+    } catch (err) {
+      logSwallowedFailure('telegram/webhook', 'правка шага «Спланировать поездку»', err);
+    }
+  }
+  await sendHtmlKeyboard(chatId, screen.text, replyMarkup, 'шаг «Спланировать поездку»');
+}
+
 /**
  * Постоянные кнопки телефона: туроператора (по умолчанию) или гида
  * (lib/telegram/guide-desk). Пустой inline их не заменяет.
@@ -520,6 +546,10 @@ async function answerByKuzmich(opts: {
 }
 
 async function answerTouristButton(chatId: string, button: TouristButton): Promise<void> {
+  if (button === WIZARD_BUTTON) {
+    await sendWizardTg(chatId, wizardScreen(WIZARD_START, Date.now()), null);
+    return;
+  }
   if (button === 'Погода') {
     await sendTourist(chatId, await getWeather());
     return;
@@ -1937,6 +1967,37 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       return;
     }
     const data           = press.payload;
+
+    // «Спланировать поездку» (22.11): шаги кнопками и сборка плана без модели
+    // (lib/messenger/trip-wizard). Только личный чат; в данных кнопки — коды, без ПД.
+    if (isWizardPayload(data)) {
+      await telegramService.answerCallback(cq.id);
+      const pressChat = cq.message?.chat;
+      if (!pressChat || pressChat.type !== 'private') return;
+      const wizChat = String(pressChat.id);
+      const mid = typeof cq.message?.message_id === 'number' ? cq.message.message_id : null;
+      const now = Date.now();
+      const state = decodeWizard(data);
+      if (!state || wizardStale(state, now)) {
+        await sendWizardTg(wizChat, { text: 'Эта кнопка устарела — начнём заново.', buttons: wizardScreen(WIZARD_START, now).buttons }, mid);
+        return;
+      }
+      if (state.step < 5) {
+        await sendWizardTg(wizChat, wizardScreen(state, now), mid);
+        return;
+      }
+      const { runWizardPlan, wizardBuildAllowed, WIZARD_BUSY_TEXT } = await import('@/lib/messenger/trip-wizard-run');
+      if (!wizardBuildAllowed('telegram', pressChat.id, now)) {
+        await sendHTML(wizChat, WIZARD_BUSY_TEXT);
+        return;
+      }
+      if (mid !== null) {
+        await Promise.resolve(telegramService.editMessageText({ chatId: wizChat, messageId: mid, text: 'Собираю план по дням…', parseMode: 'HTML' }))
+          .catch((err) => logSwallowedFailure('telegram/webhook', 'правка «Собираю план»', err));
+      }
+      await sendWizardTg(wizChat, await runWizardPlan(state), null);
+      return;
+    }
 
     // Ответ клиенту по заявке из Telegram адресата (30.10, с маской ПД):
     // «Ответить клиенту» → текст → предпросмотр → «Отправить». Только личный

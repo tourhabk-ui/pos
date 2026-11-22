@@ -559,13 +559,42 @@ describe('турист: клавиатура, порядок ответов, д�
     expect(comment).not.toContain('Подобрать тур');
   });
 
+  it('«Спланировать поездку» (22.11) — первый шаг кнопками, модель не зовётся', async () => {
+    await post('Спланировать поездку');
+    expect(m.tools).not.toHaveBeenCalled();
+    expect(m.fallback).not.toHaveBeenCalled();
+    const body = m.tgSend.mock.calls[0]?.[0] as { text?: string; replyMarkup?: { inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>> } };
+    expect(body.text).toContain('Когда едете?');
+    const first = body.replyMarkup?.inline_keyboard?.[0]?.[0];
+    expect(first?.callback_data).toMatch(/^tp:1:\d{6}:/);
+  });
+
+  it('нажатие шага «Спланировать поездку» — следующий вопрос, модель не зовётся', async () => {
+    const start = new Date(Date.now() + 40 * 86400000).toISOString().slice(2, 10).replace(/-/g, '');
+    await telegram.POST(new NextRequest('http://localhost/api/telegram/webhook', {
+      method: 'POST',
+      body: JSON.stringify({
+        update_id: nextUpdateId++,
+        callback_query: {
+          id: 'cq-tp', from: { id: TOURIST, first_name: 'Анна' },
+          message: { message_id: 7, chat: { id: TOURIST, type: 'private' } },
+          data: `tp:1:${start}:-:-:-:0`,
+        },
+      }),
+    }));
+    expect(m.tools).not.toHaveBeenCalled();
+    const body = m.tgSend.mock.calls.at(-1)?.[0] as { text?: string; replyMarkup?: { inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>> } };
+    expect(body.text).toContain('Сколько дней');
+    expect(body.replyMarkup?.inline_keyboard?.[0]?.map((b) => b.text)).toEqual(['3', '5', '7', '10', '14']);
+  });
+
   it('/start — клавиатура Ведара, без текста кабинета оператора', async () => {
     await post('/start');
     const body = m.tgSend.mock.calls[0]?.[0] as { text?: string; replyMarkup?: { keyboard?: Array<Array<{ text: string }>> } };
     expect(body.text).toContain('Ведар');
     expect(body.text).not.toMatch(/TourHab|подключён к оператору|MAX/);
     expect(body.replyMarkup?.keyboard?.flat().map((b) => b.text)).toEqual([
-      'Подобрать тур', 'Погода', 'Аренда авто', 'Операторы', 'Регистрация в МЧС', 'Задать вопрос',
+      'Спланировать поездку', 'Подобрать тур', 'Погода', 'Аренда авто', 'Операторы', 'Регистрация в МЧС', 'Задать вопрос',
     ]);
     expect(m.tools).not.toHaveBeenCalled();
   });
@@ -961,7 +990,7 @@ describe('кабинет проката на живом вебхуке', () => {
     expect(body.text).not.toMatch(/Лагуна|Кабинет проката/);
     expect(body.replyMarkup?.inline_keyboard).toBeUndefined();
     expect(body.replyMarkup?.keyboard?.flat().map((b) => b.text)).toEqual([
-      'Подобрать тур', 'Погода', 'Аренда авто', 'Операторы', 'Регистрация в МЧС', 'Задать вопрос',
+      'Спланировать поездку', 'Подобрать тур', 'Погода', 'Аренда авто', 'Операторы', 'Регистрация в МЧС', 'Задать вопрос',
     ]);
   });
 });
