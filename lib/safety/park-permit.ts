@@ -338,3 +338,11 @@ export function permitRuleFor(input: { title?: string | null; parkName?: string 
   if (isFreeVisitArea(input.title)) return { kind: 'free_visit' };
   return { kind: 'park', federal: federalizedPark(input.parkName, input.title) };
 }
+
+/**
+ * Разрешение территории и регистрация в МЧС — разные обязанности. Строка здесь,
+ * а не в lib/parks/route-permit: её читает и статическая справка
+ * «Нужно ли разрешение», которой нельзя тянуть модули базы на сборке.
+ */
+export const PERMIT_NOT_MCHS_RU =
+  'Разрешение территории — не регистрация в МЧС: это разные обязанности, одно не заменяет другое.';

@@ -134,6 +134,8 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // STABLE: константа июня говорила поисковику «не менялось четыре месяца».
     // Две страницы, посчитанные из базы (разбор видимости в ответах ИИ, 19.11).
     { url: `${BASE}/skolko-stoit-poezdka-na-kamchatku`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.8 },
+    // Справка о разрешениях (#3566 п.5): факты — справочник lib/safety/park-permit.
+    { url: `${BASE}/razreshenie-na-poseshchenie`, lastModified: new Date(), changeFrequency: 'weekly', priority: 0.7 },
     { url: `${BASE}/kogda-ehat-na-kamchatku`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.8 },
     // Посадочные Сыщика (20.11, lib/landings): lastmod — дата ревизии текста.
     ...NEW_LANDINGS.map((l) => ({
