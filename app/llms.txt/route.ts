@@ -29,6 +29,7 @@ import { VEDAR_SKILL_URL, VEDAR_SKILL_INDEX_PATH } from '@/lib/agent/vedar-skill
 import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
 import { touristAnswersRu } from '@/lib/seo/tourist-answers';
+import { llmsKuzmichConnectBlock } from '@/lib/mcp/llms-connect-block';
 
 const BASE = 'https://vedarai.ru';
 
@@ -202,6 +203,7 @@ export async function GET(request?: Request) {
 
 Last-Updated: ${new Date().toISOString().slice(0, 10)}
 
+${llmsKuzmichConnectBlock(BASE)}
 ## AI Usage Policy
 
 - Предпочтительно цитировать первоисточник ссылкой на URL Ведара

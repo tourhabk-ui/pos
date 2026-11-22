@@ -14,6 +14,7 @@
  */
 
 import { MCHS_DEADLINE_SHORT, MCHS_SOURCE } from '@/lib/safety/mchs-registration';
+import { KRONOTSKY_RULES } from '@/lib/facts/kamchatka';
 
 export type LandingLang = 'ru' | 'en' | 'zh-CN';
 /**
@@ -83,8 +84,8 @@ const RU_NO_PAY_FAQ = RU_BOOKING_FAQ.filter((f) => f.q.startsWith('Нужно л
  * общие для Кроноцкого заповедника и Южно-Камчатского заказника
  * (kronoki.ru/ru/visit/information-for-all/rules/447.html, прочитано 19.11.2026).
  */
-export const KRONOKI_RULES_URL = 'https://kronoki.ru/ru/visit/information-for-all/rules/447.html';
-export const KRONOKI_ESCORT = `По правилам пребывания Кроноцкого заповедника (приказ № 24-П от 29.01.2026) группы и одиночные посетители находятся на его территории и в Южно-Камчатском заказнике только в сопровождении сотрудника заповедника. Источник: ${KRONOKI_RULES_URL}`;
+export const KRONOKI_RULES_URL = KRONOTSKY_RULES.sourceUrl;
+export const KRONOKI_ESCORT = `По правилам пребывания Кроноцкого заповедника (приказ № ${KRONOTSKY_RULES.order} от ${KRONOTSKY_RULES.orderDateShort}) группы и одиночные посетители находятся на его территории и в Южно-Камчатском заказнике только в сопровождении сотрудника заповедника. Источник: ${KRONOKI_RULES_URL}`;
 
 /**
  * Регистрация в МЧС — те же факты, что у формы /register и карточек

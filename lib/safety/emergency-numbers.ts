@@ -20,6 +20,13 @@
  * См. также lib/services/emergency-contacts.ts + миграция 722 (source='verified').
  */
 
+import {
+  CUKS_CONSULT_PHONE,
+  CUKS_DUTY_PHONE,
+  CUKS_DUTY_RESERVE_PHONE,
+  FEDERAL_EMERGENCY_NUMBERS,
+} from '@/lib/facts/kamchatka';
+
 export interface EmergencyNumber {
   /** Что за служба — подпись в UI */
   name: string;
@@ -39,14 +46,14 @@ export interface EmergencyNumber {
 export const FEDERAL_EMERGENCY: EmergencyNumber[] = [
   {
     name: 'Спасение · полиция · скорая',
-    phone: '112',
+    phone: FEDERAL_EMERGENCY_NUMBERS.value[0],
     type: 'Единый номер',
     primary: true,
     hint: 'Работает без баланса и SIM. Дозвонится и переключит на нужную службу.',
   },
-  { name: 'Пожарные и спасатели (МЧС)', phone: '101', type: 'МЧС' },
-  { name: 'Полиция', phone: '102', type: 'Полиция' },
-  { name: 'Скорая помощь', phone: '103', type: 'Медицина' },
+  { name: 'Пожарные и спасатели (МЧС)', phone: FEDERAL_EMERGENCY_NUMBERS.value[1], type: 'МЧС' },
+  { name: 'Полиция', phone: FEDERAL_EMERGENCY_NUMBERS.value[2], type: 'Полиция' },
+  { name: 'Скорая помощь', phone: FEDERAL_EMERGENCY_NUMBERS.value[3], type: 'Медицина' },
 ];
 
 /** Главный номер — для мест, где нужен один акцентный контакт. */
@@ -61,12 +68,12 @@ export const EMERGENCY_PRIMARY: EmergencyNumber = FEDERAL_EMERGENCY[0];
 export const VERIFIED_REGIONAL: EmergencyNumber[] = [
   {
     name: 'МЧС Камчатки — оперативный дежурный (СОД)',
-    phone: '+7 (4152) 30-10-89',
+    phone: CUKS_DUTY_PHONE.value,
     type: 'МЧС',
   },
   {
     name: 'МЧС Камчатки — оперативный дежурный, резерв (СОД)',
-    phone: '+7 (4152) 20-01-12',
+    phone: CUKS_DUTY_RESERVE_PHONE.value,
     type: 'МЧС',
   },
   {
@@ -120,7 +127,7 @@ export function telHref(phone: string): string {
 export const VERIFIED_REFERENCE: EmergencyNumber[] = [
   {
     name: 'ЦУКС ГУ МЧС Камчатки — консультации по маршрутному листу и предупреждениям на маршруте',
-    phone: '+7 (4152) 30-10-81',
+    phone: CUKS_CONSULT_PHONE.value,
     type: 'МЧС',
   },
 ];
