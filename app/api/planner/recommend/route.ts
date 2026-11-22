@@ -4,6 +4,7 @@
  * Optionally loads saved preferences from AgentMemory for authenticated users.
  */
 
+import { serverTiming } from '@/lib/planner/server-timing';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { INTERESTS_MAX, describeRecommendError } from '@/lib/planner/recommend-errors';
@@ -134,7 +135,12 @@ export async function POST(req: NextRequest) {
       if (problem) return NextResponse.json({ success: false, error: problem }, { status: 400 });
     }
 
-    const recommendation = await recommendTrip(parsed);
+    // Замер этапов (фича 7, 23.11): только имена этапов и миллисекунды —
+    // в заголовок Server-Timing (видно во вкладке Network) и строкой в лог.
+    const stages: Array<[string, number]> = [];
+    const t0 = performance.now();
+    const recommendation = await recommendTrip(parsed, { onStage: (stage, ms) => { stages.push([stage, ms]); } });
+    const totalMs = Math.round(performance.now() - t0);
 
     // Fire-and-forget: persist preferences for authenticated users
     if (userId) {
@@ -154,7 +160,10 @@ export async function POST(req: NextRequest) {
       }).catch((err) => logSwallowedFailure('planner-recommend', 'запись предпочтений', err));
     }
 
-    return NextResponse.json({ success: true, data: recommendation });
+    console.info(`[planner/recommend] этапы, мс: ${stages.map(([n, ms]) => `${n}=${ms}`).join(' ')} total=${totalMs} days=${recommendation.days.length}`);
+    return NextResponse.json({ success: true, data: recommendation }, {
+      headers: { 'Server-Timing': serverTiming(stages, totalMs) },
+    });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json(
