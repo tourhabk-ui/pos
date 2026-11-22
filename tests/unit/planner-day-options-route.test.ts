@@ -83,6 +83,22 @@ describe('варианты дня', () => {
     expect(params[1]).toEqual(expect.arrayContaining(['helicopter', 'boat_trip', 'volcano', 'geyser']));
   });
 
+  it('замена на земле: облёт или катер, записанные чужим видом, узнаются по названию и не предлагаются', async () => {
+    queryMock.mockResolvedValue({ rows: [
+      row('801', { activity_type: 'excursion', title: 'Облёт Курильского озера' }),
+      row('802', { activity_type: 'excursion', title: 'Морская прогулка на катере по Авачинской бухте' }),
+      row('803', { activity_type: 'thermal', title: 'Паратунка' }),
+    ] });
+    const body = await (await get('https://vedarai.ru/api/planner/day-options?mode=ground&zone=avachinsky&date=2026-11-26&participants=2')).json() as { options: Array<{ id: string }> };
+    expect(body.options.map((o) => o.id)).toEqual(['803']);
+  });
+
+  it('скрытый оператор (is_public = false) в варианты не попадает — условие в запросе', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await get(URL_SAME);
+    expect((queryMock.mock.calls[0] as [string])[0]).toMatch(/p\.is_public = TRUE/);
+  });
+
   it('места одного варианта не прочитались — «не прочитали» (read: null), а не «мест нет»', async () => {
     queryMock.mockResolvedValue({ rows: [row('501')] });
     rereadMock.mockRejectedValueOnce(new Error('timeout'));

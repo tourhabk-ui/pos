@@ -26,7 +26,7 @@ import { zoneMatchSql } from './zone-match';
 import { rawTypesFor } from './constants';
 import { tourPlanSpan } from './tour-span';
 import { rereadTourDay } from './tour-day-reread';
-import { WEATHER_SENSITIVE_TYPES } from './weather-plan-b';
+import { WEATHER_SENSITIVE_TYPES, weatherKindOfActivity } from './weather-plan-b';
 import type { DayOption } from './day-options';
 
 export interface DayOptionsInput {
@@ -48,6 +48,7 @@ interface Row {
   base_price: string | null;
   price_unit: string | null;
   activity_type: string | null;
+  difficulty: string | null;
   min_participants: number | null;
   max_participants: number | null;
   duration_hours: number | null;
@@ -68,7 +69,7 @@ interface Row {
 const SELECT = `
   SELECT
     ot.id::text AS id, ot.title, ot.short_description, ot.base_price::text AS base_price, ot.price_unit,
-    ot.activity_type, ot.min_participants, ot.max_participants,
+    ot.activity_type, ot.difficulty, ot.min_participants, ot.max_participants,
     ot.duration_hours::float8 AS duration_hours, ot.multi_day_count, ot.duration_type,
     ot.season_start::text AS season_start, ot.season_end::text AS season_end,
     ${keepsScheduleSql('ot.id')} AS keeps_schedule,
@@ -102,26 +103,31 @@ async function readRows(input: DayOptionsInput, inZone: boolean): Promise<Row[]>
   const { rows } = await pool.query<Row>(`${SELECT}
     WHERE ${typeCond}
       AND ${publicTourSql('ot')}
+      AND p.is_public = TRUE
       AND ot.id::text <> $3::text
       ${zoneCond}`, params);
   return rows;
 }
 
-/** Строки, которые подходят дню: выезд в эту дату, тур на один день, правило 1в. */
-function pick(rows: readonly Row[], date: string, limit: number): Row[] {
+/** Строки, которые подходят дню: выезд в эту дату, тур на один день, правило 1в; оператор на витрине. */
+function pick(rows: readonly Row[], input: DayOptionsInput): Row[] {
+  const { date, limit } = input;
   const today = kamchatkaToday();
   const fit = rows.filter((r) => catalogRowFitsDay(r, date, today)
-    && tourPlanSpan(r.duration_hours, r.multi_day_count) === 1);
+    && tourPlanSpan(r.duration_hours, r.multi_day_count) === 1
+    // Замена «на земле»: вид у операторов записан по-разному — облёт,
+    // катер, восхождение узнаются и по названию (ревью #3708).
+    && (input.mode !== 'ground' || weatherKindOfActivity(r.activity_type ?? '', r.title) === null));
   return orderOffersBy(fit, (r) => ({ id: String(r.id), nearestFreeDate: r.nearest_free_date ?? null, anyDayOpen: r.any_day_open ?? null }))
     .slice(0, limit);
 }
 
 /** Варианты дня с местами и ценой на дату для группы. */
 export async function dayOptions(input: DayOptionsInput): Promise<DayOption[]> {
-  let rows = pick(await readRows(input, true), input.date, input.limit);
+  let rows = pick(await readRows(input, true), input);
   let otherZone = false;
   if (rows.length === 0 && input.mode === 'same') {
-    rows = pick(await readRows(input, false), input.date, input.limit);
+    rows = pick(await readRows(input, false), input);
     otherZone = rows.length > 0;
   }
   return Promise.all(rows.map(async (r): Promise<DayOption> => {
@@ -147,6 +153,7 @@ export async function dayOptions(input: DayOptionsInput): Promise<DayOption[]> {
       maxParticipants: r.max_participants,
       calendar: r.keeps_schedule ? 'dated' : 'request',
       otherZone,
+      difficulty: r.difficulty,
       coords: typeof r.lat === 'number' && typeof r.lng === 'number' && Number.isFinite(r.lat) && Number.isFinite(r.lng) ? [r.lat, r.lng] : null,
       read,
     };

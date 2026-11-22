@@ -20,7 +20,7 @@ import { TOUR_PRICE_PENDING_TEXT } from './calendar-days';
 import { tourGroupCost } from './estimate';
 import { withGroupMinimum } from './group-minimum';
 import { tourGroup } from './plan-ops';
-import { normalizeActivity } from './constants';
+import { ACTIVITY_CONSTRAINTS, normalizeActivity, type TransportType } from './constants';
 import { weatherKindOfActivity, WEATHER_KIND_SHORT } from './weather-plan-b';
 
 /** Вариант дня — как его отдаёт GET /api/planner/day-options. */
@@ -41,6 +41,8 @@ export interface DayOption {
   /** Тур не из зоны дня (в зоне подходящих нет) — нужен переезд. */
   otherZone: boolean;
   coords: [number, number] | null;
+  /** Сложность тура из карточки оператора (easy|moderate|hard); null — не указана. */
+  difficulty?: string | null;
   /** Места и цена на дату дня для группы; null — не прочитали. */
   read: TourDayRead | null;
 }
@@ -83,6 +85,11 @@ export interface CompareDay {
     calendar?: 'dated' | 'request';
     priceLabel?: string;
   };
+  defaultTransport?: TransportType;
+  allowedTransports?: TransportType[];
+  difficulty?: 'easy' | 'moderate' | 'hard';
+  childFriendly?: boolean;
+  minChildAge?: number;
 }
 
 const fmt = (n: number) => Math.round(n).toLocaleString('ru-RU').replace(/\u00a0/g, ' ');
@@ -177,9 +184,17 @@ export function currentFacts(day: CompareDay, people: number): OptionFact[] {
  * День многодневного тура заменяется целиком — правкой плана, не здесь.
  * null — можно; иначе причина словами.
  */
+/** День многодневного тура: замена одного его дня разорвала бы тур. */
+export function isMultiDayTourDay<T extends CompareDay>(days: readonly T[], day: T): boolean {
+  return !!day.realTour && tourGroup(days, day).length > 1;
+}
+
+/** Ограничения вида занятия не известны движку — строка в предупреждениях дня. */
+export const OPTION_LIMITS_UNKNOWN = 'Транспорт, сложность и возраст для этого тура уточните у оператора.';
+
 export function compareRefusal<T extends CompareDay>(days: readonly T[], day: T): string | null {
   if (day.type !== 'activity' || !day.realTour) return 'В этот день нет тура — сравнивать не с чем';
-  if (tourGroup(days, day).length > 1) return 'Тур на несколько дней — замена целиком через правку плана';
+  if (isMultiDayTourDay(days, day)) return 'Тур на несколько дней — замена целиком через правку плана';
   return null;
 }
 
@@ -189,7 +204,7 @@ export function compareRefusal<T extends CompareDay>(days: readonly T[], day: T)
  * смета тур не складывает. Предупреждения прежнего тура снимаются, строка
  * о наборе группы — новая.
  */
-export function dayWithOption<T extends CompareDay>(day: T, o: DayOption, people: number): T {
+export function dayWithOption<T extends CompareDay>(day: T, o: DayOption, people: number, youngestChild: number | null = null): T {
   const next = { ...day } as T;
   delete next.realPrice;
   delete next.availability;
@@ -218,7 +233,29 @@ export function dayWithOption<T extends CompareDay>(day: T, o: DayOption, people
     lodgingIncluded: null,
     calendar: o.calendar,
   };
-  next.dayWarnings = withGroupMinimum([], o.minParticipants, people);
+  // Транспорт, сложность, возраст — нового тура, а не прежнего (ревью #3708):
+  // по виду занятия, как у движка; сложность — из карточки тура, если указана.
+  const c = ACTIVITY_CONSTRAINTS[next.activityType];
+  const ownDifficulty = o.difficulty === 'easy' || o.difficulty === 'moderate' || o.difficulty === 'hard' ? o.difficulty : null;
+  const warnings: string[] = [];
+  if (c) {
+    const allowed = [...c.allowedTransports];
+    next.allowedTransports = allowed;
+    next.defaultTransport = c.requiredTransport ?? (allowed.includes(c.defaultTransport) ? c.defaultTransport : allowed[0] ?? 'walking');
+    next.difficulty = ownDifficulty ?? c.difficulty;
+    next.minChildAge = c.minChildAge;
+    next.childFriendly = youngestChild === null || youngestChild >= c.minChildAge;
+    if (youngestChild !== null && youngestChild < c.minChildAge) {
+      warnings.push(`Такие туры обычно — с ${c.minChildAge} лет, младшему ${youngestChild}: возраст подтверждает оператор.`);
+    }
+  } else {
+    next.allowedTransports = ['walking'];
+    next.defaultTransport = 'walking';
+    if (ownDifficulty) next.difficulty = ownDifficulty;
+    next.minChildAge = 0;
+    warnings.push(OPTION_LIMITS_UNKNOWN);
+  }
+  next.dayWarnings = withGroupMinimum(warnings, o.minParticipants, people);
   return next;
 }
 
@@ -249,6 +286,7 @@ export function parseDayOptions(body: unknown): { options: DayOption[]; orderNot
       calendar: o.calendar === 'dated' ? 'dated' : 'request',
       otherZone: o.otherZone === true,
       coords,
+      difficulty: typeof o.difficulty === 'string' ? o.difficulty : null,
       read: o.read ? parseTourDayRead({ success: true, read: o.read }) : null,
     });
   }

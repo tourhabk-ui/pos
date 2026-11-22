@@ -2087,10 +2087,15 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
    * тур встаёт в день, цена и места на дату перечитываются, смета следом.
    */
   function putOptionOnDay(dayNum: number, option: DayOption) {
-    const next = daysRef.current.map((d) => (d.day === dayNum ? dayWithOption(d, option, planPeople) : d));
+    const ages = builtFor ? builtFor.children : knownChildAges;
+    const youngest = ages.length > 0 ? Math.min(...ages) : null;
+    const next = daysRef.current.map((d) => (d.day === dayNum ? dayWithOption(d, option, planPeople, youngest) : d));
     daysRef.current = next;
     setDays(next);
     setEditNote(null);
+    // Выбор транспорта и отметка были о прежнем туре — новый их не наследует (как replaceDay).
+    setTransportByDay((prev) => { const n = { ...prev }; delete n[dayNum]; return n; });
+    setConfirmedDays((prev) => { if (!prev.has(dayNum)) return prev; const n = new Set(prev); n.delete(dayNum); return n; });
     scheduleValidation(next);
     rereadMovedTours(next);
   }

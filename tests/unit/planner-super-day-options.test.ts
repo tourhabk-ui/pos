@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  compareRefusal, currentFacts, dayWithOption, optionFacts, parseDayOptions,
+  compareRefusal, currentFacts, dayWithOption, isMultiDayTourDay, optionFacts, parseDayOptions, OPTION_LIMITS_UNKNOWN,
   type CompareDay, type DayOption,
 } from '@/lib/planner/day-options';
 import {
@@ -107,6 +107,27 @@ describe('«Сравнить и заменить»: честные «за» и �
     expect(read.priceMissing).toBeUndefined();
     // Прежний тур не задет.
     expect(heli.realTour?.tourId).toBe('98');
+  });
+
+  it('«Поставить»: транспорт, сложность и возраст — нового тура, не прежнего (ревью #3708)', () => {
+    const fishing = { ...OWNER[1], defaultTransport: 'jeep' as const, allowedTransports: ['jeep' as const], difficulty: 'hard' as const, childFriendly: false, minChildAge: 14 };
+    const thermal = dayWithOption(fishing, option({ id: '701', title: 'Паратунка', activityType: 'thermal', minParticipants: 1, difficulty: null }), PEOPLE);
+    expect(thermal.defaultTransport).not.toBe('jeep');
+    expect(thermal.minChildAge).not.toBe(14);
+    expect(thermal.childFriendly).toBe(true);
+    const heli = dayWithOption(fishing, option({ difficulty: 'easy' }), PEOPLE, 4);
+    expect(heli.defaultTransport).toBe('helicopter');
+    expect(heli.difficulty).toBe('easy');
+    expect(heli.childFriendly).toBe(heli.minChildAge !== undefined && 4 >= heli.minChildAge);
+    const unknown = dayWithOption(fishing, option({ activityType: 'что-то новое', minParticipants: 1 }), PEOPLE);
+    expect(unknown.dayWarnings).toContain(OPTION_LIMITS_UNKNOWN);
+    expect(unknown.defaultTransport).toBe('walking');
+  });
+
+  it('день многодневного тура узнаётся — План Б не предлагает менять один его день', () => {
+    expect(isMultiDayTourDay(OWNER, OWNER[4])).toBe(true);
+    expect(isMultiDayTourDay(OWNER, OWNER[2])).toBe(false);
+    expect(isMultiDayTourDay(OWNER, OWNER[9])).toBe(false);
   });
 
   it('ответ сервера проверяется по форме; кривой — неответ', () => {

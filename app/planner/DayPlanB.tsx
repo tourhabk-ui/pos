@@ -9,7 +9,7 @@
  */
 import { useState } from 'react';
 import { CloudFog, ChevronDown, ChevronUp, ArrowUpDown, Loader2 } from 'lucide-react';
-import { optionFacts, type CompareDay, type DayOption } from '@/lib/planner/day-options';
+import { isMultiDayTourDay, optionFacts, type CompareDay, type DayOption } from '@/lib/planner/day-options';
 import {
   forecastFacts, swapPlan, weatherDayKind, WEATHER_KIND_SHORT,
   type Comparison, type PlanBDay,
@@ -37,6 +37,8 @@ export function DayPlanB<T extends CompareDay & PlanBDay>({ day, days, people, d
   const [load, setLoad] = useState<OptionsLoad>({ state: 'idle' });
   const kind = weatherDayKind(day);
   if (!kind) return null;
+  // День многодневного тура заменой одного дня не правится (ревью #3708).
+  const multiDay = isMultiDayTourDay(days, day);
 
   const fetchGround = () => {
     if (!date) { setLoad({ state: 'error', message: 'Дат поездки нет — замену на дату не подобрать' }); return; }
@@ -50,7 +52,7 @@ export function DayPlanB<T extends CompareDay & PlanBDay>({ day, days, people, d
   const toggle = () => {
     const next = !open;
     setOpen(next);
-    if (next && (load.state === 'idle' || load.state === 'error')) fetchGround();
+    if (next && !multiDay && (load.state === 'idle' || load.state === 'error')) fetchGround();
   };
   const swap = swapPlan(days, day.day);
 
@@ -105,19 +107,22 @@ export function DayPlanB<T extends CompareDay & PlanBDay>({ day, days, people, d
 
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">Если не состоится — замена из каталога</p>
-            {load.state === 'loading' && (
+            {multiDay && (
+              <p className="text-xs text-[var(--text-secondary)]">Это день многодневного тура — замена одного дня его разорвёт. Перенос или замена тура целиком — через правку плана.</p>
+            )}
+            {!multiDay && load.state === 'loading' && (
               <p className="flex items-center gap-2 text-xs text-[var(--text-secondary)]"><Loader2 className="w-3.5 h-3.5 animate-spin" />Ищем туры этой зоны на дату, которые погода не отменяет…</p>
             )}
-            {load.state === 'error' && (
+            {!multiDay && load.state === 'error' && (
               <p className="text-xs text-[var(--warning)]" role="status">
                 {load.message}{' '}
                 {date && <button type="button" className="underline font-semibold" onClick={fetchGround}>Повторить</button>}
               </p>
             )}
-            {load.state === 'done' && load.options.length === 0 && (
+            {!multiDay && load.state === 'done' && load.options.length === 0 && (
               <p className="text-xs text-[var(--text-secondary)]">В этой зоне на эту дату туров без вертолёта и моря в каталоге нет — остаётся резервный день или обмен дней.</p>
             )}
-            {load.state === 'done' && load.options.length > 0 && (
+            {!multiDay && load.state === 'done' && load.options.length > 0 && (
               <div className="grid gap-2 grid-cols-1 sm:grid-cols-2">
                 {load.options.map((o) => (
                   <OptionCard
@@ -130,7 +135,7 @@ export function DayPlanB<T extends CompareDay & PlanBDay>({ day, days, people, d
                 ))}
               </div>
             )}
-            {load.state === 'done' && (
+            {!multiDay && load.state === 'done' && (
               <p className="mt-2 text-[10.5px] leading-snug text-[var(--text-muted)]">{load.orderNote ? `${load.orderNote} ` : ''}{NOT_A_BOOKING}</p>
             )}
           </div>
