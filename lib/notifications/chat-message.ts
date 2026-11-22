@@ -35,7 +35,7 @@
  */
 import { pool } from '@/lib/db-pool';
 import { ROLE_TO_CATEGORY } from '@/lib/crm/partner-context';
-import { INBOX_CHAT_CATEGORIES } from '@/lib/crm/inbox-kinds';
+import { INBOX_CHAT_CATEGORIES, partnerChatPath } from '@/lib/crm/inbox-kinds';
 import { reachForPartner } from '@/lib/partners/reach';
 import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { getPublicBaseUrl } from '@/lib/config';
@@ -160,10 +160,13 @@ export async function notifyPartnerOfChatMessageQuietly(
     ].filter(Boolean).join('\n');
 
     const reply = convReplyButton(conversationId);
+    // «Открыть чат» ведёт туда, где партнёр читает беседу на сайте: у
+    // туроператора — страница «Сообщения» с этой беседой (22.11, #2770).
+    const chatPath = partnerChatPath(category, conversationId) ?? `/hub/${category}`;
     const res = await sendPdAlert({
       text: `${text}\n\nОтветить туристу в этом чате — кнопка «Ответить».`,
       stub,
-      buttons: [reply, { text: 'Открыть чат', url: `${getPublicBaseUrl()}/hub/${category}` }],
+      buttons: [reply, { text: 'Открыть чат', url: `${getPublicBaseUrl()}${chatPath}` }],
       stubActions: reach.telegramChatId ? [reply] : undefined,
       to: { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId },
     });
