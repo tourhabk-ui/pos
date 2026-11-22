@@ -17,7 +17,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const countView = req.nextUrl.searchParams.get('view') !== '0';
-  const r = await loadPlaceDetail(id, { countView });
+  const r = req.nextUrl.searchParams.get('view') === '0'
+    ? await loadPlaceDetail(id, { countView: false })
+    : await loadPlaceDetail(id, { countView: true });
   return NextResponse.json(r.body, { status: r.status });
 }

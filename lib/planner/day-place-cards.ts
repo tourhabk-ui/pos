@@ -17,7 +17,7 @@
  */
 
 export interface DayPlaceCard {
-  /** Чья карточка: место (/places/id) или маршрут (/routes/id). */
+  /** Чья карточка: место (страница places) или маршрут (страница routes). */
   kind: 'place' | 'route';
   id: string;
   title: string;
