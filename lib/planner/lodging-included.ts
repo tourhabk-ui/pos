@@ -53,6 +53,12 @@ export interface NightDay {
   /** Цена тура — только у первого дня тура: по ней узнаётся начало новой брони. */
   realPrice?: number;
   priceMissing?: string;
+  /**
+   * День дороги до места далёкого тура или обратно (этап 3 аудита дорог,
+   * 22.11). `nightOnSite: 'tour'` — у тура проживание в составе: ночь после
+   * дороги туда и ночь после дня тура — у места, на базе оператора.
+   */
+  roadLeg?: { tourId: string; direction: 'to' | 'back'; nightOnSite: 'tour' };
 }
 
 /**
@@ -67,11 +73,16 @@ export interface NightDay {
  * цена или причина её отсутствия).
  */
 export function nightLodgingIncluded(day: NightDay, next: NightDay | undefined): boolean | null {
+  // Ночь после дороги к месту далёкого тура — у места, на базе оператора.
+  if (day.roadLeg?.direction === 'to' && day.roadLeg.nightOnSite === 'tour') return true;
   const flag = day.realTour?.lodgingIncluded ?? null;
   if (flag !== true) return flag;
   const continues = !!next?.realTour
     && next.realTour.tourId === day.realTour!.tourId
     && next.realPrice === undefined
     && next.priceMissing === undefined;
-  return continues ? true : false;
+  // Завтра — дорога обратно от этого же тура: ночь ещё у места.
+  const beforeRoadBack = next?.roadLeg?.direction === 'back' && next.roadLeg.tourId === day.realTour!.tourId
+    && next.roadLeg.nightOnSite === 'tour';
+  return continues || beforeRoadBack ? true : false;
 }

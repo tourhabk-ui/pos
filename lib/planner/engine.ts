@@ -49,7 +49,7 @@ import { returnLegMissingMessage } from '@/lib/planner/plan-edit-warnings';
 import { calculatePriceBreakdown, type PriceBreakdown } from '@/lib/planner/estimate';
 import { tourPlanSpan, tourRoom } from '@/lib/planner/tour-span';
 import {
-  ROAD_CHECK_MIN_KM, tooFarForDayTrip, farDayTourLine, farSelfRouteLine, selfNoRoadDayLine, farDayTourReason, noRoadLine, roadUnreadLine,
+  ROAD_CHECK_MIN_KM, tooFarForDayTrip, farDayTourLine, farSelfRouteLine, selfNoRoadDayLine, roadToTourText, roadBackText, farBundleLine, farBundleNoRoomLine, farBundleNoDateLine, farNoNightLine, farDayTourReason, noRoadLine, roadUnreadLine,
   pointUnknownLine, adjacentToursLine, isAirTour, roadDayLine, type RoadEstimate,
 } from '@/lib/planner/road-reach';
 import { roadEstimate } from '@/lib/planner/road-hours';
@@ -170,6 +170,11 @@ export interface DayPlan {
    * или дня без тура.
    */
   pointUnknown?: boolean;
+  /**
+   * День дороги к месту далёкого тура или обратно (этап 3 аудита дорог):
+   * связка «дорога + тур + дорога», часы — оценка графа. Нет поля — обычный день.
+   */
+  roadLeg?: { tourId: string; direction: 'to' | 'back'; km: number; hours: number; nightOnSite: 'tour' };
   // Reality-aware fields (all optional for backward compat)
   realTour?: {
     tourId: string;
@@ -1307,6 +1312,15 @@ async function generateDayPlans(
   /** Маршруты «сам», к началу которых дорога в графе не строится (прод 22.11: Мутновско-Гореловская группа, старт в 13,7 км от дороги). */
   const noRoadRoutes = new Set<string>();
   /**
+   * Далёкие однодневные туры, которые встают СВЯЗКОЙ (этап 3, п. 1): день
+   * дороги туда + тур + день обратно. Только с ночлегом у места в составе
+   * тура; трансфер план не обещает.
+   */
+  const farBundle = new Map<string, { km: number; hours: number }>();
+  /** Связки, что встали: строка плана по tourId. */
+  const bundledLines = new Map<string, string>();
+  const titleOfFar = new Map<string, string>();
+  /**
    * Однодневный тур Авачинской зоны с точкой дальше ROAD_CHECK_MIN_KM от
    * Петропавловска: сколько до него ехать по дороге. Дальше порога в одну
    * сторону — однодневным днём не ставится (правило DAY_TRIP_MAX_ROAD_HOURS).
@@ -1429,9 +1443,13 @@ async function generateDayPlans(
     for (const w of waitingTours) {
       if (at > lastTail) break;
       if (placedTours.has(w.tour.tourId) || lined.has(w.tour.tourId) || w.zone !== prevZone) continue;
-      const need = tourPlanSpan(w.tour.durationHours, w.tour.multiDayCount) ?? 1;
+      // Связка далёкого тура (Bugbot #3722): день дороги, тур, день обратно —
+      // три дня, а выезд — во второй из них.
+      const isBundle = farBundle.has(w.tour.tourId);
+      const need = (tourPlanSpan(w.tour.durationHours, w.tour.multiDayCount) ?? 1) + (isBundle ? 2 : 0);
+      const tourOffset = isBundle ? 1 : 0;
       let start = at;
-      while (start + need - 1 <= lastTail && !fitsOn(w.tour, planDateOf(start))) start++;
+      while (start + need - 1 <= lastTail && !fitsOn(w.tour, planDateOf(start + tourOffset))) start++;
       if (start + need - 1 > lastTail) continue;
       out.push({ zone: prevZone, interests: [w.interest], activeDays: need, tail: true, onlyTour: w.tour, startDay: start });
       lined.add(w.tour.tourId);
@@ -1531,7 +1549,17 @@ async function generateDayPlans(
             // Строка — только про тур, чей сезон пересекает поездку: в плане
             // на ноябрь «Летняя рыбалка на кижуча» была бы шумом (прод 22.11).
             if (seasonMeetsTrip(t, profile.arrivalDate, profile.departureDate)) {
-              farTourLines.set(t.tourId, farDayTourLine(t.title, road));
+              // Ночлег у места в составе тура — тур встаёт связкой (этап 3).
+              if (lodgingIncluded(t.included) === true) {
+                farBundle.set(t.tourId, road);
+                titleOfFar.set(t.tourId, t.title);
+                kept.push(t);
+                continue;
+              }
+              const near = await lodgingNearPoint(t.lat, t.lng);
+              // Состав пуст — «не указано», а не «нет» (Bugbot #3722).
+              const compositionKnown = lodgingIncluded(t.included) === false;
+              farTourLines.set(t.tourId, near === null ? farDayTourLine(t.title, road) : farNoNightLine(t.title, road, near, compositionKnown));
               missFor(interest, farDayTourReason(t.title, road));
             }
             continue;
@@ -1851,7 +1879,8 @@ async function generateDayPlans(
       // нет». Дат у плана нет — раскладка прежняя. Голова очереди —
       // следующий тур; у маршрутов свой счёт: курсор на двоих сбивался,
       // когда тур возвращался в очередь после общего дня.
-      lineUpForDate(m, (t) => fitsOn(t, planDate), placedTours);
+      // Далёкий тур связкой: его выезд — на день ПОСЛЕ дороги туда.
+      lineUpForDate(m, (t) => fitsOn(t, farBundle.has(t.tourId) ? planDateOf(dayNum + 1) : planDate), placedTours);
       // Кейс владельца 24.11–04.12 (22.11): в чужие зоны план не едет (туров
       // там нет), а у интереса есть многодневный тур, который поездка
       // вмещает вместе с днём на каждое ещё не поставленное занятие и
@@ -1897,6 +1926,9 @@ async function generateDayPlans(
         spanUnknown.add(realTour.title);
       }
       const span = declaredSpan ?? 1;
+      // Связка далёкого тура: день дороги туда и день обратно (этап 3, п. 1).
+      const bundle = realTour ? farBundle.get(realTour.tourId) : undefined;
+      const legDays = bundle ? 2 : 0;
 
       // Тур длиннее, чем дней осталось. НЕ режем: «три дня из
       // пятидневного тура» — не продукт, его нельзя купить. Пропускаем и
@@ -1915,11 +1947,28 @@ async function generateDayPlans(
       // дню на каждое ещё не поставленное занятие блока (иначе 12-дневная
       // Ключевская съела бы треккинг двухнедельной поездки — тест 08.10).
       let rescued = false;
-      if (span > room && realTour && style !== 'self' && block.zone === 'avachinsky' && !block.tail
+      if (span > room && !bundle && realTour && style !== 'self' && block.zone === 'avachinsky' && !block.tail
         && span + othersWaiting + heliReserve <= lastDay - dayNum + 1 && await laterBlocksHaveNoTours(bi)) {
         extendedForTour.push({ title: realTour.title, span, zone: block.zone, planned: block.activeDays });
         block.activeDays = used + span;
         rescued = true;
+      }
+      // Связке не хватает дней блока, а поездка её вмещает и дальше нет зоны
+      // с туром — блок растягивается под связку, как под многодневный тур.
+      // Связке не хватает дней блока (в том числе хвостового), а поездка её
+      // вмещает вместе с днями следующих блоков — блок растягивается под
+      // связку, как под многодневный тур. Дни следующих блоков не отнимаются.
+      if (bundle && realTour && span + legDays > room) {
+        const laterDays = zoneBlocks.slice(bi + 1).reduce((n, b) => n + b.activeDays, 0);
+        if (span + legDays + othersWaiting + heliReserve + laterDays <= lastDay - dayNum + 1) {
+          block.activeDays = used + span + legDays;
+        }
+      }
+      if (bundle && realTour && span + legDays > tourRoom({ blockDays: block.activeDays, used, tripDays, departureDays: departureDays + backReserve, dayNum })) {
+        farTourLines.set(realTour.tourId, farBundleNoRoomLine(realTour.title, bundle, span + legDays));
+        missFor(interest, farDayTourReason(realTour.title, bundle));
+        m.tours.splice(m.tours.indexOf(realTour), 1);
+        continue;
       }
       if (span > room && !rescued) {
         if (realTour) {
@@ -1938,6 +1987,21 @@ async function generateDayPlans(
       }
 
       barren = 0;
+
+      // Связка далёкого тура (этап 3, п. 1): сначала день дороги к месту.
+      // Тип `travel`: цены у дороги нет (её называет перевозчик), ночь — у
+      // места (roadLeg.nightOnSite, lib/planner/lodging-included).
+      if (bundle && realTour) {
+        days.push({
+          day: dayNum++, type: 'travel', zone: block.zone,
+          title: `Дорога к месту тура «${realTour.title}»`,
+          description: roadToTourText(realTour.title, bundle),
+          activityType: 'travel', priceFrom: 0, priceTo: 0,
+          coords: [realTour.lat, realTour.lng], defaultTransport: 'jeep', allowedTransports: ['jeep'],
+          difficulty: 'easy', childFriendly: true, minChildAge: 0, dayWarnings: [],
+          roadLeg: { tourId: realTour.tourId, direction: 'to', km: bundle.km, hours: bundle.hours, nightOnSite: 'tour' },
+        });
+      }
 
       const coords: [number, number] = realTour
         ? [realTour.lat, realTour.lng]
@@ -2189,7 +2253,22 @@ async function generateDayPlans(
         });
       }
 
+      // …и день дороги обратно в Петропавловск.
+      if (bundle && realTour) {
+        days.push({
+          day: dayNum++, type: 'travel', zone: block.zone,
+          title: `Дорога обратно от тура «${realTour.title}»`,
+          description: roadBackText(realTour.title, bundle),
+          activityType: 'travel', priceFrom: 0, priceTo: 0,
+          coords: PKC_COORDS, defaultTransport: 'jeep', allowedTransports: ['jeep'],
+          difficulty: 'easy', childFriendly: true, minChildAge: 0, dayWarnings: [],
+          roadLeg: { tourId: realTour.tourId, direction: 'back', km: bundle.km, hours: bundle.hours, nightOnSite: 'tour' },
+        });
+        bundledLines.set(realTour.tourId, farBundleLine(realTour.title, bundle));
+      }
+
       used += span;
+      used += legDays;
       d++;
       // Взятый тур уходит из очереди и больше не встаёт; маршрут — свой счёт.
       if (realTour) {
@@ -2384,7 +2463,16 @@ async function generateDayPlans(
     // Строки — только про туры, что в плане стоят (noRoad, unread), и про
     // снятые (farTours): снятый тур строкой «нет дороги» не дублируется.
     roadNotes: {
-      farTours: [...farTourLines.values()],
+      farTours: [
+        // «Не поместился» не стоит рядом с «стоит связкой»: тур, что встал
+        // позже (хвост), строки отказа не несёт (Bugbot #3722).
+        ...[...farTourLines].filter(([id]) => !placedTours.has(id)).map(([, l]) => l),
+        ...bundledLines.values(),
+        // Связка была возможна, но тур так и не встал (нет выезда в нужный
+        // день) — молчать нельзя; причина — даты, а не «одним днём».
+        ...[...farBundle].filter(([id]) => !placedTours.has(id) && !farTourLines.has(id))
+          .map(([id, e]) => farBundleNoDateLine(titleOfFar.get(id) ?? id, e)),
+      ],
       noRoad: [...noRoadTours].filter(([id]) => placedTours.has(id)).map(([, t]) => t),
       unread: [...roadUnreadTours].filter(([id]) => placedTours.has(id)
         || (id.startsWith('route:') && days.some((d) => d.routeId === id.slice(6)))).map(([, t]) => t),
@@ -2588,6 +2676,33 @@ ${warningsSummary ? `Предупреждения:\n${warningsSummary}` : ''}
  */
 export interface RecommendTripOptions {
   itinerary?: 'ai' | 'plain';
+}
+
+/**
+ * Жильё платформы рядом с точкой (этап 3): до двух объектов в 30 км по
+ * прямой, живым запросом (наличие не кэшируется). `null` — не прочиталось.
+ */
+async function lodgingNearPoint(lat: number, lng: number): Promise<Array<{ name: string; km: number }> | null> {
+  try {
+    const { rows } = await pool.query<{ name: string; dist_km: string }>(
+      `SELECT x.name, x.dist_km FROM (
+         SELECT a.name,
+                6371 * 2 * asin(sqrt(
+                  power(sin(radians(((a.coordinates->>'lat')::float8 - $1) / 2)), 2)
+                  + cos(radians($1)) * cos(radians((a.coordinates->>'lat')::float8))
+                  * power(sin(radians(((a.coordinates->>'lng')::float8 - $2) / 2)), 2))) AS dist_km
+           FROM accommodations a
+          WHERE ${publicAccommodationSql('a')}
+            AND (a.coordinates->>'lat') ~ '^-?[0-9]+(\\.[0-9]+)?$'
+            AND (a.coordinates->>'lng') ~ '^-?[0-9]+(\\.[0-9]+)?$'
+       ) x WHERE x.dist_km <= 30 ORDER BY x.dist_km LIMIT 2`,
+      [lat, lng],
+    );
+    return rows.map((r) => ({ name: r.name, km: Number(r.dist_km) }));
+  } catch (err) {
+    console.error('[planner] жильё у места тура не прочиталось:', err instanceof Error ? err.message : String(err));
+    return null;
+  }
 }
 
 /** Сезон тура (как записал оператор) пересекает даты поездки; нет записи — пересекает. */

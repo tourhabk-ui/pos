@@ -34,7 +34,7 @@ import {
 import { ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, ZONE_NAMES, type FitnessLevel } from './constants';
 import { estimateGroup, type GroupEstimate } from './estimate';
 import type { TravelStyle } from './travel-style';
-import { MOVABLE_TYPES as MOVABLE, FRAME_WORD, tourGroup, insertIndex } from './plan-ops';
+import { MOVABLE_TYPES as MOVABLE, frameWordOf, tourGroup, insertIndex } from './plan-ops';
 import { dateOfTripDay } from './flow-balance';
 import { rereadTourDay, type TourDayInput, type TourDayRead } from './tour-day-reread';
 import { withGroupMinimum } from './group-minimum';
@@ -271,10 +271,13 @@ function renumberedDays(next: readonly DayPlan[], oldNumberOf: ReadonlyMap<DayPl
 
 /** Убрать день (или все дни многодневного тура). Поездка короче, дни после — на место раньше. */
 function removeDay(plan: EditablePlan, num: number): Applied {
-  const target = plan.days.find((d) => d.day === num);
+  const asked = plan.days.find((d) => d.day === num);
+  // День дороги связки убирается вместе со своим туром (Bugbot #3722).
+  const leg = asked?.roadLeg;
+  const target = leg ? (plan.days.find((d) => d.realTour?.tourId === leg.tourId) ?? asked) : asked;
   if (!target) return { ok: false, reason: `Дня ${num} в плане нет (дни ${dayList(plan.days)}).` };
   if (!MOVABLE.has(target.type)) {
-    return { ok: false, reason: `День ${num} — ${FRAME_WORD[target.type] ?? 'каркас поездки'}, его не убирают: без него поездка не сходится.` };
+    return { ok: false, reason: `День ${num} — ${frameWordOf(target)}, его не убирают: без него поездка не сходится.` };
   }
   const group = tourGroup(plan.days, target);
   const removed = new Set(group.map((d) => d.day));
@@ -326,7 +329,7 @@ function moveDay(plan: EditablePlan, from: number, to: number): Applied {
   const target = plan.days.find((d) => d.day === from);
   if (!target) return { ok: false, reason: `Дня ${from} в плане нет (дни ${dayList(plan.days)}).` };
   if (!MOVABLE.has(target.type)) {
-    return { ok: false, reason: `День ${from} — ${FRAME_WORD[target.type] ?? 'каркас поездки'}, его не переставляют.` };
+    return { ok: false, reason: `День ${from} — ${frameWordOf(target)}, его не переставляют.` };
   }
   if (tourGroup(plan.days, target).length > 1) {
     return { ok: false, reason: `День ${from} — часть многодневного тура, по одному дню его не переставляют.` };
@@ -338,7 +341,7 @@ function moveDay(plan: EditablePlan, from: number, to: number): Applied {
     const d = byNum.get(n);
     if (!d) continue;
     if (!MOVABLE.has(d.type)) {
-      return { ok: false, reason: `Между днями ${from} и ${to} стоит ${FRAME_WORD[d.type] ?? 'каркас поездки'} (день ${n}) — через него день не переносят.` };
+      return { ok: false, reason: `Между днями ${from} и ${to} стоит ${frameWordOf(d)} (день ${n}) — через него день не переносят.` };
     }
     if (d.zone !== target.zone) {
       return { ok: false, reason: `День ${n} в другой зоне — перенос потребовал бы переездов, которых в плане нет.` };
@@ -466,7 +469,7 @@ async function replaceDay(plan: EditablePlan, num: number, interest: string, dep
   const target = plan.days.find((d) => d.day === num);
   if (!target) return { ok: false, reason: `Дня ${num} в плане нет (дни ${dayList(plan.days)}).` };
   if (!MOVABLE.has(target.type)) {
-    return { ok: false, reason: `День ${num} — ${FRAME_WORD[target.type] ?? 'каркас поездки'}, его не заменяют: без него поездка не сходится.` };
+    return { ok: false, reason: `День ${num} — ${frameWordOf(target)}, его не заменяют: без него поездка не сходится.` };
   }
   if (tourGroup(plan.days, target).length > 1) {
     return { ok: false, reason: `День ${num} — часть многодневного тура, по одному дню его не заменяют. Убери тур целиком (remove_day) и добавь день (add_day).` };
@@ -708,7 +711,7 @@ function flightDelay(plan: EditablePlan, days: number, keepReturn: boolean): App
   const lost = plan.days.filter((d) => d.day >= start && d.day < start + days);
   const frame = lost.find((d) => !MOVABLE.has(d.type));
   if (frame) {
-    return { ok: false, reason: `Задержка задевает ${FRAME_WORD[frame.type] ?? 'каркас поездки'} (день ${frame.day}) — без него план не сходится. Собери план заново через make_trip_plan с новой датой прилёта.` };
+    return { ok: false, reason: `Задержка задевает ${frameWordOf(frame)} (день ${frame.day}) — без него план не сходится. Собери план заново через make_trip_plan с новой датой прилёта.` };
   }
   // Многодневный тур, задетый окном, выпадает целиком.
   const droppedTours = new Set(lost.map((d) => d.realTour?.tourId).filter((id): id is string => Boolean(id)));
