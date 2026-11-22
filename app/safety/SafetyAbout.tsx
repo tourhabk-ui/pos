@@ -68,26 +68,32 @@ function linkedText(text: string): ReactNode {
 }
 
 export function SafetyIntro() {
-  const reviewed = formatRecordDate(SAFETY_PAGE_DATE);
   return (
-    <header className="space-y-3 mb-8">
-      <h1 className="font-playfair text-3xl md:text-4xl font-bold text-[var(--text-primary)]">{SAFETY_PAGE_H1}</h1>
-      <p data-lead-answer className="text-[var(--text-secondary)] text-sm md:text-base leading-relaxed">
+    <header className="space-y-2 mb-3 md:space-y-3 md:mb-4">
+      <h1 className="font-playfair text-xl leading-tight md:text-4xl font-bold text-[var(--text-primary)]">{SAFETY_PAGE_H1}</h1>
+      <p data-lead-answer className="text-[var(--text-secondary)] text-sm leading-snug md:text-base md:leading-relaxed">
         {linkedText(SAFETY_LEAD)}
       </p>
-      {reviewed && (
-        <p className="text-xs text-[var(--text-muted)]" data-record-modified="">
-          {SAFETY_AUTHOR} · факты проверены{' '}
-          <time dateTime={recordDateIso(SAFETY_PAGE_DATE) ?? undefined}>{reviewed}</time>
-        </p>
-      )}
     </header>
+  );
+}
+
+/** Строка редакции — в статье, ниже радара, чтобы на первом экране телефона сразу был радар. */
+export function SafetyByline() {
+  const reviewed = formatRecordDate(SAFETY_PAGE_DATE);
+  if (!reviewed) return null;
+  return (
+    <p className="text-xs text-[var(--text-muted)] mb-6" data-record-modified="">
+      {SAFETY_AUTHOR} · факты проверены{' '}
+      <time dateTime={recordDateIso(SAFETY_PAGE_DATE) ?? undefined}>{reviewed}</time>
+    </p>
   );
 }
 
 export default function SafetyAbout() {
   return (
     <div className="space-y-8" data-safety-about>
+      <SafetyByline />
       {SAFETY_SECTIONS.map((section) => (
         <section key={section.id} id={section.id} className="space-y-3">
           <h2 className="ds-h2" style={{ fontFamily: 'var(--font-playfair)' }}>
@@ -149,11 +155,15 @@ export default function SafetyAbout() {
 
 export function SafetyLiveIntro() {
   return (
-    <section className="space-y-3 mb-4" aria-labelledby="radar">
-      <h2 id="radar" className="ds-h2" style={{ fontFamily: 'var(--font-playfair)' }}>
+    <section className="mb-2" aria-labelledby="radar">
+      <h2
+        id="radar"
+        className="text-xs font-medium tracking-wide mb-1"
+        style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-playfair)' }}
+      >
         {SAFETY_LIVE_HEADING}
       </h2>
-      <p className="text-sm md:text-base leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+      <p className="text-xs leading-snug md:text-sm" style={{ color: 'var(--text-secondary)' }}>
         {linkedText(SAFETY_LIVE_LEAD)}
       </p>
     </section>

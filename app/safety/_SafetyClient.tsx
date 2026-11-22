@@ -660,19 +660,11 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
     // страницы — под фиксированный таб-бар: без него последняя карточка
     // пряталась за панелью. Таб-бар — ЕДИНЫЙ BottomNav платформы, его рисует page.tsx.
     <>
-      <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 16 }}>Камчатка · обстановка обновляется автоматически</p>
-
-      {/* Промпт подписки на push. Прежде кнопка жила только в
-          /hub/tourist/notifications (за логином, глубоко в кабинете) — и
-          подписок было 0, а опасные алерты уходили в пустоту (config-check
-          02.08). /safety — публичная и ровно про безопасность: здесь опт-ин
-          честен и уместен. Кнопка сама скрывается, если push не поддержан или
-          уже включён/заблокирован. */}
-      <PushSafetyOffer className="mb-6" />
-
-      {/* Живая обстановка (P0-3b): радар + лента + пульс переехали с главной.
+      {/* Живая обстановка сразу под лидом: на телефоне радар должен быть
+          на первом экране (Сыщик, 22.11, слово владельца после #3720).
           Якорь /safety#radar стоит на серверном H2 над этим блоком.
-          live=null (сбой сервера) — секции честно нет, остальная страница работает. */}
+          live=null (сбой сервера) — секции честно нет, остальная страница работает.
+          Карточка подписки — ниже радара, не над ним. */}
       {live && (
         <section className="kh-live" style={{ marginBottom: 24 }}>
           <style dangerouslySetInnerHTML={{ __html: LIVE_STATUS_CSS }} />
@@ -685,6 +677,13 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
           <p role="status" aria-live="polite" style={{ margin: '8px 4px 0', fontSize: 11, textAlign: 'right', color: refreshState === 'failed' ? 'var(--warning)' : 'var(--text-muted)' }}>
             {refreshStatus}
           </p>
+          {/* Промпт подписки на push. Прежде кнопка жила только в
+              /hub/tourist/notifications (за логином, глубоко в кабинете) — и
+              подписок было 0, а опасные алерты уходили в пустоту (config-check
+              02.08). /safety — публичная и ровно про безопасность: здесь опт-ин
+              честен и уместен. Кнопка сама скрывается, если push не поддержан или
+              уже включён/заблокирован. */}
+          <PushSafetyOffer className="mt-4 mb-2" />
           {(live.safety.alerts.length > 0 || live.seismic.events.length > 0
             || live.volcanoes.items.length > 0 || live.volcanoes.degraded) && (
             <div className="safety">
@@ -734,6 +733,10 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
             </div>
           )}
         </section>
+      )}
+
+      {!live && (
+        <PushSafetyOffer className="mb-6" />
       )}
 
       {/* Баннер статуса */}
