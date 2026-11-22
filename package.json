@@ -106,7 +106,7 @@
     "leaflet.markercluster": "^1.5.3",
     "lottie-web": "^5.13.0",
     "lucide-react": "^1.75.0",
-    "maplibre-gl": "^6.19.0",
+    "maplibre-gl": "^6.11.2",
     "next": "^15.5.29",
     "nodemailer": "^10.6.0",
     "pdf-parse": "^2.4.5",
