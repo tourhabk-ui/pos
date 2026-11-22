@@ -144,9 +144,9 @@ describe('главная, каталог и рыбалка называют сп
     }
   });
 
-  it('точную фразу «Туры на Камчатку» в начале title держат каталог и планы, а не главная', async () => {
+  it('точную фразу «Туры на Камчатку» в начале title держит каталог, а не главная; планы — «Маршрут по Камчатке» (Сыщик, 22.11)', async () => {
     expect(await catalogTitle()).toMatch(/^Туры на Камчатку /);
-    expect(code('app/plans/page.tsx')).toMatch(/title: 'Туры на Камчатку/);
+    expect(code('app/plans/page.tsx')).toMatch(/title: 'Маршрут по Камчатке на 5, 7, 10 и 14 дней'/);
     expect(code('app/page.tsx')).not.toMatch(/HOME_TITLE = 'Туры на Камчатку/);
   });
 
