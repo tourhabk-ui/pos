@@ -40,7 +40,19 @@ import {
   routeTourPriceOf,
   type RouteTourPrice,
 } from '@/lib/routes/route-tour-price';
+import { difficultyCode, DIFFICULTY_FILTER_SPELLINGS } from '@/lib/routes/difficulty-scale';
 
+/**
+ * Сложность записи каталога одним выражением — для выборки и для фильтра
+ * (22.11). Сначала колонка маршрута (её правят миграции: 1493 — Ключевская
+ * «экстремальный»), затем payload. Скаляром, а не соединением: то же условие
+ * стоит в запросе счёта, где маршрут не присоединён.
+ */
+export function routeDifficultySql(a: string): string {
+  return `COALESCE((SELECT NULLIF(btrim(kd.difficulty), '') FROM kamchatka_routes kd
+                     WHERE ${a}.kind = 'route' AND (kd.id = ${a}.id OR kd.ark_id = ${a}.id) LIMIT 1),
+                   ${a}.payload->>'difficulty')`;
+}
 
 /** Определение опасностей на основе данных точки/маршрута. */
 function resolveHazards(row: Record<string, unknown>): string[] {
@@ -294,8 +306,9 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
     conditions.push(`ark.lat IS NOT NULL AND ark.lng IS NOT NULL`);
   }
   if (difficulty) {
-    conditions.push(`ark.payload->>'difficulty' = $${idx}`);
-    params.push(difficulty);
+    // Та же сложность, что на карточке: колонка маршрута, затем payload (22.11).
+    conditions.push(`lower(${routeDifficultySql('ark')}) = ANY($${idx}::text[])`);
+    params.push(DIFFICULTY_FILTER_SPELLINGS[difficulty]);
     idx++;
   }
   // Фильтр по цене — по цене туров маршрута (lib/routes/route-tour-price).
@@ -484,7 +497,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
          tp.price_from                  AS tour_price_from,
          tp.tours                       AS priced_tours,
          COALESCE(ark.payload->'season', to_jsonb(krl.season)) AS season,
-         ark.payload->'difficulty'      AS difficulty,
+         ${routeDifficultySql('ark')} AS difficulty,
          ark.payload->'duration_days'   AS duration_days,
          ark.payload->'best_months'     AS best_months,
          ark.payload->'geometry'        AS geometry,
@@ -581,7 +594,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
       tourPrice:    routeTourPriceOf(r.tour_price_from, r.priced_tours),
       placeTours:   null,
       season:      (r.season as string | null) ?? null,
-      difficulty:   (r.difficulty as string | null) ?? null,
+      difficulty:   difficultyCode(r.difficulty),
       durationDays: r.duration_days != null ? Number(r.duration_days) : null,
       bestMonths:   (r.best_months as number[] | null) ?? null,
       // Стиль (color/weight) из payload намеренно НЕ пробрасывается: вид линии
