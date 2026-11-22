@@ -162,10 +162,15 @@ export function hiddenBreakdownWords(s: PlatformWeekStats): string {
   return `не видны туристу ${s.tours_hidden}: черновики ${s.hidden_draft}, выключены оператором ${s.hidden_inactive}, и то и другое ${s.hidden_both}`;
 }
 
-/** «из них с линией маршрута 50, маршрут без линии 8, без маршрута 20». */
+/**
+ * «из них с линией на карте (любого рода) 50, маршрут без линии 8, без маршрута 20».
+ * Счёт берёт любую непустую геометрию — снятый трек, набросок по точкам и
+ * импорт с чужого сайта вместе (§12 их различает), поэтому слова не говорят
+ * «трек» и называют, что род не различён (разбор 03.11).
+ */
 export function lineBreakdownWords(s: PlatformWeekStats): string {
   if (s.tours_visible === 0) return '';
-  return `из них с линией маршрута ${s.visible_with_line}, маршрут без линии ${s.visible_route_no_line}, без маршрута ${s.visible_no_route}`;
+  return `из них с линией на карте (любого рода) ${s.visible_with_line}, маршрут без линии ${s.visible_route_no_line}, без маршрута ${s.visible_no_route}`;
 }
 
 function withLine(s: PlatformWeekStats): string {

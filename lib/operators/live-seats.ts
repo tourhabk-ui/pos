@@ -98,6 +98,8 @@ export async function loadDepartures(partnerId: string, days: readonly string[])
  * «Другая дата» (план PR3): ближайшие открытые даты тура брони с живыми
  * свободными местами — только из БД, только своего тура. Пусто — так и
  * говорим, дату не выдумываем. Кэш не нужен: читается по нажатию.
+ * «Сегодня» — по Камчатке, как в `lib/tours/nearest-free-date`: `CURRENT_DATE`
+ * берёт пояс сессии базы, и утром по Камчатке предлагался бы вчерашний день.
  */
 export async function nextOpenDates(
   partnerId: string, bookingId: string, limit = 5,
@@ -110,7 +112,7 @@ export async function nextOpenDates(
          JOIN tour_availability ta ON ta.operator_tour_id = ot.id
          CROSS JOIN LATERAL (${occupiedOnDaySql({ booking: 'ob', day: 'ta.date', tourId: 'ta.operator_tour_id' })}) occ
         WHERE b.id::text = $2 AND b.deleted_at IS NULL
-          AND ta.date >= CURRENT_DATE AND ta.date <> b.booking_date
+          AND ta.date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date AND ta.date <> b.booking_date
           AND COALESCE(ta.is_cancelled, false) = false AND ta.deleted_at IS NULL
         GROUP BY ta.date
        HAVING MAX(${freeSlotsSql('ta', 'ot', 'occ.taken')}) > 0

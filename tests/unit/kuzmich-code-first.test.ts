@@ -22,6 +22,12 @@ describe('код раньше модели', () => {
     expect(classifyCodeFirst('Отмена', true).kind).toBe('none');
     expect(classifyCodeFirst('61 · Рыбалка', true).kind).toBe('none');
   });
+  it('устаревшая кнопка «Исправить» — код, набранное возражение — модели', () => {
+    expect(classifyCodeFirst('Исправить', false).kind).toBe('stale_confirm');
+    for (const t of ['не так', 'Не так!', 'изменить', 'исправь', 'поправка']) {
+      expect(classifyCodeFirst(t, false).kind, t).toBe('none');
+    }
+  });
   it('обычный вопрос уходит модели', () => {
     expect(classifyCodeFirst('что взять на Авачу?', false).kind).toBe('none');
   });

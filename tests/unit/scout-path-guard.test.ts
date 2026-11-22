@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import {
   apiRoutesFromFiles, endpointExists, extractApiEndpoints, validateProposalPaths, loadRepoFiles, normalizePath,
 } from '@/lib/agents/scout-path-guard';
@@ -62,6 +64,21 @@ describe('scout-path-guard', () => {
 
   it('normalizePath срезает пометки', () => {
     expect(normalizePath('`./lib/a.ts` ')).toBe('lib/a.ts');
+  });
+
+  it('каталога нет — штатно; каталог не прочитался — «узнать не смогли», а не урезанный список', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'scout-tree-'));
+    try {
+      mkdirSync(join(root, 'app', 'api', 'x'), { recursive: true });
+      writeFileSync(join(root, 'app', 'api', 'x', 'route.ts'), '');
+      // hooks/ и прочих нет — это не сбой.
+      expect(await loadRepoFiles(root)).toEqual(['app/api/x/route.ts']);
+      // «lib» — файл, а не каталог: readdir отвечает ENOTDIR, дерево неполное.
+      writeFileSync(join(root, 'lib'), '');
+      expect(await loadRepoFiles(root)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('видит реальное дерево репо', async () => {

@@ -45,9 +45,22 @@ export async function loadRepoFiles(root: string = process.cwd()): Promise<strin
     if (code !== 'ENOENT') logSwallowedFailure('scout-path-guard', 'repo-manifest.json', err);
   }
   const files: string[] = [];
+  // Каталога нет (в образе нет hooks/) — штатно. Иной отказ чтения даёт
+  // неполное дерево, а по неполному дереву настоящий файл сошёл бы за
+  // выдуманный: тогда «узнать не смогли» (null), а не урезанный список.
+  let walkFailed = false;
   async function walk(dir: string): Promise<void> {
     let entries;
-    try { entries = await readdir(dir, { withFileTypes: true }); } catch { return; }
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch (err) {
+      const code = (err as { code?: unknown } | null)?.code;
+      if (code !== 'ENOENT') {
+        walkFailed = true;
+        logSwallowedFailure('scout-path-guard', `обход ${relative(root, dir) || dir}`, err);
+      }
+      return;
+    }
     for (const e of entries) {
       if (SKIP_DIRS.has(e.name)) continue;
       const full = join(dir, e.name);
@@ -56,6 +69,7 @@ export async function loadRepoFiles(root: string = process.cwd()): Promise<strin
     }
   }
   for (const d of SCAN_DIRS) await walk(join(root, d));
+  if (walkFailed) return null;
   return files.length > 0 ? files.sort() : null;
 }
 
