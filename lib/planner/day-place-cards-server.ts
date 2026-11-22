@@ -62,9 +62,8 @@ export const serverDayPlaceCardDeps: DayPlaceCardDeps = {
  * Карточки дней плана на сервере; сбой источника — день без карточки.
  * `absolute` — полные адреса vedarai.ru (для сообщения в MAX/TG).
  *
- * Пока сирота (перепись экспортов, потолок 8 с 22.11): это точка входа для
- * планера туриста в ботах MAX/TG (слово владельца 22.11 «планеры в максе и
- * тг для пользователей с ролью турист»); экран бота — следующим заходом.
+ * Зовёт мастер «Спланировать поездку» в ботах MAX/TG (lib/chat/trip-wizard-run):
+ * ссылка на место дня в строке дня.
  * Сайт зовёт тот же выбор через buildDayPlaceCards (usePlannerDayCards).
  */
 export async function dayPlaceCardsOnServer(
