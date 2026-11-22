@@ -10,6 +10,7 @@
 import { placeInSitemap, routeInSitemap } from '@/lib/seo/h1-templates';
 import { NEW_LANDINGS, LANDINGS, LANDING_CANONICAL } from '@/lib/landings/landings';
 import { FISH_TEXT_REVISION } from '@/lib/fish/fish-sources';
+import { FISH_PAGE_DATE } from '@/lib/seo/fish-page';
 import { PARK_HUB_TEXT_REVISION } from '@/lib/parks/park-hub';
 import { tourPath } from '@/lib/tours/tour-url';
 import { publicTourSql } from '@/lib/tours/public-visibility';
@@ -151,7 +152,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // справочник рыб — страницы были, в sitemap их не было (аудит SEO 29.09, Н9).
     { url: `${BASE}/hub/fishing`,          lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.85 },
     // Дата ревизии текста справочника — та же, что Article.dateModified (Сыщик 21.11).
-    { url: `${BASE}/fish`,                 lastModified: new Date(`${FISH_TEXT_REVISION}T00:00:00Z`), changeFrequency: 'monthly', priority: 0.7 },
+    { url: `${BASE}/fish`,                 lastModified: new Date(`${FISH_PAGE_DATE}T00:00:00Z`), changeFrequency: 'monthly', priority: 0.7 },
     ...FISH_SPECIES.map((f) => ({
       url: `${BASE}/fish/${f.id}`, lastModified: new Date(`${FISH_TEXT_REVISION}T00:00:00Z`), changeFrequency: 'monthly' as const, priority: 0.6,
     })),

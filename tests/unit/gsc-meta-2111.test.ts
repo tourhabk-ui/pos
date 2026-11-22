@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { PLACE_SEARCH_META } from '@/lib/seo/place-search-meta';
 import { FISH_BY_ID } from '@/lib/fish-species';
+import { FISH_LEAD, FISH_PAGE_DESCRIPTION, FISH_PAGE_TITLE } from '@/lib/seo/fish-page';
 
 const code = (p: string) => readFileSync(p, 'utf8');
 const BRAND = ' | Ведар';
@@ -27,14 +28,11 @@ describe('заголовки под запросы GSC 18–19.11 (Сыщик 21
     expect(page).toMatch(/const leadAnswer = landing \? null : /);
   });
 
-  it('/fish: title под «какая рыба водится на камчатке» ≤ 60 с брендом, описание ≤ 160', () => {
-    const src = code('app/fish/page.tsx');
-    const title = src.match(/const FISH_INDEX_TITLE = '([^']+)'/)?.[1] ?? '';
-    const desc = src.match(/const FISH_INDEX_DESCRIPTION =\s*'([^']+)'/)?.[1] ?? '';
-    expect(title).toMatch(/^Какая рыба водится на Камчатке/);
-    expect((title + BRAND).length).toBeLessThanOrEqual(60);
-    expect(desc.length).toBeLessThanOrEqual(160);
-    expect(desc).toMatch(/Рыба Камчатки по видам/);
+  it('/fish: title под «рыбалка на Камчатке» ≤ 60 с брендом, описание ≤ 160', () => {
+    expect(FISH_PAGE_TITLE).toMatch(/^Рыбалка на Камчатке/);
+    expect((FISH_PAGE_TITLE + BRAND).length).toBeLessThanOrEqual(60);
+    expect(FISH_PAGE_DESCRIPTION.length).toBeLessThanOrEqual(160);
+    expect(FISH_PAGE_DESCRIPTION).toMatch(/путёвк/);
   });
 
   it('чавыча: прямой ответ с источником', () => {
@@ -52,12 +50,16 @@ describe('заголовки под запросы GSC 18–19.11 (Сыщик 21
 });
 
 describe('/fish: первый абзац отвечает на вопрос', () => {
-  it('называет виды, места и сроки, без цен', () => {
+  it('сразу говорит, что рыбалка возможна, называет виды и путёвку, без цен', () => {
+    expect(FISH_LEAD).toMatch(/^Рыбалка на Камчатке возможна/);
+    expect(FISH_LEAD).toMatch(/лосос/);
+    expect(FISH_LEAD).toMatch(/путёвк/);
+    expect(FISH_LEAD).toMatch(/палтус/);
+    expect(FISH_LEAD).toMatch(/навагу/);
+    expect(FISH_LEAD).not.toMatch(/₽|руб/);
     const src = code('app/fish/page.tsx');
-    const lead = src.match(/data-lead-answer>([\s\S]*?)<\/p>/)?.[1] ?? '';
-    expect(lead).toMatch(/На Камчатке водятся тихоокеанские лососи/);
-    expect(lead).toMatch(/Курильское озеро/);
-    expect(lead).not.toMatch(/₽|руб/);
-    expect(src.indexOf('data-lead-answer')).toBeLessThan(src.indexOf('OfficialSeasonNote />'));
+    const body = src.slice(src.indexOf('export default async function'));
+    expect(body).toContain('FishIndexIntro');
+    expect(body.indexOf('FishIndexIntro')).toBeLessThan(body.indexOf('OfficialSeasonNote'));
   });
 });
