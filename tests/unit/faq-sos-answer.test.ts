@@ -1,5 +1,5 @@
 /**
- * Ответ FAQ про SOS называет только проверенные номера (1113, затем 1499).
+ * Ответ FAQ про SOS называет только проверенные номера (1113, затем 1500).
  *
  * Миграция 106 записала в публичный FAQ «КМПСС (горноспасатели): +7 (914)
  * 782-22-22» — это телефон оператора «Камчатская рыбалка» (миграции 840/841,
@@ -16,7 +16,7 @@ import { EMERGENCY_NUMBERS, VERIFIED_REGIONAL } from '@/lib/safety/emergency-num
 
 const ROOT = process.cwd();
 const FIRST_FIX = readFileSync(join(ROOT, 'migrations/1113_faq_sos_answer_verified_numbers.sql'), 'utf-8');
-const MIGRATION = readFileSync(join(ROOT, 'migrations/1499_cuks_phones_official_labels.sql'), 'utf-8');
+const MIGRATION = readFileSync(join(ROOT, 'migrations/1500_cuks_phones_official_labels.sql'), 'utf-8');
 const ANSWER = MIGRATION.match(/SET answer = '([\s\S]*?)',\s*updated_at/)?.[1] ?? '';
 
 const digits = (s: string) => s.replace(/\D/g, '');
