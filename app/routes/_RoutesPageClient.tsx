@@ -543,7 +543,8 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
 
         {/* ── Hero ──────────────────────────────────────────── */}
         <div className="mb-3">
-          <h1 className="ds-h1 mb-1">{KIND_TABS.find(t => t.value === kind)?.heading ?? 'Маршруты и места Камчатки'}</h1>
+          {/* На телефоне заголовок в две строки, а не в четыре (22.11). */}
+          <h1 className="ds-h1 mb-1 text-[1.75rem] leading-tight sm:text-[2.5rem]">{KIND_TABS.find(t => t.value === kind)?.heading ?? 'Маршруты и места Камчатки'}</h1>
           <p className="text-[var(--text-secondary)] text-sm md:text-base">
             {meta.total.toLocaleString('ru-RU')} {KIND_TABS.find(t => t.value === kind)?.desc}
           </p>
@@ -699,17 +700,9 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
 
         {toursSlot}
 
-        {/* ── Природные парки и категории — пока не ищут ────── */}
-        {!searching && (
-          <>
-            <ParksStrip initialParks={initialParks} />
-            <CategoriesStrip categories={initialCategories} />
-          </>
-        )}
-
         {/* ── Location type pills (места) ───────────────────── */}
         {kind === 'place' && !searching && (
-          <div className="flex gap-2 overflow-x-auto pb-2 mb-6 scrollbar-hide">
+          <div className="flex gap-2 overflow-x-auto pb-2 mb-4 scrollbar-hide">
             {PLACE_TYPES.map(({ value, label, Icon }) => (
               <button
                 key={value}
@@ -729,7 +722,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
 
         {/* ── Activity pills (маршруты) ─────────────────────── */}
         {kind === 'route' && !searching && (
-          <div className="flex gap-2 overflow-x-auto pb-2 mb-6 scrollbar-hide">
+          <div className="flex gap-2 overflow-x-auto pb-2 mb-4 scrollbar-hide">
             {ACTIVITIES.map(act => (
               <button
                 key={act.value}
@@ -772,9 +765,9 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
         {view === 'grid' && (
           <>
             {loading ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {Array.from({ length: LIMIT }).map((_, i) => (
-                  <div key={i} className="ds-skeleton rounded-lg" style={{ aspectRatio: kind === 'place' ? '4/3' : undefined, height: kind === 'route' ? '5.5rem' : undefined }} />
+                  <div key={i} className="ds-skeleton rounded-lg" style={{ aspectRatio: kind === 'place' ? '4/5' : '16/14' }} />
                 ))}
               </div>
             ) : dbError ? (
@@ -796,7 +789,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
                   <h2 id="place-route-fallback" className="text-sm font-semibold text-[var(--text-secondary)] mb-3">
                     {ROUTE_FALLBACK_HEADING}
                   </h2>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3" onClickCapture={rememberBeforeCard}>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" onClickCapture={rememberBeforeCard}>
                     {routeFallback.map(route => (
                       <RouteCard key={route.id} route={route} />
                     ))}
@@ -820,7 +813,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
                     {ROUTE_PRICE_NOTE_RU}
                   </p>
                 )}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3" onClickCapture={rememberBeforeCard}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" onClickCapture={rememberBeforeCard}>
                   {/* Первая строка сетки — в первом экране, её снимки и есть LCP:
                       без ленивой загрузки (21.11). Остальные — лениво. */}
                   {routes.map((route, i) => (
@@ -892,6 +885,19 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
               </div>
             )}
           </>
+        )}
+
+        {/* ── Природные парки и подборки — под результатами (22.11) ──
+            «По стандартам индустрии» (слово владельца 22.11, пересматривает
+            02.11 «Парки и Виды остаются на виду»): между поиском и первой
+            карточкой — только вид места или занятия. Парки и подборки —
+            ссылками ниже: обход и переходы остаются, человек сначала видит
+            сами места. Пока ищут — не показываются, как и раньше. */}
+        {!searching && (
+          <div className="mt-10 space-y-2 border-t border-[var(--border)] pt-6" data-testid="catalog-more-links">
+            <ParksStrip initialParks={initialParks} />
+            <CategoriesStrip categories={initialCategories} />
+          </div>
         )}
 
       </div>

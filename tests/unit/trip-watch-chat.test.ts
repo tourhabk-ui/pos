@@ -765,6 +765,7 @@ describe('проводка', () => {
     const tg = read('app/api/telegram/webhook/route.ts');
     const redirect = tg.indexOf('telegramWatchRedirect(text)');
     expect(redirect).toBeGreaterThan(0);
-    expect(redirect).toBeLessThan(tg.indexOf('const phoneMatch = text.match'));
+    expect(redirect).toBeLessThan(tg.indexOf('!admin && hasPhone(text)'));
+    expect(tg.indexOf('!admin && hasPhone(text)')).toBeGreaterThan(0);
   });
 });

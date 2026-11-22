@@ -43,6 +43,11 @@ export interface RouteItem {
   placeTours?: number | null;
   difficulty: string | null;
   durationDays: number | null;
+  /** Цифры маршрута (kamchatka_routes); нет — не записано (22.11). */
+  distanceKm?: number | null;
+  distanceNote?: string | null;
+  elevationGainM?: number | null;
+  durationHours?: number | null;
   bestMonths?: number[] | null;
   offerCount?: number;
   topOperatorName?: string;

@@ -70,6 +70,13 @@ export interface RealTour {
   included: string[] | null;
   lat: number;
   lng: number;
+  /**
+   * Точка места записана у тура (`operator_tours.latitude/longitude`).
+   * `false` — точки нет, и `lat/lng` — центр Петропавловска для карты, а не
+   * место тура: расстояние до него не проверяется (аудит дорог 22.11).
+   * Нет поля — старый вызов, считать как `true`.
+   */
+  coordsKnown?: boolean;
   zone: string;
   activityType: string;
 }
@@ -243,6 +250,8 @@ export async function fetchRealToursForZone(
         included: Array.isArray(r.included) ? r.included : null,
         lat: parseFloat(String(r.lat)) || 53.01,
         lng: parseFloat(String(r.lng)) || 158.65,
+        coordsKnown: Number.isFinite(parseFloat(String(r.lat))) && Number.isFinite(parseFloat(String(r.lng)))
+          && parseFloat(String(r.lat)) !== 0 && parseFloat(String(r.lng)) !== 0,
         zone: r.zone ?? zone,
         activityType: r.activity_type ?? activityType,
       }));

@@ -2,6 +2,9 @@
  * GET /api/places/[id]
  * Полные данные карточки места. Логика — lib/places/place-detail.ts (её же
  * зовёт серверная страница /places/[id]).
+ *
+ * `?view=0` — читать без счёта просмотра: карточка места у дня плана
+ * (/planner, 22.11) — не визит на страницу места.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -10,10 +13,12 @@ import { loadPlaceDetail } from '@/lib/places/place-detail';
 export const dynamic = 'force-dynamic';
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const r = await loadPlaceDetail(id, { countView: true });
+  const r = req.nextUrl.searchParams.get('view') === '0'
+    ? await loadPlaceDetail(id, { countView: false })
+    : await loadPlaceDetail(id, { countView: true });
   return NextResponse.json(r.body, { status: r.status });
 }

@@ -70,9 +70,15 @@ const SCRIPT = join(process.cwd(), 'scripts', 'export-census.ts');
  *   CloudPayments трансферов (#3433 п. 2) — с ним ушла сирота
  *   createBookingWithLock (пятая выше).
  *
+ * 22.11 (+1, до 8): dayPlaceCardsOnServer (lib/planner/day-place-cards-server.ts)
+ *   — серверная сборка карточек мест у дней плана (#3711) для планера туриста
+ *   в ботах MAX/TG (слово владельца 22.11). Выбор общий с сайтом
+ *   (buildDayPlaceCards в usePlannerDayCards); экрана бота ещё нет — уйдёт
+ *   из сирот, когда он появится. Причина записана и рядом с функцией.
+ *
  * Потолок — не цель: уменьшать можно и нужно.
  */
-const ORPHAN_CEILING = 7;
+const ORPHAN_CEILING = 8;
 
 describe('перепись экспортов: число сирот заморожено', () => {
   it(`сирот не больше ${ORPHAN_CEILING}`, () => {

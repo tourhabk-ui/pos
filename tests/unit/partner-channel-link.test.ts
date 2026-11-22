@@ -498,7 +498,6 @@ const KNOWN_JSONB_TELEGRAM_READERS = [
   'app/api/admin/operators/[id]/route.ts',
   'app/api/admin/operators/route.ts',
   'app/api/hub/operator/payments/webhook/route.ts',
-  'app/api/telegram/webhook/route.ts',
 ];
 
 function walk(dir: string, out: string[] = []): string[] {

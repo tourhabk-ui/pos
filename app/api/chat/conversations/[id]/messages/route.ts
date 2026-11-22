@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth/middleware';
 import { chatService } from '@/lib/services/operators/chat.service';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,8 +42,9 @@ export async function GET(
         { status: 403 }
       );
     }
+    logSwallowedFailure('chat/messages', 'список сообщений', error);
     return NextResponse.json(
-      { success: false, error: 'Ошибка загрузки сообщений', details: error instanceof Error ? error.message : 'Unknown' },
+      { success: false, error: 'Ошибка загрузки сообщений' },
       { status: 500 }
     );
   }
@@ -100,8 +102,9 @@ export async function POST(
         { status: 403 }
       );
     }
+    logSwallowedFailure('chat/messages', 'отправка сообщения', error);
     return NextResponse.json(
-      { success: false, error: 'Ошибка отправки сообщения', details: error instanceof Error ? error.message : 'Unknown' },
+      { success: false, error: 'Ошибка отправки сообщения' },
       { status: 500 }
     );
   }

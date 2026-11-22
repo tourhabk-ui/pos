@@ -26,6 +26,8 @@ import { logSwallowedFailure } from '@/lib/observability/swallowed';
 export const PKC_DEFAULT: readonly [number, number] = [53.01, 158.65];
 
 export interface CatalogPlace {
+  /** id места в каталоге — для карточки места у дня (day-place-cards). */
+  id?: string;
   title: string;
   lat: number;
   lng: number;
@@ -146,9 +148,9 @@ export function loadCatalogPlaces(fetchImpl: typeof fetch = fetch): Promise<Cata
   const run = (async () => {
     const r = await fetchImpl(PLACES_URL, { signal: AbortSignal.timeout(TOUR_PLACES_TIMEOUT_MS) });
     if (!r.ok) throw new Error(`places ${r.status}`);
-    const j = await r.json() as { data?: Array<{ title?: unknown; lat?: unknown; lng?: unknown }> };
+    const j = await r.json() as { data?: Array<{ id?: unknown; title?: unknown; lat?: unknown; lng?: unknown }> };
     return (j.data ?? [])
-      .map(x => ({ title: String(x.title ?? ''), lat: Number(x.lat), lng: Number(x.lng) }))
+      .map(x => ({ id: typeof x.id === 'string' ? x.id : undefined, title: String(x.title ?? ''), lat: Number(x.lat), lng: Number(x.lng) }))
       .filter(x => x.title && Number.isFinite(x.lat) && Number.isFinite(x.lng));
   })();
   placesPromise = run;
@@ -157,16 +159,21 @@ export function loadCatalogPlaces(fetchImpl: typeof fetch = fetch): Promise<Cata
   return run;
 }
 
-/** Место тура словами (`locationName` у /api/tours/[id]) по id туров. */
+const tourLocationCache = new Map<string, string>();
+
+/** Место тура словами (`locationName` у /api/tours/[id]) по id туров; прочитанное — из памяти вкладки. */
 export async function loadTourLocations(
   tourIds: readonly string[],
   fetchImpl: typeof fetch = fetch,
 ): Promise<Record<string, string>> {
   const pairs = await Promise.all([...new Set(tourIds)].map(async (id) => {
+    const known = tourLocationCache.get(id);
+    if (known !== undefined) return known ? [id, known] as const : null;
     const r = await fetchImpl(`/api/tours/${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(TOUR_PLACES_TIMEOUT_MS) });
     if (!r.ok) return null;
     const j = await r.json() as { success?: boolean; data?: { locationName?: unknown } };
     const loc = j?.success && typeof j.data?.locationName === 'string' ? j.data.locationName.trim() : '';
+    tourLocationCache.set(id, loc);
     return loc ? [id, loc] as const : null;
   }).map(p => p.catch((err: unknown) => {
     // Тур не прочитался — его день остаётся в точке движка, план цел.

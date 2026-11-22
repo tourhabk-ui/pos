@@ -55,6 +55,8 @@ export interface PrintPlanDay {
   tourTitle?: string | null;
   /** Адрес страницы тура на vedarai.ru (абсолютный или путь сайта). */
   tourHref?: string | null;
+  /** Место или маршрут дня (lib/planner/day-place-cards): название и страница на vedarai.ru. */
+  place?: { kind: 'place' | 'route'; title: string; href: string } | null;
 }
 
 export interface PrintPlanEstimate {
@@ -135,6 +137,8 @@ function style(origin: string): string {
   .day-desc { font-size: 10.5px; color: ${C.mist}; margin-top: 2px; }
   .day-meta { font-size: 10px; color: ${C.mist}; margin-top: 3px; }
   .day-warn { font-size: 10px; color: ${C.warn}; margin-top: 3px; }
+  .day-place { font-size: 10.5px; color: ${C.ink}; margin-top: 3px; }
+  .day-place span { color: ${C.ocean}; word-break: break-all; }
   .day-link { font-size: 10px; color: ${C.ocean}; margin-top: 3px; word-break: break-all; }
   .aside { display: flex; gap: 8px; align-items: flex-start; }
   .thumb { width: 34mm; }
@@ -279,6 +283,10 @@ export function buildPlanPrintHtml(input: PrintPlanInput): string {
     const photoHtml = photo
       ? `<figure class="thumb"><img data-print-photo src="${e(safeUrl(photo.src, origin)!)}" alt=""/><figcaption>${e(photo.caption)}</figcaption></figure>`
       : '';
+    const placeHref = d.place ? safeUrl(d.place.href, origin) : null;
+    const placeHtml = d.place && placeHref
+      ? `<div class="day-place">${d.place.kind === 'route' ? 'Маршрут' : 'Место'}: <strong>${e(d.place.title)}</strong> — <span>${e(placeHref.replace(/^https:\/\//, ''))}</span></div>`
+      : '';
     const desc = d.description.length > 220 ? `${d.description.slice(0, 219).trimEnd()}…` : d.description;
     return `<div class="row${d.confirmed ? ' confirmed' : ''}">
   <div><div class="day-num">${run ? 'Дни ' : 'День '}${e(label)}</div>${when(d.num, run?.last)}</div>
@@ -287,6 +295,7 @@ export function buildPlanPrintHtml(input: PrintPlanInput): string {
     ${desc ? `<div class="day-desc">${e(desc)}</div>` : ''}
     <div class="day-meta">${e(d.meta)}${weather ? ` · ${e(weather)}` : ''}</div>
     ${warn ? `<div class="day-warn">${e(warn)}</div>` : ''}
+    ${placeHtml}
     ${href ? `<div class="day-link">${e(href.replace(/^https:\/\//, ''))}</div>` : ''}
   </div>
   <div class="aside">${photoHtml}${href ? qrSvg(href) : ''}</div>

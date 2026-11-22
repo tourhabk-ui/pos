@@ -33,3 +33,33 @@ export function computeDifficulty(gainM: number, distanceKm: number): Difficulty
   }
   return 'extreme';
 }
+
+/**
+ * Сложность в любом виде записи — кодом. В базе она бывает кодом импорта
+ * (`easy`, `moderate`), словом паспорта («сложный», «средней сложности») или
+ * правкой миграции (1493: `extreme`). Не узнали — null, а не «лёгкий»
+ * (22.11: карточка каталога подставляла «Лёгкий» на любую неизвестную и на
+ * «экстремальный» — Ключевская сопка в каталоге выглядела лёгкой).
+ */
+export function difficultyCode(raw: unknown): DifficultyLevel | null {
+  if (typeof raw !== 'string') return null;
+  const t = raw.trim().toLowerCase().replace(/ё/g, 'е');
+  if (!t) return null;
+  if (t === 'easy' || t === 'medium' || t === 'hard' || t === 'extreme') return t;
+  if (t === 'moderate') return 'medium';
+  if (t.startsWith('экстрем')) return 'extreme';
+  if (t.startsWith('лег')) return 'easy';
+  if (t.startsWith('сред')) return 'medium';
+  if (t.startsWith('сложн')) return 'hard';
+  return null;
+}
+
+/**
+ * Записи, которые фильтр каталога считает одной ступенью. «Сложные» включают
+ * экстремальные: человек, отбирающий трудное, их ищет тоже.
+ */
+export const DIFFICULTY_FILTER_SPELLINGS: Record<'easy' | 'medium' | 'hard', string[]> = {
+  easy: ['easy', 'лёгкий', 'легкий'],
+  medium: ['medium', 'moderate', 'средний', 'средней сложности'],
+  hard: ['hard', 'сложный', 'extreme', 'экстремальный'],
+};

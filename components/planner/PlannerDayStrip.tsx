@@ -11,10 +11,13 @@
 import { useEffect, useRef } from 'react';
 import { zoneLegs, type PlannerMapDay } from '@/lib/planner/map-markers';
 import { planDayHex, zoneName } from '@/lib/planner/zone-style';
+import type { DayPlaceCard } from '@/lib/planner/day-place-cards';
 
 export interface StripDay extends PlannerMapDay {
   /** «вт, 24 ноя»; нет дат — пусто. */
   dateLabel?: string;
+  /** Место/маршрут дня (day-place-cards): миниатюра и ссылка в строке открытого дня. */
+  place?: DayPlaceCard | null;
 }
 
 export function PlannerDayStrip({ days, activeDay, onPick, onOpen }: {
@@ -52,6 +55,12 @@ export function PlannerDayStrip({ days, activeDay, onPick, onOpen }: {
     <div ref={rootRef} data-day-strip className="pointer-events-auto rounded-xl border border-[var(--border)] bg-[var(--bg-card)]/95 backdrop-blur shadow-lg">
       {active && (
         <div className="flex items-center gap-2 px-3 pt-2 text-[12px]">
+          {active.place?.photo && (
+            // eslint-disable-next-line @next/next/no-img-element -- свой адрес /api/images, размер задан
+            <img src={active.place.photo.src} alt={active.place.title} width={28} height={28} loading="lazy" decoding="async"
+              title={`Фото: ${active.place.photo.author}`}
+              className="shrink-0 rounded object-cover" style={{ width: 28, height: 28 }} />
+          )}
           <span className="min-w-0 flex-1 truncate text-[var(--text-primary)]">
             <b>День {activeIdx + 1}.</b> {active.title}
             <span className="text-[var(--text-secondary)]">
@@ -59,6 +68,12 @@ export function PlannerDayStrip({ days, activeDay, onPick, onOpen }: {
               {active.approx ? ' · место — по описанию тура' : ''}
             </span>
           </span>
+          {active.place && (
+            <a href={active.place.href} target="_blank" rel="noopener" data-strip-place
+              className="hidden sm:inline shrink-0 text-[11px] font-medium text-[var(--accent)] hover:underline">
+              {active.place.kind === 'route' ? 'Маршрут' : 'Место'} ↗
+            </a>
+          )}
           <button
             type="button"
             onClick={() => onOpen(active.day)}

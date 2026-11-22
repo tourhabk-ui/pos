@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/middleware';
 import { chatService } from '@/lib/services/operators/chat.service';
 import { pool } from '@/lib/db-pool';
-import { INBOX_CHAT_CATEGORIES } from '@/lib/crm/inbox-kinds';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
+import { CHAT_NO_PARTNER_TEXT, INBOX_CHAT_CATEGORIES } from '@/lib/crm/inbox-kinds';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,8 +32,9 @@ export async function GET(request: NextRequest) {
       data: { conversations, total },
     });
   } catch (error) {
+    logSwallowedFailure('chat/conversations', 'список бесед', error);
     return NextResponse.json(
-      { success: false, error: 'Ошибка загрузки бесед', details: error instanceof Error ? error.message : 'Unknown' },
+      { success: false, error: 'Ошибка загрузки бесед' },
       { status: 500 }
     );
   }
@@ -45,66 +47,63 @@ export async function GET(request: NextRequest) {
  * запрещённые `tours`/`bookings` (uuid), и запись числового id тура роняла
  * создание беседы. Тур доходит до оператора темой (`subject`). Лишние ключи
  * z.object отбрасывает — кнопку менять не нужно.
+ *
+ * Собеседник — только карточка партнёра (`operatorPartnerId`), его аккаунт и
+ * роль сервер берёт из `partners` (ревью безопасности #3701, 22.11). До этого
+ * дверь принимала из тела `participantId` и `participantRole`: любой вошедший
+ * (турист регистрируется сам) открывал беседу с любым аккаунтом по его номеру
+ * и сам называл его роль — а по роли уведомление и лента CRM ищут карточку.
+ * Производителя у этих полей не было: единственная кнопка
+ * (`components/marketplace/MessageOperatorButton.tsx`) шлёт номер карточки.
+ * Теперь они отбрасываются, как любые лишние ключи.
  */
 const CreateConversationSchema = z.object({
-  participantId: z.string().trim().optional(),
-  participantRole: z.string().optional(),
   subject: z.string().trim().optional(),
   message: z.string().trim().optional(),
-  operatorPartnerId: z.string().trim().optional(),
+  operatorPartnerId: z.string().trim().uuid(),
 });
 
 /**
  * POST /api/chat/conversations
- * Create or find a direct conversation with another user.
- * Body: { participantId?, operatorPartnerId?, participantRole?, subject?, message? }
+ * Найти или открыть беседу туриста с компанией по номеру её карточки.
+ * Body: { operatorPartnerId, subject?, message? }
  */
 export async function POST(request: NextRequest) {
   try {
     const userOrResponse = await requireAuth(request);
     if (userOrResponse instanceof NextResponse) return userOrResponse;
 
-    const parsed = CreateConversationSchema.safeParse(await request.json());
+    const body: unknown = await request.json().catch(() => null);
+    const parsed = CreateConversationSchema.safeParse(body);
     if (!parsed.success) {
+      const noPartner = parsed.error.issues.some((i) => i.path[0] === 'operatorPartnerId' && i.code === 'invalid_type');
       return NextResponse.json(
-        { success: false, error: 'Некорректные данные беседы' },
+        { success: false, error: noPartner ? CHAT_NO_PARTNER_TEXT : 'Некорректные данные беседы' },
         { status: 400 }
       );
     }
-    let participantId = parsed.data.participantId ?? '';
-    let participantRole = parsed.data.participantRole ?? 'tourist';
     const subject = parsed.data.subject;
     const message = parsed.data.message;
 
     // Кнопка «Написать оператору» на карточке тура знает только id партнёра —
     // user_id оператора резолвим на сервере, чтобы не светить его в публичном API
-    const operatorPartnerId = parsed.data.operatorPartnerId ?? '';
-    if (!participantId && operatorPartnerId) {
-      const { rows } = await pool.query<{ user_id: string | null; category: string | null }>(
-        `SELECT user_id, category FROM partners WHERE id = $1 LIMIT 1`,
-        [operatorPartnerId]
-      );
-      if (!rows[0]?.user_id) {
-        return NextResponse.json(
-          { success: false, error: 'У оператора нет аккаунта для сообщений. Свяжитесь с ним по телефону из карточки тура.' },
-          { status: 404 }
-        );
-      }
-      participantId = rows[0].user_id;
-      // Роль собеседника — категория его карточки: тур продаёт и гид (1338).
-      // По роли уведомление о сообщении и лента CRM ищут карточку
-      // (lib/notifications/chat-message, lib/crm/chat-events); гид, записанный
-      // «оператором», оставался без уведомления — карточки оператора у него нет.
-      const category = rows[0].category;
-      participantRole = category && (INBOX_CHAT_CATEGORIES as ReadonlySet<string>).has(category) ? category : 'operator';
-    }
-
-    if (!participantId) {
+    const { rows } = await pool.query<{ user_id: string | null; category: string | null }>(
+      `SELECT user_id, category FROM partners WHERE id = $1 LIMIT 1`,
+      [parsed.data.operatorPartnerId]
+    );
+    if (!rows[0]?.user_id) {
       return NextResponse.json(
-        { success: false, error: 'participantId обязателен' },
-        { status: 400 }
+        { success: false, error: 'У оператора нет аккаунта для сообщений. Свяжитесь с ним по телефону из карточки тура.' },
+        { status: 404 }
       );
     }
+    const participantId = rows[0].user_id;
+    // Роль собеседника — категория его карточки: тур продаёт и гид (1338).
+    // По роли уведомление о сообщении и лента CRM ищут карточку
+    // (lib/notifications/chat-message, lib/crm/chat-events); гид, записанный
+    // «оператором», оставался без уведомления — карточки оператора у него нет.
+    const category = rows[0].category;
+    const participantRole = category && (INBOX_CHAT_CATEGORIES as ReadonlySet<string>).has(category) ? category : 'operator';
 
     if (participantId === userOrResponse.userId) {
       return NextResponse.json(
@@ -143,8 +142,9 @@ export async function POST(request: NextRequest) {
       data: { conversationId, created },
     }, { status: created ? 201 : 200 });
   } catch (error) {
+    logSwallowedFailure('chat/conversations', 'создание беседы', error);
     return NextResponse.json(
-      { success: false, error: 'Ошибка создания беседы', details: error instanceof Error ? error.message : 'Unknown' },
+      { success: false, error: 'Ошибка создания беседы' },
       { status: 500 }
     );
   }
