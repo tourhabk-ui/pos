@@ -128,6 +128,10 @@ export default function PreparePage() {
           <p className="mt-4 text-base text-[var(--text-secondary)] leading-relaxed">
             Здесь собрано то, что нужно сделать до выхода на маршрут. Сроки, адреса и номера взяты у
             ведомств и обновляются вместе с платформой — источник указан в каждом разделе.
+            Готовый маршрут по дням — в{' '}
+            <Link href="/plans" className="text-[var(--ocean)] hover:underline">готовых маршрутах по дням</Link>,
+            подобрать его можно с{' '}
+            <Link href="/kuzmich" className="text-[var(--ocean)] hover:underline">Кузьмичом</Link>.
           </p>
         </section>
 
@@ -192,8 +196,9 @@ export default function PreparePage() {
 
           <Card icon={<Backpack className="w-5 h-5" />} title="Соберите снаряжение под маршрут">
             <p>
-              Общего списка на все случаи нет и быть не может: восхождение на вулкан, сплав и
-              рыбалка требуют разного. Снаряжение указано на странице каждого маршрута, а у туров —
+              Общего списка на все случаи нет и быть не может: восхождение на вулкан, сплав и{' '}
+              <Link href="/fish" className="text-[var(--ocean)] hover:underline">рыбалка</Link>
+              {' '}требуют разного. Снаряжение указано на странице каждого маршрута, а у туров —
               в разделе «Что взять с собой», который заполняет оператор.
             </p>
             <p>
@@ -213,6 +218,10 @@ export default function PreparePage() {
 
           <Card icon={<ShieldAlert className="w-5 h-5" />} title="Медведи">
             <Steps items={bear.steps} />
+            <p>
+              Подробнее — на{' '}
+              <Link href="/medvedi-kamchatki" className="text-[var(--ocean)] hover:underline">странице о медведях Камчатки</Link>.
+            </p>
           </Card>
 
           <Card icon={<CloudRain className="w-5 h-5" />} title="Реки и непогода">
