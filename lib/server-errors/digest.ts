@@ -26,6 +26,7 @@
  *     этой оговорки читалось бы как точное число.
  */
 
+import { stripPathToken } from '@/lib/analytics/token-path';
 import { scrubErrorText } from '@/lib/client-errors/scrub';
 import { escapeHtml } from '@/lib/text/escape-html';
 import { ERROR_LOG_THROTTLE_MS } from '@/lib/server-errors/log-throttle';
@@ -63,7 +64,7 @@ export interface ServerErrorRow {
 
 /** Маршрут без query и фрагмента: без шаблона (`routePath`) туда попадал сырой адрес. */
 function routeOnly(route: string): string {
-  return scrubErrorText(route.split(/[?#]/)[0], 200) || 'unknown';
+  return scrubErrorText(stripPathToken(route.split(/[?#]/)[0]), 200) || 'unknown';
 }
 
 /**
@@ -79,7 +80,7 @@ export function scrubServerErrorRow(r: ServerErrorRow): ServerErrorRow {
     route: r.route === null ? null : routeOnly(r.route),
     last_message: r.last_message === null ? null : scrubErrorText(r.last_message, 300),
     last_stack: r.last_stack === null ? null : (scrubErrorText(r.last_stack, 400) || null),
-    paths: r.paths === null ? null : r.paths.map((p) => scrubErrorText(String(p).split(/[?#]/)[0], 200)),
+    paths: r.paths === null ? null : r.paths.map((p) => scrubErrorText(stripPathToken(String(p).split(/[?#]/)[0]), 200)),
   };
 }
 

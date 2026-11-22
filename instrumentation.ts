@@ -46,7 +46,8 @@ export async function onRequestError(
       const { scrubErrorText, pathOnly } = await import('@/lib/client-errors/scrub');
       // Без шаблона маршрута (routePath) маршрутом становится сырой адрес —
       // с query и сегментами, где бывает что угодно, включая ПД.
-      const route = scrubErrorText(context?.routePath || (request?.path ?? '').split('?')[0], 200) || 'unknown';
+      // Сырой адрес — через pathOnly: ключ в сегменте (/vote/<токен>) тоже режется (ревью #3744).
+      const route = scrubErrorText(context?.routePath || pathOnly(request?.path), 200) || 'unknown';
       const now = Date.now();
       if (now - (errorLoggedAt.get(route) ?? 0) < ERROR_LOG_THROTTLE_MS) return;
       errorLoggedAt.set(route, now);

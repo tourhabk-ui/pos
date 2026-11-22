@@ -41,7 +41,11 @@ describe('и в журнал ошибок клиента ключ не идёт 
     expect(pathOnly(`https://vedarai.ru/vote/${T}?a=1#b`)).toBe('/vote');
     expect(pathOnly('/catalog/tours/5?x=1')).toBe('/catalog/tours/5');
     expect(pathOnly(`/api/trip-vote/${T}`)).toBe('/api/trip-vote');
-    expect(readFileSync('instrumentation.ts', 'utf8')).toMatch(/scrubErrorText\(pathOnly\(request\?\.path\)/);
+    const inst = readFileSync('instrumentation.ts', 'utf8');
+    expect(inst).toMatch(/scrubErrorText\(pathOnly\(request\?\.path\)/);
+    expect(inst).toMatch(/context\?\.routePath \|\| pathOnly\(request\?\.path\)/);
+    expect(inst).not.toMatch(/\(request\?\.path \?\? ''\)\.split/);
+    expect(readFileSync('lib/server-errors/digest.ts', 'utf8').match(/stripPathToken\(/g)?.length).toBeGreaterThanOrEqual(2);
   });
   it('публичная ссылка голосования гаснет через 3 дня после срока', () => {
     const src = readFileSync('app/api/trip-vote/[token]/route.ts', 'utf8');
