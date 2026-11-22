@@ -149,7 +149,7 @@ export default function SafetyAbout() {
 
 export function SafetyLiveIntro() {
   return (
-    <section className="space-y-3 mt-10 mb-4" aria-labelledby="radar">
+    <section className="space-y-3 mb-4" aria-labelledby="radar">
       <h2 id="radar" className="ds-h2" style={{ fontFamily: 'var(--font-playfair)' }}>
         {SAFETY_LIVE_HEADING}
       </h2>
