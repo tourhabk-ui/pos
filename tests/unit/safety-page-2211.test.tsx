@@ -15,6 +15,7 @@ import {
   SAFETY_INCIDENTS_PREP_HEADING,
   SAFETY_LEAD,
   SAFETY_LIVE_HEADING,
+  SAFETY_LIVE_LEAD,
   SAFETY_PAGE_DATE,
   SAFETY_PAGE_DESCRIPTION,
   SAFETY_PAGE_H1,
@@ -138,6 +139,10 @@ describe('рендер без JS: H1, FAQ и ссылки в серверном 
     expect(leadAt).toBeGreaterThan(0);
     expect(radarAt).toBeGreaterThan(leadAt);
     expect(firstArticleH2).toBeGreaterThan(radarAt);
+    const bylineAt = html.indexOf('data-record-modified');
+    expect(bylineAt).toBeGreaterThan(radarAt);
+    expect(aboutSrc).toMatch(/<SafetyByline/);
+    expect(aboutSrc.slice(aboutSrc.indexOf('export function SafetyIntro'), aboutSrc.indexOf('export function SafetyByline'))).not.toMatch(/data-record-modified/);
   });
 
   it('FAQ и ссылки видны в том же HTML, разметка FAQPage совпадает с текстом', () => {
@@ -164,6 +169,19 @@ describe('рендер без JS: H1, FAQ и ссылки в серверном 
     expect(loading).toMatch(/SafetyIntro/);
     expect(loading).toMatch(/SafetyLiveIntro/);
     expect(loading).toMatch(/Загрузка обстановки/);
+  });
+
+  it('на телефоне над радаром только короткий лид: мелкий H1, короткая врезка, подпись и уведомления ниже', () => {
+    expect(aboutSrc).toMatch(/text-xl leading-tight/);
+    expect(aboutSrc).toMatch(/id="radar"/);
+    expect(aboutSrc).toMatch(/text-xs font-medium tracking-wide/);
+    expect(words(SAFETY_LIVE_LEAD).length).toBeLessThanOrEqual(20);
+    expect(SAFETY_LIVE_LEAD).toMatch(/странице инцидентов/);
+    const radarAt = client.indexOf('<RadarScope');
+    const pushAt = client.indexOf('<PushSafetyOffer');
+    expect(radarAt).toBeGreaterThan(0);
+    expect(pushAt).toBeGreaterThan(radarAt);
+    expect(client).not.toMatch(/Камчатка · обстановка обновляется автоматически/);
   });
 });
 

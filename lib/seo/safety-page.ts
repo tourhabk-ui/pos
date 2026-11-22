@@ -36,7 +36,7 @@ export const SAFETY_AUTHOR = 'Редакция Vedar';
 export const SAFETY_LIVE_HEADING = 'Какая обстановка на Камчатке сейчас?';
 
 export const SAFETY_LIVE_LEAD =
-  'Здесь — живые данные платформы: радар, предупреждения, коды вулканов и погода. Они обновляются автоматически. Действующие алерты и закрытые маршруты также собраны на странице инцидентов.';
+  'Радар, предупреждения и коды вулканов обновляются автоматически. Алерты — на странице инцидентов.';
 
 const MCHS_REG_URL =
   'https://41.mchs.gov.ru/deyatelnost/poleznaya-informaciya/registraciya-turisticheskih-grupp';
@@ -245,9 +245,9 @@ export function safetyVisibleText(): string {
   const parts = [
     SAFETY_PAGE_H1,
     SAFETY_LEAD,
-    SAFETY_AUTHOR,
     SAFETY_LIVE_HEADING,
     SAFETY_LIVE_LEAD,
+    SAFETY_AUTHOR,
     ...SAFETY_SECTIONS.flatMap((s) => [s.heading, ...s.paragraphs]),
     SAFETY_FAQ_HEADING,
     ...SAFETY_FAQ.flatMap((f) => [f.question, f.answer]),
