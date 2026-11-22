@@ -6060,12 +6060,18 @@ export function PlanningClient({ mapPackBaseUrl = null, intro = null }: Planning
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
+    // Шапка сайта — position: fixed высотой var(--header-h) (64px + safe area):
+    // в потоке её нет, и до 22.11 полоса вкладок липла на 56px (на 8px под
+    // шапкой), а начало вкладки — видимый H1 «Подготовка к походу» — уезжало
+    // под шапку и полосу. Отступ на высоту шапки и липкость ровно под ней.
+    <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]"
+      style={tab === 'planning' ? { paddingTop: 'var(--header-h)' } : undefined}
+      data-planning-root>
       {tab === 'planning' && <Header />}
 
       {/* Tab bar */}
-      <div ref={tabBarRef} className={`sticky z-40 ${tab === 'planning' ? 'top-[56px]' : 'top-0'}`}
-        style={{ background: tab === 'trail' ? 'var(--bg-primary)' : 'var(--bg-card)', borderBottom: `1px solid ${tab === 'trail' ? 'var(--bg-card)' : 'var(--border)'}` }}>
+      <div ref={tabBarRef} className="sticky z-40"
+        style={{ top: tab === 'planning' ? 'var(--header-h)' : 0, background: tab === 'trail' ? 'var(--bg-primary)' : 'var(--bg-card)', borderBottom: `1px solid ${tab === 'trail' ? 'var(--bg-card)' : 'var(--border)'}` }}>
         <div className={`max-w-2xl mx-auto flex gap-0 ${tab === 'trail' ? 'pl-1 pr-4' : 'px-4'}`}>
           {/* Домой (владелец 26.09: «маленький косячок — нет домой»). На
               «На маршруте» нет ни общей шапки, ни нижнего меню — выйти с
