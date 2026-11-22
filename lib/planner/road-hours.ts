@@ -22,8 +22,14 @@ const key = (a: [number, number], b: [number, number]) =>
 async function compute(a: [number, number], b: [number, number]): Promise<RoadEstimate> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
+    // Отказ графа после таймаута не должен стать необработанным отказом
+    // (Bugbot #3713): ошибка ловится на самом обещании и становится «не знаем».
+    const route = roadGraphRoute(a[0], a[1], b[0], b[1], 'car').catch((err: unknown) => {
+      console.error('[planner/road-hours] дорожный граф не ответил:', err instanceof Error ? err.message : String(err));
+      return null;
+    });
     const r = await Promise.race([
-      roadGraphRoute(a[0], a[1], b[0], b[1], 'car'),
+      route,
       new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), TIMEOUT_MS); }),
     ]);
     if (r === null) return { kind: 'unread' };

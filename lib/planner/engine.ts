@@ -2559,7 +2559,10 @@ async function markFarAdjacentTours(days: DayPlan[]): Promise<void> {
     const cur = days[i];
     if (!prev.realTour || !cur.realTour || prev.realTour.tourId === cur.realTour.tourId) continue;
     if (prev.pointUnknown || cur.pointUnknown) continue;
-    const nightOnSite = prev.realTour.lodgingIncluded === true || (prev.realTour.durationHours ?? 0) > 24;
+    // Многодневный тур — по дням брони (`durationDays`, multi_day_count) или
+    // по часам: у тура «5 дней» часы бывают пустыми (Bugbot #3713).
+    const nightOnSite = prev.realTour.lodgingIncluded === true
+      || (prev.realTour.durationDays ?? 0) > 1 || (prev.realTour.durationHours ?? 0) > 24;
     if (!nightOnSite) continue;
     if (straightKm({ lat: prev.coords[0], lng: prev.coords[1] }, { lat: cur.coords[0], lng: cur.coords[1] }) < ROAD_CHECK_MIN_KM) continue;
     const road = await roadEstimate(prev.coords, cur.coords);
