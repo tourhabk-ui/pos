@@ -74,7 +74,9 @@ describe('считает тем же, чем ищет движок', () => {
     );
     expect(toursSql.length, 'SQL туров не нашёлся — сломался разбор').toBeGreaterThan(100);
 
-    for (const predicate of ['is_active', 'is_published', 'deleted_at IS NULL', 'p.is_public']) {
+    // «Тур на витрине» — один шлюз (publicTourSql) у переписи и у движка;
+    // компания на витрине — отдельным предикатом у обоих.
+    for (const predicate of ["${publicTourSql('ot')}", 'p.is_public = TRUE']) {
       expect(toursSql, `в SQL переписи нет ${predicate}`).toContain(predicate);
       expect(DATA, `в движке нет ${predicate}`).toContain(predicate);
     }

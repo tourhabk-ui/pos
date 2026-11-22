@@ -42,7 +42,10 @@ describe('план ведёт к брони', () => {
   it('общий резолвер туров: только живые туры, сбой не роняет план', () => {
     const RESOLVER = readFileSync(join(ROOT, 'lib/tours/top-tour-by-activity.ts'), 'utf-8');
     expect(RESOLVER).toMatch(/FROM operator_tours ot/);
-    expect(RESOLVER).toMatch(/ot\.is_active = true AND ot\.is_published = true AND ot\.deleted_at IS NULL/);
+    // Оба отбора (по виду и по номеру) — через шлюз витрины: тур тестового
+    // профиля на страницу плана не попадает (ревью #3703). Поведение —
+    // tests/integration/partner-test-profile.pg.test.ts.
+    expect(RESOLVER.match(/AND \$\{publicTourSql\('ot'\)\}/g)?.length).toBe(2);
     // Сбой подбора не роняет план, но и не глушится: причина — в лог (§4.0).
     expect(RESOLVER).toMatch(/catch \(e\) \{[\s\S]*?console\.error\('\[top-tour-by-activity\]/);
   });

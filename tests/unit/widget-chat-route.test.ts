@@ -80,16 +80,18 @@ let partnersFail = false;
 
 function routeDb() {
   dbQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
+    // Туры — первыми: шлюз витрины несёт подзапрос «FROM partners test_gate»
+    // (тестовый профиль, 1495), и проверка партнёров первой забрала бы его.
+    if (/FROM operator_tours/.test(sql)) {
+      if (toursFail) throw Object.assign(new Error('relation does not exist'), { code: '42P01' });
+      // «База» отдаёт по параметру оператора — фильтр решает тот, кто его передал.
+      return { rows: TOURS.filter((t) => t.operator === params[0]).map((t) => t.row) };
+    }
     if (/FROM partners/.test(sql)) {
       if (partnersFail) throw Object.assign(new Error('relation "partners" does not exist'), { code: '42P01' });
       return params[0] === 'mestechko'
         ? { rows: [{ id: PARTNER_ID, name: 'Местечко Камчатка', category: 'operator', description: null, widget_domains: ['mestechkokam.ru'] }] }
         : { rows: [] };
-    }
-    if (/FROM operator_tours/.test(sql)) {
-      if (toursFail) throw Object.assign(new Error('relation does not exist'), { code: '42P01' });
-      // «База» отдаёт по параметру оператора — фильтр решает тот, кто его передал.
-      return { rows: TOURS.filter((t) => t.operator === params[0]).map((t) => t.row) };
     }
     return { rows: [] };
   });
@@ -199,8 +201,8 @@ describe('туры — только этого партнёра', () => {
 
   it('туров у партнёра нет — модели так и сказано, заявка вместо чужих туров', async () => {
     dbQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
-      if (/FROM partners/.test(sql)) return { rows: [{ id: RIVAL_ID.replace('2', '3'), name: 'Пустой партнёр', category: 'operator', description: null, widget_domains: [] }] };
       if (/FROM operator_tours/.test(sql)) return { rows: TOURS.filter((t) => t.operator === params[0]).map((t) => t.row) };
+      if (/FROM partners/.test(sql)) return { rows: [{ id: RIVAL_ID.replace('2', '3'), name: 'Пустой партнёр', category: 'operator', description: null, widget_domains: [] }] };
       return { rows: [] };
     });
     await call({ partnerId: 'empty', sessionId: 's3', message: 'Какие есть туры?' });

@@ -15,6 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { pool } from '@/lib/db-pool';
 import { requireAgent } from '@/lib/auth/middleware';
 import { normalizePriceUnit } from '@/lib/tours/booking-total';
@@ -56,7 +57,7 @@ export async function GET(request: NextRequest) {
               ${nearestFreeDateSql('t')} AS nearest_free_date, ${anyDayOpenSql('t')} AS any_day_open
          FROM operator_tours t
          JOIN partners p ON t.operator_id = p.id
-        WHERE t.is_published = true AND t.is_active = true AND t.deleted_at IS NULL`,
+        WHERE ${publicTourSql('t')}`,
     );
 
     const ordered = orderOffersBy(rows, (r) => ({ id: r.id, nearestFreeDate: r.nearest_free_date ?? null, anyDayOpen: r.any_day_open ?? null }));

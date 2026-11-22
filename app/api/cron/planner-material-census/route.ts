@@ -35,6 +35,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
@@ -94,7 +95,7 @@ export interface PlannerMaterialCensus {
 const DEFINITIONS: PlannerMaterialCensus['definitions'] = {
   tours:
     'operator_tours + partners: ark.zone совпала; тур без зоны — городской, считается в avachinsky (тот же предикат, что у движка, lib/planner/zone-match), '
-    + 'activity_type точно равен, is_active, is_published, deleted_at IS NULL, partners.is_public',
+    + 'activity_type точно равен, шлюз витрины publicTourSql (is_active, is_published, deleted_at IS NULL, партнёр не тестовый профиль), partners.is_public',
   routes:
     'agent_route_knowledge: zone и activity_type точно равны, is_visible, lat и lng не NULL',
   empty_pairs: 'пары, где и туров, и маршрутов ноль — день по ним собирается общим, без конкретики',
@@ -128,9 +129,7 @@ export async function GET(request: NextRequest) {
          FROM operator_tours ot
          JOIN partners p ON p.id = ot.operator_id
          LEFT JOIN agent_route_knowledge ark ON ark.id = ot.agent_route_id
-        WHERE ot.is_active = TRUE
-          AND ot.is_published = TRUE
-          AND ot.deleted_at IS NULL
+        WHERE ${publicTourSql('ot')}
           AND p.is_public = TRUE
         GROUP BY 1, 2`,
     );

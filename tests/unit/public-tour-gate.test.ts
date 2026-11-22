@@ -348,39 +348,36 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
  * Только сокращается. Перевёл файл на publicTourSql — уменьши число; убрал
  * все — удали запись; новый файл появиться здесь не может. Причина говорит,
  * чем запись является: не витрина (админка, перепись, кабинет партнёра,
- * внутренний агент — им снятый тур виден по делу) или витрина с ВСЕМИ тремя
- * флагами руками (совпадает со шлюзом, пока его не поправят).
+ * внутренний агент, дверь по номеру тура — им снятый тур виден по делу).
  *
- * Третьего рода — витрины с НЕПОЛНОЙ копией — больше нет и быть не может
- * (ревью #2642): кабинет подписывает черновик «туристы не видят», и витрина
- * без is_published делает эту подпись ложью. Тринадцать таких записей
- * переведены на шлюз; запись с иной причиной, чем две выше, сторож не примет.
+ * Витрины с копией условия здесь больше нет и быть не может. Неполная копия
+ * делала ложью подпись кабинета «туристы не видят» (ревью #2642, тринадцать
+ * записей переведены на шлюз). Полная — три флага руками — «совпадала со
+ * шлюзом, пока его не поправят»: 22.11 шлюз получил отметку тестового
+ * профиля (1495), и ревью безопасности #3703 нашло тестовые туры в лентах
+ * Авито и Яндекса и на страницах готовых планов. Восемь таких витрин
+ * переведены на шлюз; запись с иной причиной, чем «не витрина», сторож не
+ * примет.
  */
 const NOT_SHOWCASE = 'не витрина';
-const FULL_COPY = 'витрина, все три флага руками: сегодня совпадает со шлюзом, разойдётся при первой его правке';
 const KNOWN_HAND_COPIES: Record<string, { n: number; why: string }> = {
   'app/seat-request/test/page.tsx': { n: 1, why: `${NOT_SHOWCASE}: тестовый стенд 24.10 — только неопубликованный тур тестового оператора, по прямой ссылке` },
   'app/api/admin/ai-assistant/route.ts': { n: 1, why: `${NOT_SHOWCASE}: счёт активных туров в контекст ассистента админки` },
   'app/api/admin/content/tours/route.ts': { n: 1, why: `${NOT_SHOWCASE}: фильтр админки по статусу — видит все состояния намеренно` },
   'app/api/admin/stats/route.ts': { n: 1, why: `${NOT_SHOWCASE}: сводка админки «активных туров»` },
   'app/api/admin/tours/route.ts': { n: 1, why: `${NOT_SHOWCASE}: фильтр админки по статусу — видит все состояния намеренно` },
-  'app/api/agent/find-tours/route.ts': { n: 2, why: `${FULL_COPY} (подбор для турагента)` },
-  'app/api/agent/tours/route.ts': { n: 2, why: `${FULL_COPY} (список для турагента)` },
   'app/api/cron/channel-readiness/route.ts': { n: 1, why: `${NOT_SHOWCASE}: перепись считает именно «активен, но не опубликован» — обратное условие` },
   'app/api/cron/digest/route.ts': { n: 2, why: `${NOT_SHOWCASE}: дайджест владельцу, счёт активных туров` },
   'app/api/cron/guide-readiness/route.ts': { n: 1, why: `${NOT_SHOWCASE}: перепись готовности гидов` },
   'app/api/cron/leads-followup/route.ts': { n: 1, why: `${NOT_SHOWCASE}: добивка лидов выбирает партнёра по виду его тура, тур туристу не показывается` },
   'app/api/cron/partner-candidates-census/route.ts': { n: 1, why: `${NOT_SHOWCASE}: перепись кандидатов в партнёры` },
-  'app/api/cron/planner-material-census/route.ts': { n: 2, why: `${FULL_COPY} (перепись меряет материал витрины планера)` },
   'app/api/cron/pricing-rules-census/route.ts': { n: 3, why: `${NOT_SHOWCASE}: перепись правил цены, своё определение «живого» в ответе` },
-  'app/api/cron/smart-notify/route.ts': { n: 2, why: `${FULL_COPY} (рассылка туристам)` },
   'app/api/cron/tour-describe/route.ts': { n: 1, why: `${NOT_SHOWCASE}: писатель описаний — черновику тоже нужен текст до публикации` },
   'app/api/cron/tour-photos-census/route.ts': { n: 1, why: `${NOT_SHOWCASE}: перепись снимков туров` },
   'app/api/hub/operator/pricing-rules/route.ts': { n: 1, why: `${NOT_SHOWCASE}: кабинет оператора, свои туры` },
   'app/api/routes/analysis/route.ts': { n: 1, why: `${NOT_SHOWCASE}: аналитика маршрутов, счёт активных среди всех туров места` },
   'app/api/telegram/admin/route.ts': { n: 1, why: `${NOT_SHOWCASE}: статистика админ-бота` },
   'app/api/telegram/webhook/route.ts': { n: 1, why: `${NOT_SHOWCASE}: команда статистики для админа в боте` },
-  'app/hub/admin/channels/page.tsx': { n: 2, why: `${FULL_COPY} (счёт готовых к выкладке в админке каналов)` },
   'lib/admin/alerts.ts': { n: 1, why: `${NOT_SHOWCASE}: тревоги админки о состоянии каталога` },
   'lib/agents/agencies/marketing-agency.ts': { n: 1, why: `${NOT_SHOWCASE}: контекст внутреннего агента` },
   'lib/agents/agencies/rescue-agency.ts': { n: 1, why: `${NOT_SHOWCASE}: безопасность — турист уже едет и на снятый с витрины тур` },
@@ -388,19 +385,16 @@ const KNOWN_HAND_COPIES: Record<string, { n: number; why: string }> = {
   'lib/agents/scout-innovator.ts': { n: 1, why: `${NOT_SHOWCASE}: счёт в контекст внутреннего агента` },
   'lib/agents/sdk/operator-tools.ts': { n: 1, why: `${NOT_SHOWCASE}: инструменты оператора, свои туры` },
   'lib/agents/warmup.ts': { n: 1, why: `${NOT_SHOWCASE}: счёт в контекст прогрева` },
-  'lib/bookings/reserve.ts': { n: 2, why: `${FULL_COPY} (дверь брони под FOR UPDATE — компонент брони, правка по §5 отдельным планом)` },
-  'lib/channels/ready-tours.ts': { n: 2, why: `${FULL_COPY} (фид каналов; пункт 1.10 его оставляет как есть)` },
+  'lib/bookings/reserve.ts': { n: 2, why: `${NOT_SHOWCASE}: дверь брони по номеру тура под FOR UPDATE — тур витрины или черновик своего оператора; тестовый профиль (1495) свои туры проверочно бронирует. Компонент брони — правка двери по §5 отдельным планом` },
   'lib/eco/compensation.ts': { n: 1, why: `${NOT_SHOWCASE}: порог эко «активный оператор», не показ тура` },
   'lib/guides/team-queries.ts': { n: 1, why: `${NOT_SHOWCASE}: кабинет гида и команды` },
   'lib/leads/create.ts': { n: 1, why: `${NOT_SHOWCASE}: атрибуция лида оператору, тур не показывается` },
-  'lib/notifications/telegram-channel.ts': { n: 2, why: `${FULL_COPY} (пост в канал)` },
   'lib/safety/safety-selfcheck.ts': { n: 1, why: `${NOT_SHOWCASE}: самопроверка «есть покупаемый тур», диагностика` },
-  'lib/seat-requests/service.ts': { n: 2, why: `${FULL_COPY} (запрос мест из планера)` },
+  'lib/seat-requests/service.ts': { n: 2, why: `${NOT_SHOWCASE}: дверь запроса мест по номеру тура — тур витрины или черновик своего оператора (тестовый стенд 24.10); отбора туров для показа здесь нет` },
   'lib/services/analytics.service.ts': { n: 1, why: `${NOT_SHOWCASE}: аналитика, счёт` },
   'lib/services/routes/route-description-cache.ts': { n: 1, why: `${NOT_SHOWCASE}: писатель кэша описаний` },
   'lib/services/tours/booking-funnel-stages.ts': { n: 2, why: `${NOT_SHOWCASE}: диагностика воронки, счёт предложения` },
   'lib/telegram/welcome.ts': { n: 1, why: `${NOT_SHOWCASE}: приветствие оператора, свои туры` },
-  'lib/tours/top-tour-by-activity.ts': { n: 4, why: `${FULL_COPY} (пункт 1.10 его оставляет как есть)` },
 };
 
 /** Читатели, переведённые на шлюз находкой P1-04: в список долга не возвращаются. */
@@ -434,6 +428,16 @@ const MOVED_TO_GATE = [
   'lib/services/operators/lead-processor.service.ts',
   'lib/services/search.service.ts',
   'lib/services/tours/tour.service.ts',
+  // 22.11 (#3703, ревью безопасности): полные копии разошлись со шлюзом,
+  // получившим отметку тестового профиля (1495) — переведены на шлюз.
+  'app/api/agent/find-tours/route.ts',
+  'app/api/agent/tours/route.ts',
+  'app/api/cron/planner-material-census/route.ts',
+  'app/api/cron/smart-notify/route.ts',
+  'app/hub/admin/channels/page.tsx',
+  'lib/channels/ready-tours.ts',
+  'lib/notifications/telegram-channel.ts',
+  'lib/tours/top-tour-by-activity.ts',
 ];
 
 describe('перепись детектора ручной копии (сторож на сторожа)', () => {
@@ -492,12 +496,13 @@ describe('витрина туров в app/ и lib/ — через шлюз (н�
     for (const [f, { why }] of Object.entries(KNOWN_HAND_COPIES)) expect(why.length, f).toBeGreaterThan(25);
   });
 
-  it('витрина с неполной копией в долге стоять не может (ревью #2642)', () => {
-    // Причина записи — один из двух родов. Витрина без is_published или без
-    // deleted_at делает ложью подпись кабинета «туристы не видят»: такой файл
+  it('витрина с копией условия в долге стоять не может (ревью #2642, #3703)', () => {
+    // Причина записи — только «не витрина». Витрина с неполной копией делает
+    // ложью подпись кабинета «туристы не видят», с полной — расходится со
+    // шлюзом при первой его правке (тестовый профиль, 1495): такой файл
     // переводится на шлюз, а не записывается в долг.
     const other = Object.entries(KNOWN_HAND_COPIES)
-      .filter(([, { why }]) => !why.startsWith(`${NOT_SHOWCASE}:`) && !why.startsWith(FULL_COPY))
+      .filter(([, { why }]) => !why.startsWith(`${NOT_SHOWCASE}:`))
       .map(([f, { why }]) => `${f}: ${why}`);
     expect(other).toEqual([]);
   });

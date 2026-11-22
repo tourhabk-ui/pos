@@ -12,6 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
@@ -55,7 +56,7 @@ export async function GET(req: NextRequest) {
     const { rows: newTours } = await pool.query<MatchedTour>(
       `SELECT id, title, base_price, activity_type, location_name
        FROM operator_tours
-       WHERE is_published = true AND is_active = true AND deleted_at IS NULL
+       WHERE ${publicTourSql('')}
          AND updated_at >= NOW() - INTERVAL '24 hours'
        LIMIT 20`,
     );
