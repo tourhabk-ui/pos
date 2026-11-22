@@ -8,10 +8,16 @@ import type { RouteItem } from './RouteCard';
 import RouteTourPriceLine from './RouteTourPriceLine';
 import { PhotoCreditLink } from '@/components/media/PhotoCreditLink';
 
+/**
+ * Ступени сложности. Неизвестной нет намеренно (22.11): прежде карточка
+ * подставляла «Лёгкий» и на незаписанную сложность, и на `extreme` — которого
+ * в словаре не было. Не знаем — бейджа нет.
+ */
 const DIFFICULTY_CONFIG = {
-  easy:   { label: 'Лёгкий',  color: 'var(--success)', Icon: ChevronUp },
-  medium: { label: 'Средний', color: 'var(--warning)', Icon: ChevronsUp },
-  hard:   { label: 'Сложный', color: 'var(--danger)',  Icon: AlertTriangle },
+  easy:    { label: 'Лёгкий',        color: 'var(--success)', Icon: ChevronUp },
+  medium:  { label: 'Средний',       color: 'var(--warning)', Icon: ChevronsUp },
+  hard:    { label: 'Сложный',       color: 'var(--danger)',  Icon: AlertTriangle },
+  extreme: { label: 'Экстремальный', color: 'var(--danger)',  Icon: AlertTriangle },
 } as const;
 
 /**
@@ -19,6 +25,7 @@ const DIFFICULTY_CONFIG = {
  * сплав — это `rafting`: морская прогулка выдавалась за сплав по реке.
  */
 import { activityLabel } from '@/lib/tours/labels';
+import { difficultyCode } from '@/lib/routes/difficulty-scale';
 
 function daysLabel(n: number) {
   const m10 = n % 10, m100 = n % 100;
@@ -29,9 +36,9 @@ function daysLabel(n: number) {
 }
 
 export default function RoutePathCard({ route, eager = false }: { route: RouteItem; eager?: boolean }) {
-  const diffKey      = (route.difficulty ?? 'easy') as keyof typeof DIFFICULTY_CONFIG;
-  const diff         = DIFFICULTY_CONFIG[diffKey] ?? DIFFICULTY_CONFIG.easy;
-  const DiffIcon     = diff.Icon;
+  const diffKey      = difficultyCode(route.difficulty);
+  const diff         = diffKey ? DIFFICULTY_CONFIG[diffKey] : null;
+  const DiffIcon     = diff?.Icon ?? null;
   const actLabel     = activityLabel(route.activityType ?? route.category) || 'Маршрут';
 
   // imageUrl из каталога всегда разрешается: реальное фото маршрута
@@ -115,13 +122,16 @@ export default function RoutePathCard({ route, eager = false }: { route: RouteIt
         {/* Цена маршрута — из его туров (18.11 «1», lib/routes/route-tour-price). */}
         <RouteTourPriceLine price={route.tourPrice} />
         <div className="flex items-center gap-2 flex-wrap pt-0.5">
-          <span
-            className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full"
-            style={{ background: `${diff.color}22`, color: diff.color, border: `1px solid ${diff.color}44` }}
-          >
-            <DiffIcon className="w-3 h-3" />
-            {diff.label}
-          </span>
+          {diff && DiffIcon ? (
+            <span
+              className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full"
+              style={{ background: `color-mix(in srgb, ${diff.color} 13%, transparent)`, color: diff.color, border: `1px solid color-mix(in srgb, ${diff.color} 27%, transparent)` }}
+              data-testid="route-card-difficulty"
+            >
+              <DiffIcon className="w-3 h-3" />
+              {diff.label}
+            </span>
+          ) : null}
           {route.durationDays != null && (
             <span className="inline-flex items-center gap-1 text-xs text-[var(--text-secondary)] bg-[var(--bg-hover)] px-2 py-0.5 rounded-full">
               <Clock className="w-3 h-3" />
