@@ -111,7 +111,7 @@ describe('где счётчика нет', () => {
   it('кабинеты, вход, брони, контроль выхода, офлайн-контур — исключены', () => {
     for (const p of ['/hub', '/hub/operator/clients', '/hub/admin', '/auth/login', '/register', '/profile',
       '/booking-success/12', '/watch/abc', '/checkin-ok', '/sos', '/emergency', '/offline', '/field-check',
-      '/request-status', '/confirm']) {
+      '/request-status', '/confirm', '/vote/AbCdEfGhIjKlMnOpQrStUvWxYz012345']) {
       expect(shouldTrackPath(p), `${p} должен быть без счётчика`).toBe(false);
     }
   });
