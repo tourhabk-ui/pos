@@ -6,7 +6,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { DayPlan } from '@/lib/planner/engine';
 import {
-  CALLBACK_DATA_MAX_BYTES, WIZARD_BUTTON, WIZARD_START, buildWizardPlan, decodeWizard, encodeWizard,
+  CALLBACK_DATA_MAX_BYTES, WIZARD_BUTTON, daysWord, WIZARD_START, buildWizardPlan, decodeWizard, encodeWizard,
   isWizardPayload, startOptions, wizardPlanArgs, wizardPlannerHref, wizardScreen, wizardStale,
   type WizardScreen, type WizardState,
 } from '@/lib/messenger/trip-wizard';
@@ -122,9 +122,9 @@ describe('диалог целиком', () => {
     expect(loadDays).toHaveBeenCalledWith(ID);
     expect(out.text.split('\n')).toEqual(expect.arrayContaining([
       'День 1, 01.01 — Прилёт в Петропавловск-Камчатский',
-      'День 2, 02.01 — Авачинский вулкан (Авачинская зона) — места есть',
-      'День 3, 03.01 — Долина гейзеров &lt;вертолёт&gt; (Восточная зона) — свободных мест на эти даты нет',
-      'Дни 5–6, 05.01 — Многодневный тур (Авачинская зона) — места не проверены',
+      'День 2, 02.01 — Авачинский вулкан — места есть',
+      'День 3, 03.01 — Долина гейзеров &lt;вертолёт&gt; — свободных мест на эти даты нет',
+      'Дни 5–6, 05.01–06.01 — Многодневный тур — места не проверены',
       'День 7, 07.01 — Вылет',
     ]));
     expect(out.text).toMatch(/не бронь/);
@@ -134,6 +134,10 @@ describe('диалог целиком', () => {
       `https://vedarai.ru/trip/${ID}`,
       'https://vedarai.ru/planner?from=2027-01-01&days=7&hint=volcano%2Cthermal&adults=2&children=7',
     ]);
+  });
+
+  it('дни словом', () => {
+    expect([1, 3, 5, 7, 10, 14, 21, 22].map(daysWord)).toEqual(['1 день', '3 дня', '5 дней', '7 дней', '10 дней', '14 дней', '21 день', '22 дня']);
   });
 
   it('без интересов — «классика», аргумента interests нет', () => {

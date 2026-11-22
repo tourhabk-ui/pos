@@ -18,7 +18,6 @@
  * зависимостями (тест — без базы).
  */
 import { tourRuns } from '@/lib/planner/day-card-view';
-import { zoneName } from '@/lib/planner/zone-style';
 import type { DayPlan } from '@/lib/planner/engine';
 
 export const WIZARD_BUTTON = 'Спланировать поездку';
@@ -138,6 +137,15 @@ export function startOptions(nowMs: number): Array<{ label: string; iso: string 
   return out;
 }
 
+/** «3 дня», «5 дней», «14 дней». */
+export function daysWord(n: number): string {
+  const d10 = n % 10;
+  const d100 = n % 100;
+  if (d10 === 1 && d100 !== 11) return `${n} день`;
+  if (d10 >= 2 && d10 <= 4 && (d100 < 12 || d100 > 14)) return `${n} дня`;
+  return `${n} дней`;
+}
+
 function kidOf(code: number | null) {
   return WIZARD_KIDS.find((k) => k.code === code) ?? null;
 }
@@ -145,7 +153,7 @@ function kidOf(code: number | null) {
 function chosenLine(s: WizardState): string {
   const parts: string[] = [];
   if (s.start) parts.push(`с ${ruDate(s.start)}`);
-  if (s.days) parts.push(`${s.days} дн.`);
+  if (s.days) parts.push(daysWord(s.days));
   if (s.adults) parts.push(`взрослых: ${s.adults}`);
   const kid = kidOf(s.kid);
   if (kid && kid.age !== null) parts.push(`ребёнок ${kid.label.replace('Ребёнок ', '')}`);
@@ -277,10 +285,13 @@ export function dayLines(days: readonly DayPlan[], arrivalIso: string): string[]
         : `Дни ${prev + 1}–${d.day - 1} — не заполнены: подтверждённых выходов нет`);
     }
     prev = d.day;
+    // Зону не пишем: название зоны («Южная зона (Курильское озеро)») у дня в
+    // Паратунке читалось бы как поездка на Курильское озеро.
     const label = run ? `Дни ${run.first}–${run.last}` : `День ${d.day}`;
-    const date = ddmm(addDays(arrivalIso, d.day - 1));
-    const zone = d.type === 'activity' ? ` (${zoneName(d.zone)})` : '';
-    out.push(`${label}, ${date} — ${esc(d.title)}${zone}${seatsWord(d)}`);
+    const date = run
+      ? `${ddmm(addDays(arrivalIso, run.first - 1))}–${ddmm(addDays(arrivalIso, run.last - 1))}`
+      : ddmm(addDays(arrivalIso, d.day - 1));
+    out.push(`${label}, ${date} — ${esc(d.title)}${seatsWord(d)}`);
   }
   return out;
 }
@@ -319,7 +330,7 @@ export async function buildWizardPlan(s: WizardState, deps: WizardDeps): Promise
     return { text: esc(reason), buttons: [[planner], [RESTART]] };
   }
   const kid = kidOf(s.kid);
-  const head = `План на ${s.days} дн. с ${ruDate(s.start)}, взрослых: ${s.adults}${kid && kid.age !== null ? `, ребёнок ${kid.label.replace('Ребёнок ', '')} (допуски — по младшему возрасту)` : ''}:`;
+  const head = `План на ${daysWord(s.days)} с ${ruDate(s.start)}, взрослых: ${s.adults}${kid && kid.age !== null ? `, ребёнок ${kid.label.replace('Ребёнок ', '')} (допуски — по младшему возрасту)` : ''}:`;
   return {
     text: [head, '', ...dayLines(days, s.start), '', WIZARD_FOOTER].join('\n'),
     buttons: [
