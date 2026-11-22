@@ -71,7 +71,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     // Хвост с полями записи (Сыщик 21.11, T3): срок, цена, оператор — что
     // заполнено и помещается; иначе прежний « — тур на Камчатке».
     title: brandedTitle(fitTitleRequired(tour.title, [
-      ...tourTitleTails({ duration: cardDuration(tour), basePrice: tour.base_price, operatorName: tour.operator_name }),
+      ...tourTitleTails({ duration: cardDuration(tour), basePrice: tour.base_price, priceUnit: tour.price_unit, operatorName: tour.operator_name }),
       ...TOUR_TITLE_TAILS,
     ])),
     description: desc,

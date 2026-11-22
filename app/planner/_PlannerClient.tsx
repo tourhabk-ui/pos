@@ -77,6 +77,8 @@ import type {
 } from './planner-types';
 import { planStaleReasons, planStaleText, type PlanSnapshot } from '@/lib/planner/plan-stale';
 import { PhraseEdit, type PhraseApplied } from './PhraseEdit';
+import { TripToday } from '@/components/planner/TripToday';
+import type { BriefWeather } from '@/lib/planner/day-brief';
 import { PlanStaleNotice } from '@/components/planner/PlanStaleNotice';
 import { dayFrame } from '@/lib/planner/day-frame';
 import { PlanReturnWarning } from '@/components/planner/PlanReturnWarning';
@@ -3216,6 +3218,14 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
               ))}
             </div>
           )}
+          {/* В поездке (фича 4): сегодня/завтра — только в дни поездки. */}
+          <TripToday arrival={planStart} zoneLabel={zoneName} days={days.map((d) => ({
+            day: d.day, title: d.title, zone: d.zone, dayWarnings: d.dayWarnings, kit: d.weatherKit ?? null,
+            weatherDependent: d.realTour?.weatherDependent,
+            // Прогноз дня движка (engine DayPlan.weatherForecast) — в типе экрана поля нет, в данных есть.
+            weather: (d as { weatherForecast?: BriefWeather }).weatherForecast ?? null,
+          }))} />
+
           {/* Что из просьбы не вошло — спокойным списком; остальные оговорки
               о плане — в одном свёрнутом блоке под днями (lib/planner/plan-notes). */}
           <NotInPlan lines={notInPlanLines(recommendation.warnings ?? [], builtFor?.interests ?? allInterests, days, (id) => ACTIVITY_LABEL[id] ?? tileLabel(id))} />
