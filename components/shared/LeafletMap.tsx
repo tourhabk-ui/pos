@@ -325,19 +325,24 @@ export default function LeafletMap({
    * Положения точек читаются сразу после fitBounds, поэтому с панелью
    * подгонка без анимации: анимированный зум отдал бы прежний вид.
    */
+  const bottomInsetRef = useRef(bottomInset);
+  useEffect(() => { bottomInsetRef.current = bottomInset; });
   const fitViewRef = useRef((map: LMap, points: [number, number][]) => {
     map.invalidateSize();
     const bounds = points as unknown as import('leaflet').LatLngBoundsExpression;
     const panel = fitClearOfRef.current?.current ?? null;
     const box = containerRef.current;
+    // Низ, занятый полосой вызывающего (bottomInset), — тоже не место для
+    // точек: дни плана прятались под полосой дней (22.11).
+    const bottom = FIT_PADDING + Math.max(0, bottomInsetRef.current);
     if (!panel || !box) {
-      map.fitBounds(bounds, { padding: [FIT_PADDING, FIT_PADDING] });
+      map.fitBounds(bounds, { paddingTopLeft: [FIT_PADDING, FIT_PADDING], paddingBottomRight: [FIT_PADDING, bottom] });
       return;
     }
     const panelBox = panel.getBoundingClientRect();
     const mapBox = box.getBoundingClientRect();
     const fitWith = (top: number) => map.fitBounds(bounds, {
-      paddingTopLeft: [FIT_PADDING, top], paddingBottomRight: [FIT_PADDING, FIT_PADDING], animate: false,
+      paddingTopLeft: [FIT_PADDING, top], paddingBottomRight: [FIT_PADDING, bottom], animate: false,
     });
     const top = fitPaddingTop(panelBox, mapBox, FIT_PADDING);
     fitWith(top);

@@ -617,11 +617,12 @@ describe('на настоящем экране планировщика', () => 
     expect((link.closest('.overflow-y-auto') as HTMLElement | null)).toBeTruthy();
   });
 
-  it('карта отсылает к «Что интересно» — после сборки плана строка сводки называется так же и открывает этот шаг', async () => {
+  it('план с днями при пустом каталоге — без плашки «нет маршрутов»; «Что интересно» открывает шаг', async () => {
     routesReply = 'empty';
     render(<PlannerClient />);
     await buildPlan();
-    expect(screen.getByText(emptyText({ byDefault: false, shown: [], empty: ['Вулканы'] }))).toBeTruthy();
+    // 22.11: на карте дни плана, и «На карте нет маршрутов» читалось как ошибка.
+    expect(screen.queryByText(emptyText({ byDefault: false, shown: [], empty: ['Вулканы'] }))).toBeNull();
     expect(MAP_TEXT.addInterest).toContain('«Что интересно»');
     fireEvent.click(screen.getByRole('button', { name: /^Что интересно/ }));
     expect(await screen.findByText(/Места и занятия — из них соберём дни/)).toBeTruthy();
