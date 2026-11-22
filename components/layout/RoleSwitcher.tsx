@@ -7,6 +7,23 @@ import { useAuth } from '@/contexts/AuthContext';
 import { availableForSwitch, ownedRoles, ROLE_LABELS } from '@/lib/auth/role-switch';
 
 /**
+ * Куда поставить меню «Войти как», чтобы оно не вылезало за левый край
+ * узкого экрана. Правый край меню держится у кнопки, но не ближе `pad`
+ * к краям окна.
+ */
+export function roleMenuBox(
+  anchorRight: number,
+  viewportWidth: number,
+  menuWidth = 192,
+  pad = 8,
+): { left: number; width: number } {
+  const width = Math.min(menuWidth, Math.max(0, viewportWidth - pad * 2));
+  const maxLeft = Math.max(pad, viewportWidth - pad - width);
+  const left = Math.min(Math.max(anchorRight - width, pad), maxLeft);
+  return { left, width };
+}
+
+/**
  * Переключатель активной роли в шапке кабинета. Admin видит все роли (god-mode
  * владельца — показать любой интерфейс), остальные — свои. Активная подсвечена.
  * Не рендерится, если переключаться не на что.
@@ -17,6 +34,7 @@ export function RoleSwitcher() {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [box, setBox] = useState<{ top: number; left: number; width: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -26,6 +44,24 @@ export function RoleSwitcher() {
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const el = ref.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const next = roleMenuBox(r.right, window.innerWidth);
+      setBox({ top: r.bottom + 4, left: next.left, width: next.width });
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [open]);
 
   if (!user) return null;
 
@@ -64,10 +100,18 @@ export function RoleSwitcher() {
         <ChevronDown size={14} className="text-[var(--text-muted)]" />
       </button>
 
-      {open && (
+      {open && box && (
         <div
-          className="absolute right-0 mt-1 w-48 rounded-lg border bg-[var(--bg-card)] shadow-lg py-1 z-50"
-          style={{ borderColor: 'var(--border)' }}
+          role="menu"
+          className="rounded-lg border bg-[var(--bg-card)] shadow-lg py-1"
+          style={{
+            position: 'fixed',
+            top: box.top,
+            left: box.left,
+            width: box.width,
+            zIndex: 80,
+            borderColor: 'var(--border)',
+          }}
         >
           <p className="px-3 py-1.5 text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
             Войти как
