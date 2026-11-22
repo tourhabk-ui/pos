@@ -40,7 +40,14 @@ function bottomNavPaths(): string[] {
 /** Пути шапки: href в Header (и десктопная полоса, и значки). */
 function headerPaths(): string[] {
   const src = strip(read('components/layout/Header.tsx'));
-  return [...src.matchAll(/href[=:]\s*["']([^"']+)["']/g)].map(m => m[1]);
+  const paths = [...src.matchAll(/href[=:]\s*["']([^"']+)["']/g)].map(m => m[1]);
+  // SOS в шапке рендерится через EmergencyAction. Считаем только цели
+  // навигации (href / Link), не строку офлайн-фолбэка router.push.
+  if (/EmergencyAction/.test(src)) {
+    const action = strip(read('components/shared/EmergencyAction.tsx'));
+    paths.push(...[...action.matchAll(/href[=:]\s*["']([^"']+)["']/g)].map(m => m[1]));
+  }
+  return paths;
 }
 
 describe('1. две касания с телефона', () => {
@@ -87,7 +94,9 @@ describe('2. реестр один', () => {
       const dir = join(ROOT, 'app', h.replace(/^\//, ''));
       try { readFileSync(join(dir, 'page.tsx')); return false; } catch { /* нет прямой страницы */ }
       // Список может лежать в группе маршрутов (list) — адрес тот же (аудит SEO 29.09, Н2).
-      try { readFileSync(join(dir, '(list)', 'page.tsx')); return false; } catch { return true; }
+      try { readFileSync(join(dir, '(list)', 'page.tsx')); return false; } catch { /* нет list */ }
+      // Статический спасшлюз /emergency отдаётся route.ts (public/emergency.html), не page.tsx.
+      try { readFileSync(join(dir, 'route.ts')); return false; } catch { return true; }
     });
     expect(missing, 'реестр ведёт на страницу, которой нет').toEqual([]);
   });

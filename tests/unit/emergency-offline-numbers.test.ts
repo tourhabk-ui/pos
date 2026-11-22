@@ -19,7 +19,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { EMERGENCY_NUMBERS, telHref } from '@/lib/safety/emergency-numbers';
+import { EMERGENCY_NUMBERS, VERIFIED_REFERENCE, telHref } from '@/lib/safety/emergency-numbers';
 
 const HTML = fs.readFileSync(path.join(process.cwd(), 'public/emergency.html'), 'utf8');
 
@@ -39,7 +39,12 @@ describe('офлайн-страница спасения', () => {
   });
 
   it('на странице нет номеров вне реестра', () => {
-    const known = new Set(EMERGENCY_NUMBERS.map(n => telHref(n.phone)));
+    // Справочные линии ЦУКС (регистрация групп / консультации) тоже из
+    // проверенного списка, но не входят в экстренный EMERGENCY_NUMBERS.
+    const known = new Set([
+      ...EMERGENCY_NUMBERS,
+      ...VERIFIED_REFERENCE,
+    ].map(n => telHref(n.phone)));
     const extra = [...onPage].filter(t => !known.has(t));
     expect(extra, 'непроверенный номер в чрезвычайной ситуации опаснее его отсутствия').toEqual([]);
   });

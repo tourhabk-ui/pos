@@ -42,8 +42,10 @@ describe('справочник фактов', () => {
     expect(MCHS_LEAD_WORKING_DAYS).toBe(MCHS_REGISTRATION_LEAD.value);
     expect(MCHS_REGISTRATION_LEAD.value).toBe(10);
     expect(FEDERAL_EMERGENCY.map((n) => n.phone)).toEqual([...FEDERAL_EMERGENCY_NUMBERS.value]);
-    expect(VERIFIED_REGIONAL[0]?.phone).toBe(CUKS_DUTY_PHONE.value);
-    expect(VERIFIED_REGIONAL[1]?.phone).toBe(CUKS_DUTY_RESERVE_PHONE.value);
+    expect(VERIFIED_REGIONAL.map((n) => n.phone)).toEqual([
+      CUKS_DUTY_RESERVE_PHONE.value,
+      CUKS_DUTY_PHONE.value,
+    ]);
     expect(VERIFIED_REFERENCE[0]?.phone).toBe(CUKS_CONSULT_PHONE.value);
     expect(EMERGENCY_NUMBERS.map((n) => n.phone)).toContain(FEDERAL_EMERGENCY_NUMBERS.value[0]);
     expect(FISH_SOURCES_SEASON.text).toBe(SALMON_OFFICIAL_SEASON.text);
@@ -54,6 +56,8 @@ describe('справочник фактов', () => {
       AVACHINSKY_HEIGHT_M,
       MUTNOVSKY_HEIGHT_M,
       CUKS_CONSULT_PHONE,
+      CUKS_DUTY_PHONE,
+      CUKS_DUTY_RESERVE_PHONE,
       FISH_SALMON_RUN_WINDOW,
       ...Object.values(FISH_SEASONS),
     ];
@@ -64,9 +68,10 @@ describe('справочник фактов', () => {
     }
     expect(MCHS_REGISTRATION_LEAD.sourceUrl).toMatch(/^https:\/\//);
     expect(KRONOTSKY_RULES.sourceUrl).toMatch(/^https:\/\//);
-    expect(CUKS_DUTY_PHONE.sourceUrl).toBeNull();
-    expect(CUKS_DUTY_RESERVE_PHONE.sourceUrl).toBeNull();
-    expect(CUKS_DUTY_PHONE.checkedAt).toBe('2026-07-17');
+    expect(CUKS_DUTY_PHONE.sourceUrl).toMatch(/^https:\/\//);
+    expect(CUKS_DUTY_RESERVE_PHONE.sourceUrl).toMatch(/^https:\/\//);
+    expect(CUKS_DUTY_PHONE.checkedAt).toBe('2026-11-23');
+    expect(CUKS_DUTY_RESERVE_PHONE.checkedAt).toBe('2026-11-23');
   });
 });
 

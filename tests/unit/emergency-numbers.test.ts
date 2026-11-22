@@ -23,11 +23,10 @@ describe('emergency-numbers — единый источник экстренны
     }
   });
 
-  it('верифицированные регионалки (СОД/НДС, подтверждены владельцем 2026-07-17) присутствуют', () => {
+  it('верифицированные регионалки ЦУКС (сверка 23.11.2026 по FAQ ГУ МЧС) присутствуют', () => {
     const phones = VERIFIED_REGIONAL.map((c) => c.phone.replace(/\D/g, ''));
-    expect(phones).toContain('74152301089');
-    expect(phones).toContain('74152200112');
-    expect(phones).toContain('74152301091');
+    expect(phones).toEqual(['74152200112', '74152301089']);
+    expect(phones).not.toContain('74152301091');
   });
 
   it('telHref даёт звонибельную ссылку без пробелов и скобок', () => {

@@ -14,7 +14,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { describe, it, expect } from 'vitest';
-import { EMERGENCY_PRIMARY, VERIFIED_REGIONAL, telHref } from '@/lib/safety/emergency-numbers';
+import { EMERGENCY_PRIMARY, VERIFIED_REGIONAL, VERIFIED_REFERENCE, telHref } from '@/lib/safety/emergency-numbers';
 
 const html = readFileSync(join(process.cwd(), 'public/emergency.html'), 'utf-8');
 
@@ -34,4 +34,20 @@ describe('public/emergency.html — анти-дрейф критических �
   it('в наборе есть хотя бы один региональный МЧС-контакт (страховка от пустого VERIFIED_REGIONAL)', () => {
     expect(VERIFIED_REGIONAL.length).toBeGreaterThan(0);
   });
+
+  it('не содержит неподтверждённый 30-10-91 и содержит справочный 30-10-81', () => {
+    expect(html).not.toMatch(/30-10-91|74152301091/);
+    for (const n of VERIFIED_REFERENCE) {
+      expect(html, `нет справочного ${n.phone} в emergency.html`).toContain(telHref(n.phone));
+    }
+  });
+
+  it('ведёт на рабочие карты покрытия Камчатки и имеет canonical', () => {
+    expect(html).toContain('https://kamchatka.mts.ru/personal/podderzhka/zoni-obsluzhivaniya/nasha-set');
+    expect(html).toContain('https://kamchatka.megafon.ru/help/offices/coverage/');
+    expect(html).toContain('https://kamchatskiy-kr.beeline.ru/customers/beeline-map/');
+    expect(html).not.toContain('mts.ru/personal/mobile/coverage');
+    expect(html).toContain('<link rel="canonical" href="https://vedarai.ru/emergency">');
+  });
 });
+

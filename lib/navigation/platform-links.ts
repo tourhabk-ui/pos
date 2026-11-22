@@ -22,7 +22,7 @@
 import { PLANNER_MENU, PLANNING_MENU, PLANS_MENU, PARTNERS_MENU, PREPARE_MENU } from '@/lib/navigation/tool-names';
 import type { LucideIcon } from 'lucide-react';
 import {
-  Shield, Radio, Siren, WifiOff, ClipboardCheck, Leaf, Ticket, CalendarDays, Flame, Layers, ListChecks, Route, BedDouble, Plane, Fish, Award, Bus, MapPin, Waypoints, Map, Newspaper, BookOpen, Info, CircleHelp, LifeBuoy, Briefcase, Handshake, UserPlus, Bot, MessageSquare, Smartphone, ShieldAlert, FileText, ScrollText, Receipt, Backpack, CloudSun, Heart, Languages, Car, PlaneTakeoff, Trees,
+  Shield, Radio, Siren, WifiOff, Phone, ClipboardCheck, Leaf, Ticket, CalendarDays, Flame, Layers, ListChecks, Route, BedDouble, Plane, Fish, Award, Bus, MapPin, Waypoints, Map, Newspaper, BookOpen, Info, CircleHelp, LifeBuoy, Briefcase, Handshake, UserPlus, Bot, MessageSquare, Smartphone, ShieldAlert, FileText, ScrollText, Receipt, Backpack, CloudSun, Heart, Languages, Car, PlaneTakeoff, Trees,
 } from 'lucide-react';
 
 export interface PlatformLink {
@@ -48,6 +48,9 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       { label: 'Связь на маршруте',   href: '/safety/communication', icon: Radio },
       { label: 'Инциденты и алерты',  href: '/safety/incidents',     icon: Siren },
       { label: 'Офлайн-инструкции',   href: '/safety/offline',       icon: WifiOff },
+      // Статический спасшлюз /emergency (23.11): в sitemap, поэтому и в реестре —
+      // иначе дорога только через «Связь на маршруте» (третье касание).
+      { label: 'Экстренные номера',   href: '/emergency',            icon: Phone },
       { label: 'Регистрация в МЧС',   href: '/register',             icon: ClipboardCheck },
       { label: 'Экотуризм',           href: '/eco',                  icon: Leaf },
     ],
