@@ -15,7 +15,7 @@ import { NextRequest } from 'next/server';
 const db = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: db.query } }));
 
-import { PARK_PATHS, PARK_MEMBERSHIP_SQL, PARK_SCOPED_SQL, type ParkPathKey } from '@/lib/services/safety/alert-place-scope';
+import { PARK_PATHS, PARK_MEMBERSHIP_SQL, PARK_OUTSIDE_SQL, PARK_SCOPE_SQL, PARK_SCOPED_SQL, type ParkPathKey } from '@/lib/services/safety/alert-place-scope';
 import {
   ROUTE_ONLY_LIMIT, PLACE_PARK_PATHS_SQL, ROUTE_PARK_PATHS_SQL, PLACE_PARK_ROUTES_SQL, PLACES_BY_SLUG_SQL,
   ROUTE_TERRITORY_PARKS_SQL, countPlacePaths, describeRoutes, isRouteOnly,
@@ -51,6 +51,15 @@ describe('правило закрытия и перепись — одни пу�
     }
     expect(PLACE_PARK_PATHS_SQL).toContain(`WHERE (${PARK_MEMBERSHIP_SQL})`);
     expect(ROUTE_PARK_PATHS_SQL).toContain(`LEFT JOIN parks pk ON (${PARK_MEMBERSHIP_SQL})`);
+  });
+
+  it('«проверено вне контура» вычитается из правила и читается переписью тем же текстом (1499)', () => {
+    // Поведение — на настоящей базе (park-scope-census.pg): здесь — что правило
+    // и перепись зовут одну и ту же запись, а не каждый свою.
+    expect(PARK_SCOPE_SQL).toContain(`(${PARK_MEMBERSHIP_SQL})`);
+    expect(PARK_SCOPE_SQL).toContain(`AND NOT ${PARK_OUTSIDE_SQL}`);
+    expect(PARK_SCOPED_SQL).toContain(PARK_SCOPE_SQL);
+    expect(PLACE_PARK_PATHS_SQL).toContain(`COALESCE((${PARK_OUTSIDE_SQL}), false) AS verified_outside`);
   });
 });
 
@@ -93,6 +102,27 @@ describe('«только через маршрут»', () => {
     expect(c.route_only.map((r) => r.slug)).toEqual(['beach', 'city-a', 'name-only']);
     // У пути по имени маршрутов здесь нет — и это не «разошлись».
     expect(c.route_paths_without_routes).toBe(0);
+  });
+
+  it('точка проверена вне контура — пара вне счёта и названа отдельным списком', () => {
+    const rows = [
+      placeRow('beach', ['route_through_place'], { title: 'Халактырский пляж', status: 'yellow', status_reason: 'park_season', verified_outside: true }),
+      placeRow('lake', ['place_in_route_title'], { title: 'Озеро Плоское', park_slug: 'klyuchevskoy', status: 'red', verified_outside: true }),
+      placeRow('caves', ['route_title_in_place'], { title: 'Лавовые пещеры', park_slug: 'yuzhno-kamchatsky', status: 'yellow' }),
+      placeRow('talovye', ['contour']),
+    ];
+    const c = countPlacePaths(rows, []);
+    expect(c.pairs_total).toBe(2);
+    expect(c.places_total).toBe(2);
+    expect(c.by_path.route_through_place).toBe(0);
+    expect(c.by_path.place_in_route_title).toBe(0);
+    expect(c.route_only.map((r) => r.slug)).toEqual(['caves']);
+    expect(c.route_only_not_green).toBe(1);
+    expect(c.verified_outside_total).toBe(2);
+    expect(c.verified_outside).toEqual([
+      { place: 'Озеро Плоское', slug: 'lake', park: 'klyuchevskoy', paths: ['place_in_route_title'], status: 'red', status_reason: null },
+      { place: 'Халактырский пляж', slug: 'beach', park: 'nalychevo', paths: ['route_through_place'], status: 'yellow', status_reason: 'park_season' },
+    ]);
   });
 
   it('путь через маршрут без найденного маршрута назван числом', () => {
@@ -185,7 +215,7 @@ describe('дверь GET /api/cron/park-scope-census', () => {
     expect(body.success).toBe(true);
     expect(body.places.route_only_total).toBe(1);
     expect(body.lookup.places).toEqual([
-      { slug: 'halaktyrskij-plyazh', found: true, parks: [{ park: 'nalychevo', paths: ['route_through_place'], status: 'yellow', status_reason: 'park_season', routes: [] }] },
+      { slug: 'halaktyrskij-plyazh', found: true, parks: [{ park: 'nalychevo', paths: ['route_through_place'], verified_outside: false, status: 'yellow', status_reason: 'park_season', routes: [] }] },
       // Место есть, а ни в одном парке его правило не считает — не «места нет».
       { slug: 'gorod', found: true, parks: [] },
       { slug: 'net-takogo', found: false, parks: [] },

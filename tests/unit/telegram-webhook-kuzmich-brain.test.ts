@@ -133,6 +133,17 @@ function sent(): string[] {
   return m.tgSend.mock.calls.map((c) => String((c[0] as { text: string }).text));
 }
 
+/**
+ * Метка хода — ровно 12 шестнадцатеричных знаков (lib/ai/untrusted.ts).
+ * В ней может случайно оказаться «914» из проверочного телефона, и проверка
+ * «номер не ушёл в модель» краснеет, хотя номер стёрт. Так упал CI на main
+ * 23.11: метка be914e7cdc48. Номер в метку не прячется: он с пробелами
+ * и дефисами, а не сплошные 12 hex.
+ */
+function withoutTurnMark(text: string): string {
+  return text.replace(/[0-9a-f]{12}/g, '');
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   m.history = [];
@@ -183,6 +194,16 @@ function insideRentalPause(): void {
   vi.setSystemTime(new Date(Date.parse(RENTAL_SITE_PAUSE.until) - 60 * 60 * 1000));
 }
 
+describe('проверка «телефона нет в промпте» не путает его с меткой хода', () => {
+  it('метка с цифрами 914 не считается номером, а настоящий номер в том же тексте виден', () => {
+    const mark = 'be914e7cdc48';
+    const frame = `run="${mark}" Метка этого хода: ${mark}.`;
+    expect(withoutTurnMark(`${frame} мы заблудились, телефон [номер скрыт]`)).not.toContain('914');
+    expect(withoutTurnMark(`${frame} мы заблудились, телефон ${PHONE}`)).toContain('914');
+    expect(withoutTurnMark(`${frame} мы заблудились, телефон ${PHONE}`)).toContain('123-45-67');
+  });
+});
+
 describe('личка: свободный текст идёт в мозг Кузьмича', () => {
   it('«мы заблудились, телефон …» — телефон до модели не доходит, ответ несёт блок 112', async () => {
     const res = await post(`мы заблудились, телефон ${PHONE}`);
@@ -193,7 +214,7 @@ describe('личка: свободный текст идёт в мозг Куз�
     expect(m.direct).not.toHaveBeenCalled();
     const seen = modelInput();
     expect(seen).toContain('мы заблудились');
-    expect(seen).not.toContain('914');
+    expect(withoutTurnMark(seen)).not.toContain('914');
     expect(seen).not.toContain('123-45-67');
 
     const out = sent();
@@ -209,7 +230,7 @@ describe('личка: свободный текст идёт в мозг Куз�
 
     await post(`мы заблудились, телефон ${PHONE}`);
 
-    expect(modelInput()).not.toContain('914');
+    expect(withoutTurnMark(modelInput())).not.toContain('914');
     const out = sent();
     expect(out).toHaveLength(1);
     expect(out[0]).toContain(SOS_HEAD);
@@ -319,7 +340,7 @@ describe('личка: свободный текст идёт в мозг Куз�
 
     const seen = modelInput();
     expect(seen).toContain('запишите мой номер');
-    expect(seen).not.toContain('914');
+    expect(withoutTurnMark(seen)).not.toContain('914');
   });
 
   it('беда с номером после разговора о рыбалке — не «горячий лид» оператору, а ответ с блоком 112', async () => {
@@ -428,7 +449,7 @@ describe('упоминание в группе — тот же мозг и то�
     expect(m.direct).not.toHaveBeenCalled();
     const seen = modelInput();
     expect(seen).toContain('мы заблудились у Авачи');
-    expect(seen).not.toContain('914');
+    expect(withoutTurnMark(seen)).not.toContain('914');
     expect(seen).not.toContain('@kuzmichai_bot');
 
     expect(m.tgSend).toHaveBeenCalledTimes(1);
@@ -450,7 +471,7 @@ describe('/sezon — тот же мозг', () => {
 
     expect(m.tools).toHaveBeenCalled();
     expect(m.direct).not.toHaveBeenCalled();
-    expect(modelInput()).not.toContain('914');
+    expect(withoutTurnMark(modelInput())).not.toContain('914');
     expect(sent()).toEqual(['Ответ Кузьмича по делу.']);
   });
 });

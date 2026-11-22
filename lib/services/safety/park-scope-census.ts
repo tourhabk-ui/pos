@@ -22,6 +22,10 @@
  *    у маршрута записанная территория, случай разрешения и слова блока на
  *    карточке (то же правило, что route-permit-census).
  *
+ * Пары, где точка места проверена вне контура (place_park_outside, 1499),
+ * правило закрытия не считает «в парке»: они названы отдельным списком
+ * `verified_outside` и в счёт путей и «только через маршрут» не входят.
+ *
  * ЧЕГО ПЕРЕПИСЬ НЕ ДЕЛАЕТ. Не судит, лежит ли место в парке: контурные
  * списки неполны («место без связи не значит „не в парке“», 1407), и место
  * из списка «только через маршрут» может быть в парке на деле. Это список
@@ -31,7 +35,7 @@
  * данные каталога.
  */
 import { pool } from '@/lib/db-pool';
-import { PARK_PATHS, PARK_MEMBERSHIP_SQL, type ParkPathKey } from '@/lib/services/safety/alert-place-scope';
+import { PARK_PATHS, PARK_MEMBERSHIP_SQL, PARK_OUTSIDE_SQL, type ParkPathKey } from '@/lib/services/safety/alert-place-scope';
 import { routeInParkSql } from '@/lib/parks/route-in-park';
 import { lookupFromRows, routePermitCase, type ParkPermitRow, type RoutePermitCase } from '@/lib/parks/route-permit';
 import { permitCardCase, permitCardWording, webHref, type PermitCardWording } from '@/lib/parks/route-permit-card';
@@ -51,7 +55,8 @@ const PATH_KEYS = PARK_PATHS.map((p) => p.key);
 const PATH_COLUMNS = PARK_PATHS.map((p) => `COALESCE((${p.sql}), false) AS ${p.key}`).join(',\n         ');
 
 /**
- * Видимые места × парки, где правило закрытия считает место «в парке».
+ * Видимые места × парки, куда место ведёт хотя бы один путь; `verified_outside`
+ * — точка проверена вне контура, и правило закрытия такую пару не считает.
  * `ark` собран из `places` той же формы, что строка agent_route_knowledge у
  * правила: `id` — ark_id места, `title` — имя.
  */
@@ -67,7 +72,8 @@ export const PLACE_PARK_PATHS_SQL = `
   SELECT ark.place_id, ark.slug, ark.title, ark.lat, ark.lng,
          pk.slug AS park_slug, pk.display_name AS park_name,
          lrs.recommender_status AS status, lrs.status_reason,
-         ${PATH_COLUMNS}
+         ${PATH_COLUMNS},
+         COALESCE((${PARK_OUTSIDE_SQL}), false) AS verified_outside
     FROM ark
     CROSS JOIN parks pk
     LEFT JOIN location_real_time_status lrs ON lrs.agent_route_id = ark.id
@@ -140,6 +146,8 @@ export interface PlaceParkRow extends PathFlags {
   park_name: string;
   status: string | null;
   status_reason: string | null;
+  /** Точка проверена вне контура парка (1499): правило пару не считает. */
+  verified_outside?: boolean;
 }
 
 export interface PlaceParkRouteRow {
@@ -197,9 +205,12 @@ export interface ParkScopeCensus {
     route_only_not_listed: number;
     /** Пары «маршрут через место» без найденного маршрута — пути разошлись с выборкой маршрутов. */
     route_paths_without_routes: number;
+    /** Пары, куда ведёт путь, но точка проверена вне контура: правило их не считает. */
+    verified_outside_total: number;
+    verified_outside: Array<{ place: string; slug: string | null; park: string; paths: ParkPathKey[]; status: string | null; status_reason: string | null }>;
   };
   lookup: {
-    places: Array<{ slug: string; found: boolean; parks: Array<{ park: string; paths: ParkPathKey[]; status: string | null; status_reason: string | null; routes: RouteOnlyItem['routes'] }> }>;
+    places: Array<{ slug: string; found: boolean; parks: Array<{ park: string; paths: ParkPathKey[]; verified_outside: boolean; status: string | null; status_reason: string | null; routes: RouteOnlyItem['routes'] }> }>;
     routes: Array<{
       query: string;
       found: boolean;
@@ -253,10 +264,17 @@ export function countPlacePaths(
 
   const places = new Set<string>();
   const routeOnly: RouteOnlyItem[] = [];
+  const outside: ParkScopeCensus['places']['verified_outside'] = [];
+  let pairs = 0;
   let withoutRoutes = 0;
   for (const row of rows) {
     const paths = pathsOf(row);
     if (paths.length === 0) continue;
+    if (row.verified_outside === true) {
+      outside.push({ place: row.title, slug: row.slug, park: row.park_slug, paths, status: row.status, status_reason: row.status_reason });
+      continue;
+    }
+    pairs += 1;
     places.add(row.place_id);
     for (const p of paths) byPath[p] += 1;
     if (!isRouteOnly(paths)) continue;
@@ -273,7 +291,7 @@ export function countPlacePaths(
     || a.place.localeCompare(b.place, 'ru') || a.park.localeCompare(b.park));
 
   return {
-    pairs_total: rows.filter((r) => pathsOf(r).length > 0).length,
+    pairs_total: pairs,
     places_total: places.size,
     by_path: byPath,
     route_only_total: routeOnly.length,
@@ -281,6 +299,8 @@ export function countPlacePaths(
     route_only: routeOnly.slice(0, ROUTE_ONLY_LIMIT),
     route_only_not_listed: Math.max(0, routeOnly.length - ROUTE_ONLY_LIMIT),
     route_paths_without_routes: withoutRoutes,
+    verified_outside_total: outside.length,
+    verified_outside: outside.sort((a, b) => a.place.localeCompare(b.place, 'ru') || a.park.localeCompare(b.park)),
   };
 }
 
@@ -336,7 +356,7 @@ export async function runParkScopeCensus(opts: { places?: string[]; routes?: str
   const routeQueries = (opts.routes ?? []).slice(0, LOOKUP_LIMIT);
 
   const all = await pool.query<PlaceParkRow>(PLACE_PARK_PATHS_SQL);
-  const routeOnlyIds = [...new Set(all.rows.filter((r) => isRouteOnly(pathsOf(r))).map((r) => r.place_id))];
+  const routeOnlyIds = [...new Set(all.rows.filter((r) => r.verified_outside !== true && isRouteOnly(pathsOf(r))).map((r) => r.place_id))];
   const lookedUp = placeSlugs.length > 0 ? all.rows.filter((r) => r.slug !== null && placeSlugs.includes(r.slug)) : [];
   const ids = [...new Set([...routeOnlyIds, ...lookedUp.map((r) => r.place_id)])];
   const routes = ids.length > 0
@@ -357,6 +377,7 @@ export async function runParkScopeCensus(opts: { places?: string[]; routes?: str
       parks: mine.map((r) => ({
         park: r.park_slug,
         paths: pathsOf(r),
+        verified_outside: r.verified_outside === true,
         status: r.status,
         status_reason: r.status_reason,
         routes: routes
