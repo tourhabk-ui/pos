@@ -225,6 +225,154 @@ export const PARK_STATUS_UNKNOWN_TYPE = 'park_status_unknown';
  */
 export const PARK_STATUS_UNKNOWN_SQL = `ea.alert_type = '${PARK_STATUS_UNKNOWN_TYPE}'`;
 
+export type ParkPathKey =
+  | 'own_name' | 'route_park' | 'route_through_place' | 'place_in_route_title'
+  | 'route_title_in_place' | 'contour' | 'route_through_contour_place';
+
+/**
+ * Пути «в парке» по одному (22.11, перепись park-scope-census, слово
+ * владельца «1 да»). Каждый — условие на `ark` (место или маршрут: `id`,
+ * `title`, как у agent_route_knowledge) и `pk` (строка `parks`). Правило
+ * закрытия складывает их через OR (PARK_MEMBERSHIP_SQL ниже) — то же условие,
+ * что стояло здесь одним текстом; перепись зовёт пути по одному, чтобы назвать,
+ * каким путём закрытие парка дошло до места. Своей копии путей у переписи нет.
+ */
+export const PARK_PATHS: ReadonlyArray<{ readonly key: ParkPathKey; readonly what: string; readonly sql: string }> = [
+  {
+    key: 'own_name',
+    what: 'имя места или маршрута называет парк',
+    sql: `
+    -- Заказник — не парк (#3335, слово владельца 13.11 «развести»):
+    -- корень «Южно-Камчат» один у природного парка и у федерального
+    -- заказника у Курильского озера, а закрытие парка заказник не
+    -- называет. Правило то же, что у справочника (routeInParkSql):
+    -- слово «заказник» в имени места или территории маршрута должно
+    -- совпасть со словом «заказник» в имени парка тревоги.
+    (ark.title ILIKE '%' || pk.search_term || '%'
+     AND (ark.title ILIKE '%заказник%') = (pk.display_name ILIKE '%заказник%'))
+`,
+  },
+  {
+    key: 'route_park',
+    what: 'это маршрут, чья записанная территория называет парк',
+    sql: `
+    EXISTS (
+      SELECT 1 FROM kamchatka_routes kr
+       WHERE COALESCE(kr.ark_id, kr.id) = ark.id
+         AND ${routeInParkSql('kr.park_name', 'pk.search_term', 'pk.display_name')}
+    )
+`,
+  },
+  {
+    key: 'route_through_place',
+    what: 'через место идёт маршрут парка (связь не «рядом»)',
+    sql: `
+    EXISTS (
+      SELECT 1
+        FROM places pl
+        JOIN route_waypoints rw ON rw.place_id = pl.id
+        JOIN kamchatka_routes kr ON kr.id = rw.route_id
+       WHERE pl.ark_id = ark.id
+         AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
+         AND ${routeInParkSql('kr.park_name', 'pk.search_term', 'pk.display_name')}
+    )
+`,
+  },
+  {
+    key: 'place_in_route_title',
+    what: 'каждое значимое слово имени места стоит в названии маршрута парка',
+    sql: `
+    -- 4. Маршрут парка называет место по имени (разбор 03.11): «К подножию
+    --    вулкана Мутновский» записан территорией «Южно-Камчатский», но
+    --    путевых точек у него нет — Кузьмич связывает его с местом по
+    --    названию (routesByName), и закрытие парка должно идти тем же путём.
+    --    Каждое значимое слово имени места (≥5 букв, не родовое) — корнем
+    --    без двух последних букв (не короче 5) — должно стоять в названии маршрута.
+    EXISTS (
+      SELECT 1
+        FROM places pl
+        JOIN kamchatka_routes kr
+          ON ${routeInParkSql('kr.park_name', 'pk.search_term', 'pk.display_name')}
+         AND COALESCE(kr.is_visible, TRUE) AND kr.merged_into_id IS NULL
+       WHERE pl.ark_id = ark.id
+         AND EXISTS (
+           SELECT 1 FROM regexp_split_to_table(lower(pl.name), '[^а-яёa-z]+') w
+            WHERE length(w) >= 5 AND w NOT IN (${PLACE_GENERIC_WORDS_SQL})
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM regexp_split_to_table(lower(pl.name), '[^а-яёa-z]+') w
+            WHERE length(w) >= 5 AND w NOT IN (${PLACE_GENERIC_WORDS_SQL})
+              AND lower(kr.title) NOT LIKE '%' || left(w, GREATEST(5, length(w) - 2)) || '%'
+         )
+    )
+`,
+  },
+  {
+    key: 'route_title_in_place',
+    what: 'название маршрута парка целиком стоит в имени места',
+    sql: `
+    -- 5. Имя маршрута парка целиком стоит в имени места (#2980): маршрут
+    --    «Пещеры вулкана Горелый», место «Лавовые пещеры вулкана Горелый».
+    --    Путь 4 судит в обратную сторону и спотыкается о лишнее слово места
+    --    («лавовые»). Значимых слов в имени маршрута не меньше двух: одно
+    --    («Курильское озеро» → «курильское») назвало бы и Курильские острова.
+    EXISTS (
+      SELECT 1
+        FROM places pl
+        JOIN kamchatka_routes kr
+          ON ${routeInParkSql('kr.park_name', 'pk.search_term', 'pk.display_name')}
+         AND COALESCE(kr.is_visible, TRUE) AND kr.merged_into_id IS NULL
+       WHERE pl.ark_id = ark.id
+         AND (
+           SELECT COUNT(*) FROM regexp_split_to_table(lower(kr.title), '[^а-яёa-z]+') w
+            WHERE length(w) >= 5 AND w NOT IN (${PLACE_GENERIC_WORDS_SQL})
+         ) >= 2
+         AND NOT EXISTS (
+           SELECT 1 FROM regexp_split_to_table(lower(kr.title), '[^а-яёa-z]+') w
+            WHERE length(w) >= 5 AND w NOT IN (${PLACE_GENERIC_WORDS_SQL})
+              AND lower(pl.name) NOT LIKE '%' || left(w, GREATEST(5, length(w) - 2)) || '%'
+         )
+    )
+`,
+  },
+  {
+    key: 'contour',
+    what: 'точка места внутри контура парка (place_park_links)',
+    sql: `
+    -- 6. Точка места внутри контура парка (миграция 1407): связь пишет
+    --    миграция парка по проверке «точка в контуре», а не по имени.
+    EXISTS (
+      SELECT 1
+        FROM places pl
+        JOIN place_park_links ppl ON ppl.place_id = pl.id::text AND ppl.park_slug = pk.slug
+       WHERE pl.ark_id = ark.id
+    )
+`,
+  },
+  {
+    key: 'route_through_contour_place',
+    what: 'маршрут идёт через место внутри контура парка',
+    sql: `
+    -- 7. Маршрут идёт через такое место (связь не «рядом»): закрытый
+    --    парк закрывает и путь, который в него заходит. У маршрутов на
+    --    Корякскую сопку парк не записан — без этого пути карточка
+    --    маршрута и день плана молчали бы при красной сопке.
+    EXISTS (
+      SELECT 1
+        FROM kamchatka_routes kr
+        JOIN route_waypoints rw ON rw.route_id = kr.id
+        JOIN places pl ON pl.id = rw.place_id
+        JOIN place_park_links ppl ON ppl.place_id = pl.id::text AND ppl.park_slug = pk.slug
+       WHERE COALESCE(kr.ark_id, kr.id) = ark.id
+         AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
+    )
+`,
+  },
+];
+
+/** «Место или маршрут в парке `pk`» — любой из путей. */
+export const PARK_MEMBERSHIP_SQL = PARK_PATHS.map((p) => `(${p.sql})`).join('\n         OR ');
+
 export const PARK_SCOPED_SQL = `
   ea.alert_type IN ('park_closure', '${PARK_STATUS_UNKNOWN_TYPE}')
   AND ea.affected_parks IS NOT NULL
@@ -233,94 +381,7 @@ export const PARK_SCOPED_SQL = `
       FROM parks pk
      WHERE pk.slug = ANY(ea.affected_parks)
        AND (
-         -- Заказник — не парк (#3335, слово владельца 13.11 «развести»):
-         -- корень «Южно-Камчат» один у природного парка и у федерального
-         -- заказника у Курильского озера, а закрытие парка заказник не
-         -- называет. Правило то же, что у справочника (routeInParkSql):
-         -- слово «заказник» в имени места или территории маршрута должно
-         -- совпасть со словом «заказник» в имени парка тревоги.
-         (ark.title ILIKE '%' || pk.search_term || '%'
-          AND (ark.title ILIKE '%заказник%') = (pk.display_name ILIKE '%заказник%'))
-         OR EXISTS (
-           SELECT 1 FROM kamchatka_routes kr
-            WHERE COALESCE(kr.ark_id, kr.id) = ark.id
-              AND ${routeInParkSql('kr.park_name', 'pk.search_term', 'pk.display_name')}
-         )
-         OR EXISTS (
-           SELECT 1
-             FROM places pl
-             JOIN route_waypoints rw ON rw.place_id = pl.id
-             JOIN kamchatka_routes kr ON kr.id = rw.route_id
-            WHERE pl.ark_id = ark.id
-              AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
-              AND ${routeInParkSql('kr.park_name', 'pk.search_term', 'pk.display_name')}
-         )
-         -- 4. Маршрут парка называет место по имени (разбор 03.11): «К подножию
-         --    вулкана Мутновский» записан территорией «Южно-Камчатский», но
-         --    путевых точек у него нет — Кузьмич связывает его с местом по
-         --    названию (routesByName), и закрытие парка должно идти тем же путём.
-         --    Каждое значимое слово имени места (≥5 букв, не родовое) — корнем
-         --    без двух последних букв (не короче 5) — должно стоять в названии маршрута.
-         OR EXISTS (
-           SELECT 1
-             FROM places pl
-             JOIN kamchatka_routes kr
-               ON ${routeInParkSql('kr.park_name', 'pk.search_term', 'pk.display_name')}
-              AND COALESCE(kr.is_visible, TRUE) AND kr.merged_into_id IS NULL
-            WHERE pl.ark_id = ark.id
-              AND EXISTS (
-                SELECT 1 FROM regexp_split_to_table(lower(pl.name), '[^а-яёa-z]+') w
-                 WHERE length(w) >= 5 AND w NOT IN (${PLACE_GENERIC_WORDS_SQL})
-              )
-              AND NOT EXISTS (
-                SELECT 1 FROM regexp_split_to_table(lower(pl.name), '[^а-яёa-z]+') w
-                 WHERE length(w) >= 5 AND w NOT IN (${PLACE_GENERIC_WORDS_SQL})
-                   AND lower(kr.title) NOT LIKE '%' || left(w, GREATEST(5, length(w) - 2)) || '%'
-              )
-         )
-         -- 5. Имя маршрута парка целиком стоит в имени места (#2980): маршрут
-         --    «Пещеры вулкана Горелый», место «Лавовые пещеры вулкана Горелый».
-         --    Путь 4 судит в обратную сторону и спотыкается о лишнее слово места
-         --    («лавовые»). Значимых слов в имени маршрута не меньше двух: одно
-         --    («Курильское озеро» → «курильское») назвало бы и Курильские острова.
-         OR EXISTS (
-           SELECT 1
-             FROM places pl
-             JOIN kamchatka_routes kr
-               ON ${routeInParkSql('kr.park_name', 'pk.search_term', 'pk.display_name')}
-              AND COALESCE(kr.is_visible, TRUE) AND kr.merged_into_id IS NULL
-            WHERE pl.ark_id = ark.id
-              AND (
-                SELECT COUNT(*) FROM regexp_split_to_table(lower(kr.title), '[^а-яёa-z]+') w
-                 WHERE length(w) >= 5 AND w NOT IN (${PLACE_GENERIC_WORDS_SQL})
-              ) >= 2
-              AND NOT EXISTS (
-                SELECT 1 FROM regexp_split_to_table(lower(kr.title), '[^а-яёa-z]+') w
-                 WHERE length(w) >= 5 AND w NOT IN (${PLACE_GENERIC_WORDS_SQL})
-                   AND lower(pl.name) NOT LIKE '%' || left(w, GREATEST(5, length(w) - 2)) || '%'
-              )
-         )
-         -- 6. Точка места внутри контура парка (миграция 1407): связь пишет
-         --    миграция парка по проверке «точка в контуре», а не по имени.
-         OR EXISTS (
-           SELECT 1
-             FROM places pl
-             JOIN place_park_links ppl ON ppl.place_id = pl.id::text AND ppl.park_slug = pk.slug
-            WHERE pl.ark_id = ark.id
-         )
-         -- 7. Маршрут идёт через такое место (связь не «рядом»): закрытый
-         --    парк закрывает и путь, который в него заходит. У маршрутов на
-         --    Корякскую сопку парк не записан — без этого пути карточка
-         --    маршрута и день плана молчали бы при красной сопке.
-         OR EXISTS (
-           SELECT 1
-             FROM kamchatka_routes kr
-             JOIN route_waypoints rw ON rw.route_id = kr.id
-             JOIN places pl ON pl.id = rw.place_id
-             JOIN place_park_links ppl ON ppl.place_id = pl.id::text AND ppl.park_slug = pk.slug
-            WHERE COALESCE(kr.ark_id, kr.id) = ark.id
-              AND COALESCE(to_jsonb(rw)->>'link_kind', 'unknown') <> 'nearby'
-         )
+         ${PARK_MEMBERSHIP_SQL}
        )
   )
 `;

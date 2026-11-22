@@ -84,13 +84,16 @@ export const CENSUS_ROUTES_SQL = `
  * `routeInParkSql`, что у живого ответа; строк берутся все, чтобы
  * неоднозначность была видна числом, а не спрятана за LIMIT.
  */
-export const CENSUS_PARKS_SQL = `
-  SELECT n.park_name,
-         json_agg(json_build_object(
+/** Строка справочника `parks p` в форме ParkPermitRow — одна на обе переписи. */
+export const PARK_PERMIT_ROW_JSON_SQL = `json_build_object(
            'slug', p.slug, 'display_name', p.display_name, 'permit_url', p.permit_url,
            'permit_email', p.permit_email, 'permit_office_address', p.permit_office_address,
            'permit_office_hours', p.permit_office_hours, 'permit_gosuslugi_url', p.permit_gosuslugi_url,
-           'permit_online_url', p.permit_online_url) ORDER BY p.slug)
+           'permit_online_url', p.permit_online_url)`;
+
+export const CENSUS_PARKS_SQL = `
+  SELECT n.park_name,
+         json_agg(${PARK_PERMIT_ROW_JSON_SQL} ORDER BY p.slug)
            FILTER (WHERE p.slug IS NOT NULL) AS parks
     FROM (SELECT DISTINCT park_name
             FROM kamchatka_routes

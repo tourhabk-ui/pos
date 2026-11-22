@@ -285,6 +285,7 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // pd_direct — хэши адреса и посетителя только в подсчёте, наружу одни счётчики (21.11).
   'page-visits-census': ['db_read', 'pd_direct'],
   'park-route-status': ['db_read', 'db_write', 'net_out'],
+  'park-scope-census': ['db_read'],
   'passport-flag-census': ['db_read', 'pd_direct'],
   'payment-config': [],
   'payment-test-setup': ['db_read', 'db_write', 'money'],
