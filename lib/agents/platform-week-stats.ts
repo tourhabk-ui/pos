@@ -10,11 +10,13 @@
  * 30.10 (#2881, #2882, слово владельца «бери логирование») к числам добавлены
  * две разбивки, без которых агент гадал:
  *  - невидимые туры — ПО ПРИЧИНЕ, какой её знает шлюз витрины: черновик (не
- *    опубликован), выключен оператором, и то и другое. Других причин у шлюза
- *    нет: тур без цены, дат или линии маршрута турист ВИДИТ (это пробелы
- *    готовности, их считает channel-readiness), и называть их причиной
- *    невидимости было бы выдумкой. Три ведра в сумме равны `tours_hidden` по
- *    построению — третье определено как «невидим и не попал в первые два»;
+ *    опубликован), выключен оператором, и то и другое; с 22.11 (1495) —
+ *    тур тестового партнёра, и эта причина старше флагов. Других причин у
+ *    шлюза нет: тур без цены, дат или линии маршрута турист ВИДИТ (это
+ *    пробелы готовности, их считает channel-readiness), и называть их
+ *    причиной невидимости было бы выдумкой. Четыре ведра в сумме равны
+ *    `tours_hidden` по построению — «и то и другое» определено как «невидим
+ *    и не попал в остальные три»;
  *  - воронка брони за 7 дней: касаний формы (маяк), заявок отправлено и
  *    отказов (сервер, lib/funnel/record) с самой частой причиной словами.
  *
@@ -48,6 +50,8 @@ export interface PlatformWeekStats {
   hidden_inactive: number;
   /** Из невидимых: остальные — выключен и не опубликован, либо флаг не записан. */
   hidden_both: number;
+  /** Из невидимых: туры тестового партнёра (1495) — при любых флагах. */
+  hidden_test_profile: number;
   /**
    * Туры на витрине по линии маршрута (#2896, #2903): привязанный маршрут
    * (operator_tours.route_id -> kamchatka_routes) с линией, маршрут без линии
@@ -85,7 +89,11 @@ export type PlatformWeekRead =
 const WEEK = `NOW() - '7 days'::interval`;
 const HIDDEN = `ot.deleted_at IS NULL AND NOT ${publicTourSql('ot')}`;
 // Причины — из модуля шлюза: семантика флагов у них одна (public-visibility).
-const { draft: DRAFT, inactive: INACTIVE } = hiddenTourReasonSql('ot');
+const { draft: DRAFT_FLAG, inactive: INACTIVE_FLAG, testProfile: TEST_PROFILE } = hiddenTourReasonSql('ot');
+// Тур тестового партнёра (1495) — своя причина, старше флагов: его черновик
+// не считается черновиком оператора. Вёдра не пересекаются, сумма — tours_hidden.
+const DRAFT = `NOT ${TEST_PROFILE} AND ${DRAFT_FLAG}`;
+const INACTIVE = `NOT ${TEST_PROFILE} AND ${INACTIVE_FLAG}`;
 const FUNNEL_WEEK = `FROM funnel_events WHERE is_self = FALSE AND created_at > ${WEEK}`;
 
 export const PLATFORM_WEEK_SQL = `
@@ -111,7 +119,8 @@ SELECT
   (SELECT COUNT(*) FROM operator_tours ot WHERE ${HIDDEN})::int AS tours_hidden,
   (SELECT COUNT(*) FROM operator_tours ot WHERE ${HIDDEN} AND ${DRAFT})::int AS hidden_draft,
   (SELECT COUNT(*) FROM operator_tours ot WHERE ${HIDDEN} AND ${INACTIVE})::int AS hidden_inactive,
-  (SELECT COUNT(*) FROM operator_tours ot WHERE ${HIDDEN} AND NOT ${DRAFT} AND NOT ${INACTIVE})::int AS hidden_both,
+  (SELECT COUNT(*) FROM operator_tours ot WHERE ${HIDDEN} AND NOT ${TEST_PROFILE} AND NOT ${DRAFT_FLAG} AND NOT ${INACTIVE_FLAG})::int AS hidden_both,
+  (SELECT COUNT(*) FROM operator_tours ot WHERE ${HIDDEN} AND ${TEST_PROFILE})::int AS hidden_test_profile,
   (SELECT COUNT(*) FROM operator_tours ot JOIN kamchatka_routes kr ON kr.id = ot.route_id
      WHERE ${publicTourSql('ot')} AND kr.geometry IS NOT NULL)::int AS visible_with_line,
   (SELECT COUNT(*) FROM operator_tours ot JOIN kamchatka_routes kr ON kr.id = ot.route_id
@@ -159,7 +168,8 @@ export function rejectReasonWords(code: string | null): string | null {
 /** «не видны туристу 12: черновики 7, выключены оператором 4, и то и другое 1». */
 export function hiddenBreakdownWords(s: PlatformWeekStats): string {
   if (s.tours_hidden === 0) return 'не видны туристу 0';
-  return `не видны туристу ${s.tours_hidden}: черновики ${s.hidden_draft}, выключены оператором ${s.hidden_inactive}, и то и другое ${s.hidden_both}`;
+  const test = s.hidden_test_profile > 0 ? `, тестовый профиль ${s.hidden_test_profile}` : '';
+  return `не видны туристу ${s.tours_hidden}: черновики ${s.hidden_draft}, выключены оператором ${s.hidden_inactive}, и то и другое ${s.hidden_both}${test}`;
 }
 
 /** «из них с линией маршрута 50, маршрут без линии 8, без маршрута 20». */

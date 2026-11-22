@@ -75,7 +75,9 @@ export async function PATCH(
       UPDATE partners
       SET profile_status = 'approved',
           is_verified    = TRUE,
-          is_public      = CASE WHEN category = 'agent' THEN is_public ELSE TRUE END,
+          -- Тестовый профиль (1495) одобрение на витрину не ставит: CHECK
+          -- partners_test_not_public отверг бы и всё одобрение целиком.
+          is_public      = CASE WHEN category = 'agent' OR is_test IS TRUE THEN is_public ELSE TRUE END,
           verified_at    = NOW(),
           verified_by    = $2,
           updated_at     = NOW()

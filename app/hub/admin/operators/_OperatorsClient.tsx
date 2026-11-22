@@ -18,6 +18,7 @@ import { LeadDeliveryLine, type LeadDeliveryView } from '@/components/admin/Lead
 import ChannelLinkPanel from '@/components/admin/ChannelLinkPanel';
 import { WidgetEmbedCodes } from '@/components/widget/WidgetEmbedCodes';
 import { AdminWidgetReport } from '@/components/admin/AdminWidgetReport';
+import { TestProfileToggle } from '@/components/admin/TestProfileToggle';
 
 /** 'none' — карточка без заявки (заведена миграцией или импортом); с LEFT JOIN users они видны. */
 type ProfileStatus = 'none' | 'pending' | 'approved' | 'rejected';
@@ -31,6 +32,8 @@ interface OperatorRow {
   applied_at: string | null;
   is_verified: boolean;
   is_public: boolean;
+  /** Тестовый профиль (1495): не на витрине. Ставит только администратор. */
+  is_test?: boolean;
   profile_review_comment: string | null;
   /** NULL у карточки без аккаунта (заведена миграцией, user_id пуст). */
   email: string | null;
@@ -359,6 +362,7 @@ export function OperatorCard({
   acting: string | null;
 }) {
   const [expanded, setExpanded] = useState(op.profile_status === 'pending');
+  const [isTest, setIsTest] = useState(op.is_test === true);
 
   const [widgetEnabled, setWidgetEnabled] = useState(op.widget_enabled ?? false);
   const [widgetDomains, setWidgetDomains] = useState((op.widget_domains ?? []).join('\n'));
@@ -414,6 +418,11 @@ export function OperatorCard({
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {isTest && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-medium text-[var(--warning)] border border-[var(--warning)]">
+              Тест
+            </span>
+          )}
           <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_CLS[op.profile_status] ?? STATUS_CLS.none}`}>
             {TAB_LABELS[op.profile_status] ?? op.profile_status}
           </span>
@@ -452,6 +461,8 @@ export function OperatorCard({
           {op.description && (
             <p className="mt-3 text-sm text-[var(--text-secondary)] line-clamp-3">{op.description}</p>
           )}
+
+          <TestProfileToggle partnerId={op.id} initial={isTest} onChange={setIsTest} />
 
           {op.profile_review_comment && (
             <div className="mt-3 px-3 py-2 bg-[var(--danger)]/5 border border-[var(--danger)]/15 rounded-lg">

@@ -19,7 +19,7 @@ import {
 const STATS: PlatformWeekStats = {
   bookings_week: 0, confirmed_week: 0, operators_new: 5, operators_new_with_visible_tour: 0,
   operators_with_visible_tour: 9, tours_visible: 42, tours_hidden: 17,
-  hidden_draft: 11, hidden_inactive: 5, hidden_both: 1,
+  hidden_draft: 11, hidden_inactive: 5, hidden_both: 1, hidden_test_profile: 0,
   visible_with_line: 30, visible_route_no_line: 4, visible_no_route: 8,
   funnel_booking_start: 6, funnel_booking_submitted: 2, funnel_booking_rejected: 3,
   funnel_top_reject_reason: 'NO_SLOTS', funnel_top_reject_count: 2,
@@ -34,18 +34,21 @@ describe('запрос', () => {
     expect(PLATFORM_WEEK_SQL).toMatch(/FROM operator_bookings WHERE deleted_at IS NULL/);
   });
 
-  it('невидимые — по трём вёдрам шлюза, третье определено как остаток (сумма = tours_hidden по построению)', () => {
+  it('невидимые — по четырём вёдрам шлюза, «и то и другое» — остаток (сумма = tours_hidden по построению)', () => {
     const hidden = `ot.deleted_at IS NULL AND NOT ${publicTourSql('ot')}`;
-    const { draft, inactive } = hiddenTourReasonSql('ot');
+    const { draft, inactive, testProfile } = hiddenTourReasonSql('ot');
     expect(draft).toBe('(ot.is_active IS TRUE AND ot.is_published IS FALSE)');
     expect(inactive).toBe('(ot.is_active IS FALSE AND ot.is_published IS TRUE)');
+    expect(testProfile).toMatch(/^EXISTS \(SELECT 1 FROM partners test_gate WHERE test_gate\.id = ot\.operator_id AND test_gate\.is_test IS TRUE\)$/);
     expect(() => hiddenTourReasonSql('ot; DROP')).toThrow(/алиас/);
     expect(PLATFORM_WEEK_SQL).toContain(`WHERE ${hidden})::int AS tours_hidden`);
-    expect(PLATFORM_WEEK_SQL).toContain(`WHERE ${hidden} AND ${draft})::int AS hidden_draft`);
-    expect(PLATFORM_WEEK_SQL).toContain(`WHERE ${hidden} AND ${inactive})::int AS hidden_inactive`);
-    expect(PLATFORM_WEEK_SQL).toContain(`WHERE ${hidden} AND NOT ${draft} AND NOT ${inactive})::int AS hidden_both`);
+    // Тестовый профиль (1495) старше флагов: его черновик — не черновик оператора.
+    expect(PLATFORM_WEEK_SQL).toContain(`WHERE ${hidden} AND NOT ${testProfile} AND ${draft})::int AS hidden_draft`);
+    expect(PLATFORM_WEEK_SQL).toContain(`WHERE ${hidden} AND NOT ${testProfile} AND ${inactive})::int AS hidden_inactive`);
+    expect(PLATFORM_WEEK_SQL).toContain(`WHERE ${hidden} AND NOT ${testProfile} AND NOT ${draft} AND NOT ${inactive})::int AS hidden_both`);
+    expect(PLATFORM_WEEK_SQL).toContain(`WHERE ${hidden} AND ${testProfile})::int AS hidden_test_profile`);
     // Цена, даты и линия маршрута причиной невидимости не называются: шлюз их не знает.
-    const hiddenPart = PLATFORM_WEEK_SQL.split('AS hidden_both')[0].split('AS tours_hidden')[1] ?? '';
+    const hiddenPart = PLATFORM_WEEK_SQL.split('AS hidden_test_profile')[0].split('AS tours_hidden')[1] ?? '';
     expect(hiddenPart).not.toMatch(/base_price|geometry|tour_availability/);
   });
 
@@ -99,12 +102,15 @@ describe('линия маршрута у туров витрины (#2896, #2903
 describe('слова', () => {
   it('разбивка невидимых и воронка — с цифрами и причиной словами', () => {
     expect(hiddenBreakdownWords(STATS)).toBe('не видны туристу 17: черновики 11, выключены оператором 5, и то и другое 1');
+    // Тестовый профиль назван, только когда он есть.
+    expect(hiddenBreakdownWords({ ...STATS, tours_hidden: 19, hidden_test_profile: 2 }))
+      .toBe('не видны туристу 19: черновики 11, выключены оператором 5, и то и другое 1, тестовый профиль 2');
     expect(funnelWords(STATS)).toBe('касаний формы 6, заявок отправлено 2, отказов 3 (чаще всего: мест на дату нет ×2), ушли без заявки 1');
   });
 
   it('нет невидимых — без разбивки; нет отказов — без «чаще всего»; незнакомый код — как есть', () => {
     const quiet: PlatformWeekStats = {
-      ...STATS, tours_hidden: 0, hidden_draft: 0, hidden_inactive: 0, hidden_both: 0,
+      ...STATS, tours_hidden: 0, hidden_draft: 0, hidden_inactive: 0, hidden_both: 0, hidden_test_profile: 0,
       funnel_booking_rejected: 0, funnel_top_reject_reason: null, funnel_top_reject_count: 0,
     };
     expect(hiddenBreakdownWords(quiet)).toBe('не видны туристу 0');

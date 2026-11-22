@@ -4,6 +4,7 @@ import { query } from '@/lib/database';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { z } from 'zod';
 import { adminContactView, websiteWrite } from '@/lib/partners/admin-contact';
+import { isTestProfileNotPublicViolation, TEST_PROFILE_NOT_PUBLIC_TEXT } from '@/lib/partners/test-profile';
 
 export const dynamic = 'force-dynamic';
 
@@ -212,6 +213,10 @@ export async function PUT(
 
     return NextResponse.json({ success: true, message: 'Партнёр обновлён' });
   } catch (error) {
+    // Тестовый профиль на витрину не ставится (CHECK 1495) — словами, а не 500.
+    if (isTestProfileNotPublicViolation(error)) {
+      return NextResponse.json({ success: false, error: TEST_PROFILE_NOT_PUBLIC_TEXT }, { status: 409 });
+    }
     return NextResponse.json(
       { success: false, error: 'Ошибка обновления', details: safeMsg(error) },
       { status: 500 }
