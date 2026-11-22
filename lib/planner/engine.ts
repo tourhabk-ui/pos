@@ -48,6 +48,12 @@ import { lodgingIncluded } from '@/lib/planner/lodging-included';
 import { returnLegMissingMessage } from '@/lib/planner/plan-edit-warnings';
 import { calculatePriceBreakdown, type PriceBreakdown } from '@/lib/planner/estimate';
 import { tourPlanSpan, tourRoom } from '@/lib/planner/tour-span';
+import {
+  ROAD_CHECK_MIN_KM, tooFarForDayTrip, farDayTourLine, farDayTourReason, noRoadLine, roadUnreadLine,
+  pointUnknownLine, adjacentToursLine, isAirTour, type RoadEstimate,
+} from '@/lib/planner/road-reach';
+import { roadEstimate } from '@/lib/planner/road-hours';
+import { distanceKm as straightKm } from '@/lib/geo/kamchatka';
 import { capacityWarningFor } from '@/lib/planner/tour-day-reread';
 import { withGroupMinimum } from '@/lib/planner/group-minimum';
 import { lineUpForDate, offDaysWarning, tourFitsDate, type TourDates } from '@/lib/planner/tour-day-fit';
@@ -156,6 +162,12 @@ export interface DayPlan {
    * полный адрес карточки места. Ставится, когда движок день не наполнил.
    */
   placeHref?: string;
+  /**
+   * У тура дня нет точки места в данных (аудит дорог 22.11): `coords` —
+   * центр Петропавловска для карты, а не место тура. Нет поля — точка есть
+   * или дня без тура.
+   */
+  pointUnknown?: boolean;
   // Reality-aware fields (all optional for backward compat)
   realTour?: {
     tourId: string;
@@ -1145,6 +1157,12 @@ interface DayPlanResult {
    * нет тура этой зоны (разбор 08.11: два дня дороги ради дня без тура).
    */
   skippedNoTour: Array<{ zone: ZoneId; interests: string[] }>;
+  /**
+   * Дорога до места тура (аудит дорог 22.11, lib/planner/road-reach):
+   * однодневные туры дальше порога — не поставлены, с числом; до места нет
+   * дороги в графе; граф не ответил. Нет поля — проверки не было.
+   */
+  roadNotes?: { farTours: string[]; noRoad: string[]; unread: string[] };
 }
 
 /**
@@ -1276,6 +1294,22 @@ async function generateDayPlans(
   /** Интерес, по которому тур взят в материал: причину пропуска тура — к нему. */
   const interestOfTour = new Map<string, string>();
   const skippedNoTour: Array<{ zone: ZoneId; interests: string[] }> = [];
+  /** Дорога до места тура (аудит дорог 22.11): строки по tourId. */
+  const farTourLines = new Map<string, string>();
+  const noRoadTours = new Map<string, string>();
+  const roadUnreadTours = new Map<string, string>();
+  /**
+   * Однодневный тур Авачинской зоны с точкой дальше ROAD_CHECK_MIN_KM от
+   * Петропавловска: сколько до него ехать по дороге. Дальше порога в одну
+   * сторону — однодневным днём не ставится (правило DAY_TRIP_MAX_ROAD_HOURS).
+   */
+  const roadFromBase = async (t: RealTour): Promise<RoadEstimate | null> => {
+    if (t.coordsKnown === false || isAirTour(t)) return null;
+    const ownDays = tourPlanSpan(t.durationHours, t.multiDayCount);
+    if (ownDays !== null && ownDays > 1) return null;
+    if (straightKm({ lat: PKC_COORDS[0], lng: PKC_COORDS[1] }, { lat: t.lat, lng: t.lng }) < ROAD_CHECK_MIN_KM) return null;
+    return roadEstimate(PKC_COORDS, [t.lat, t.lng]);
+  };
 
   // Determine zone allocation
   /** `tail` — блок просьбы, которой не досталось дня (см. перед циклом блоков). */
@@ -1475,6 +1509,26 @@ async function generateDayPlans(
         ? []
         : block.onlyTour ? [block.onlyTour] : await fetchRealToursForZone(block.zone, interest, block.activeDays + 2, cache, tripWindow(profile));
       let tours = toursOrNull ?? [];
+
+      // Дорога до места тура (вопрос владельца 22.11 «не везде есть дороги»):
+      // однодневный тур, до которого дальше порога по дороге в одну
+      // сторону, одним днём не ставится — и это сказано числом с пометкой
+      // «оценка». Пруф: рыбалка ID36/ID5 — база в 410 км, ≈6,3 ч.
+      if (block.zone === 'avachinsky' && tours.length > 0) {
+        const kept: RealTour[] = [];
+        for (const t of tours) {
+          const road = await roadFromBase(t);
+          if (road && tooFarForDayTrip(road)) {
+            farTourLines.set(t.tourId, farDayTourLine(t.title, road));
+            missFor(interest, farDayTourReason(t.title, road));
+            continue;
+          }
+          if (road?.kind === 'no_road') noRoadTours.set(t.tourId, t.title);
+          if (road?.kind === 'unread') roadUnreadTours.set(t.tourId, t.title);
+          kept.push(t);
+        }
+        tours = kept;
+      }
 
       // «С оператором»: тур без свободных мест на даты поездки не ставится —
       // честная занятость (lib/planner/data), а не витрина. Туры, где мест
@@ -2052,6 +2106,7 @@ async function generateDayPlans(
         dayWarnings: withGroupMinimum(dayWarnings, realTour?.minParticipants, groupSize(profile)),
         activityMode: activityMode({ realTour, route }),
         ...(route ? { routeId: route.id } : {}),
+        ...(realTour && realTour.coordsKnown === false ? { pointUnknown: true } : {}),
         realTour: realTourData,
         realPrice,
         priceMissing,
@@ -2085,6 +2140,7 @@ async function generateDayPlans(
           childFriendly: childOk, minChildAge: c.minChildAge,
           dayWarnings: continuedWarnings,
           activityMode: activityMode({ realTour, route }),
+          ...(realTour && realTour.coordsKnown === false ? { pointUnknown: true } : {}),
           // Тот же тур — значит и ночь его, и смета её не считает отдельно.
           realTour: realTourData,
         });
@@ -2282,6 +2338,13 @@ async function generateDayPlans(
     selfSkipped: [...selfSkipped], selfSafetyUnchecked, skippedLegs, returnLegMissing, offDays,
     missReasons: Object.fromEntries([...missReasons].map(([k, v]) => [k, [...v]])),
     skippedNoTour,
+    // Строки — только про туры, что в плане стоят (noRoad, unread), и про
+    // снятые (farTours): снятый тур строкой «нет дороги» не дублируется.
+    roadNotes: {
+      farTours: [...farTourLines.values()],
+      noRoad: [...noRoadTours].filter(([id]) => placedTours.has(id)).map(([, t]) => t),
+      unread: [...roadUnreadTours].filter(([id]) => placedTours.has(id)).map(([, t]) => t),
+    },
   };
 }
 
@@ -2483,6 +2546,29 @@ export interface RecommendTripOptions {
   itinerary?: 'ai' | 'plain';
 }
 
+/**
+ * Соседние дни с РАЗНЫМИ турами (аудит дорог 22.11, п. 5): накануне ночь у
+ * места тура (проживание в туре или многодневный тур), а до места сегодняшнего
+ * тура дальше порога по дороге — утром к началу не успеть. День не снимается
+ * (оба тура продаёт оператор, трансфер может быть его), а говорит это числом.
+ * Точки без данных (`pointUnknown`) не сравниваются: «не знаем» не «далеко».
+ */
+async function markFarAdjacentTours(days: DayPlan[]): Promise<void> {
+  for (let i = 1; i < days.length; i++) {
+    const prev = days[i - 1];
+    const cur = days[i];
+    if (!prev.realTour || !cur.realTour || prev.realTour.tourId === cur.realTour.tourId) continue;
+    if (prev.pointUnknown || cur.pointUnknown) continue;
+    const nightOnSite = prev.realTour.lodgingIncluded === true || (prev.realTour.durationHours ?? 0) > 24;
+    if (!nightOnSite) continue;
+    if (straightKm({ lat: prev.coords[0], lng: prev.coords[1] }, { lat: cur.coords[0], lng: cur.coords[1] }) < ROAD_CHECK_MIN_KM) continue;
+    const road = await roadEstimate(prev.coords, cur.coords);
+    if (tooFarForDayTrip(road)) {
+      cur.dayWarnings = [...cur.dayWarnings, adjacentToursLine(prev.title.replace(/ — день \d+ из \d+$/, ''), road)];
+    }
+  }
+}
+
 export async function recommendTrip(profile: TripProfile, opts: RecommendTripOptions = {}): Promise<TripRecommendation> {
   if (!profile.interests || profile.interests.length === 0) {
     return {
@@ -2551,10 +2637,13 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     ? splitWarningsForTrip(mchs.warnings, profile.arrivalDate ?? null)
     : { forTrip: [] as ActiveWarning[], endedBefore: [] as ActiveWarning[] };
   const generated = await generateDayPlans(planProfile, zones, tripDays, cache, season, mchsTrip.forTrip);
-  const { unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing, offDays, missReasons, skippedNoTour } = generated;
-  // День без тура и без маршрута — честный пустой слот, а не «идея» (21.11).
-  const honest = replaceIdeaDays(generated.days);
+  const { unchecked, spanUnknown, tooLong, extendedForTour, overLimit, preferenceNotes, selfSkipped, selfSafetyUnchecked, skippedLegs, returnLegMissing, offDays, missReasons, skippedNoTour, roadNotes } = generated;
+  // День без тура и без маршрута — честный пустой слот, а не «идея» (21.11);
+  // в стиле «сам» — со своей причиной: туров там нет по определению (22.11).
+  const honest = replaceIdeaDays(generated.days, (profile.travelStyle ?? 'mixed') === 'self');
   const days = honest.days;
+  // Соседние туры далеко друг от друга (аудит дорог 22.11, п. 5).
+  await markFarAdjacentTours(days);
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
   const warnings = collectWarnings(profile, zones, tripDays, alerts, season, plannedZones, days.some((d) => d.type === 'buffer'),
     days.some((d) => d.type === 'activity' && d.defaultTransport === 'helicopter'),
@@ -2704,6 +2793,22 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
       message: `${ZONE_NAMES[z.zone]} в план не вошла: туров операторов там под ${listShort(z.interests.map((i) => ACTIVITY_NAMES[i] ?? i))} в ваши даты нет, `
         + 'а ехать туда ради дня без тура план не ставит.',
     });
+  }
+  // Дорога до места тура (аудит дорог 22.11): снятые однодневные туры —
+  // с числом и пометкой «оценка»; туры без дороги в графе, без ответа графа
+  // и без точки места — названы, а не выданы за проверенные.
+  for (const line of roadNotes?.farTours ?? []) {
+    warnings.push({ type: 'zone_days', severity: 'important', message: line });
+  }
+  for (const title of roadNotes?.noRoad ?? []) {
+    warnings.push({ type: 'zone_days', severity: 'important', message: noRoadLine(title) });
+  }
+  if ((roadNotes?.unread ?? []).length > 0) {
+    warnings.push({ type: 'zone_days', severity: 'important', message: roadUnreadLine(roadNotes!.unread) });
+  }
+  const pointless = [...new Set(days.filter((d) => d.pointUnknown && d.realTour).map((d) => d.title.replace(/ — день \d+ из \d+$/, '')))];
+  if (pointless.length > 0) {
+    warnings.push({ type: 'zone_days', severity: 'important', message: pointUnknownLine(pointless) });
   }
   // Причина — настоящая (разбор 08.11): «дня не нашлось» печаталось при
   // свободном дне в плане, а интерес на деле выпадал из-за туров длиннее
