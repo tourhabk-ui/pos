@@ -16,8 +16,9 @@ import { LandingBody, SOURCES_RE } from '@/components/landings/LandingBody';
 import { formatRecordDate, recordDateIso } from '@/lib/seo/record-modified';
 import { parseArticleMarkdown, faqFromBlocks, type Block } from '@/lib/articles/markdown';
 import { articleJsonLd } from '@/lib/articles/article-jsonld';
-import { isMonthLanding, monthLinks, MONTHS_HUB, type Landing } from '@/lib/landings/landings';
+import { isMonthLanding, monthLinks, MONTHS_HUB, relatedLandings, guideAnchor, type Landing } from '@/lib/landings/landings';
 import { RelatedLandings } from '@/components/landings/KamchatkaGuide';
+import { applyContextualLinks } from '@/lib/landings/contextual-links';
 import { tourBlockHeading, tourBlockNote, type LandingBlockTour } from '@/lib/landings/tours';
 import { landingDesign, landingOgImagePath, reviewedTourCover } from '@/lib/landings/design';
 import { landingDates, landingDuration, landingPrice, landingSeason } from '@/lib/seo/query-landing-view';
@@ -84,7 +85,7 @@ export function LandingKuzmich() {
       <img src="/images/brand/bear-128.webp" alt="" width={48} height={48} loading="lazy" decoding="async" />
       <div>
         <h2 id="landing-kuzmich" className="landing-kuzmich-title">Спросите Кузьмича</h2>
-        <p>Кузьмич — ИИ-помощник Ведара. Спросите про сезон, дорогу и что взять с собой: он отвечает по данным платформы.</p>
+        <p><Link href="/kuzmich" className="underline" style={{ color: 'var(--ocean)' }}>Кузьмич</Link> — ИИ-помощник Ведара. Спросите про сезон, дорогу и что взять с собой: он отвечает по данным платформы.</p>
         <a className="landing-btn" href={KUZMICH_TG} rel="noopener noreferrer" target="_blank">Написать в Telegram @kuzmichai_bot</a>
       </div>
     </aside>
@@ -194,8 +195,14 @@ export function LandingContent({ landing, tours, showH1 = true, middle, withJson
   kuzmich?: boolean;
 }) {
   const design = landingDesign(landing.slug);
-  const before = parseArticleMarkdown(landing.before);
-  const after = landing.after.trim() ? parseArticleMarkdown(landing.after) : [];
+  const reservedAnchors = relatedLandings(landing, 5).map(guideAnchor);
+  const linked = applyContextualLinks(
+    parseArticleMarkdown(landing.before),
+    landing.after.trim() ? parseArticleMarkdown(landing.after) : [],
+    { currentPath: landing.path, reservedAnchors },
+  );
+  const before = linked.before;
+  const after = linked.after;
   const ids = headingIds([...before, ...after]);
   const showTours = !middle && landing.tours.kind !== 'none';
   const h2 = (bs: Block[]) => bs.flatMap((b) => (b.t === 'h2' && ids.has(b) ? [{ id: ids.get(b)!, label: b.text }] : []));
