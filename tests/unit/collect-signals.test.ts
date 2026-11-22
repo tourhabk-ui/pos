@@ -16,7 +16,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  collectRouteSignals, isInSeason, CORRIDOR_VOLCANO_KM, type QueryFn,
+  collectRouteSignals, isInSeason, seasonMonthWindow, CORRIDOR_VOLCANO_KM, type QueryFn,
 } from '@/lib/routes/collect-signals';
 import { goVerdict } from '@/lib/routes/go-verdict';
 
@@ -251,6 +251,30 @@ describe('сезон', () => {
   it('круглогодичный — всегда', () => {
     expect(isInSeason('all', 1)).toBe(true);
     expect(isInSeason('круглогодично', 7)).toBe(true);
+  });
+
+  it('окно месяцев (22.11): Долина гейзеров 22 ноября — вне сезона, оговорка в скобках не в счёт', () => {
+    const geysers = 'конец мая – конец сентября (в мае–июне ограничения, kronoki.ru)';
+    expect(seasonMonthWindow(geysers)).toEqual({ from: 5, to: 9 });
+    expect(isInSeason(geysers, 11)).toBe(false);
+    expect(isInSeason(geysers, 5)).toBe(true);
+    expect(isInSeason(geysers, 9)).toBe(true);
+    expect(isInSeason('июль - октябрь', 8)).toBe(true);
+    expect(isInSeason('июль - октябрь', 11)).toBe(false);
+    expect(isInSeason('июнь–сентябрь', 6)).toBe(true);
+  });
+
+  it('окно через Новый год: «декабрь - май»', () => {
+    expect(isInSeason('декабрь - май', 1)).toBe(true);
+    expect(isInSeason('декабрь - май', 12)).toBe(true);
+    expect(isInSeason('декабрь - май', 7)).toBe(false);
+  });
+
+  it('«круглый год (паспорт)» — всегда; «март» не путается с «маем»; один месяц — не окно', () => {
+    expect(isInSeason('круглый год (паспорт)', 11)).toBe(true);
+    expect(seasonMonthWindow('март - апрель')).toEqual({ from: 3, to: 4 });
+    expect(seasonMonthWindow('только в августе')).toBeNull();
+    expect(isInSeason('только в августе', 11)).toBeNull();
   });
 
   it('незнакомое слово — null, а не догадка', () => {
