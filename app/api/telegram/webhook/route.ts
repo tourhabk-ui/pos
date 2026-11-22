@@ -1344,7 +1344,10 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       return;
     }
 
-    // /login — magic link для входа на сайт (только для привязанных admin/operator/guide)
+    // /login — одноразовая ссылка входа на сайт (5 минут) для привязанной
+    // учётной записи: туриста, оператора, гида. Роли admin и учётным записям
+    // с двухфакторной проверкой не выдаётся — им обычный вход
+    // (lib/auth/magic-link.ts). Группы сюда не доходят: выше ранний выход.
     if (text.startsWith('/login')) {
       const linkedUser = await getUserByTelegramId(fromId);
       if (!linkedUser) {
@@ -1357,13 +1360,16 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         return;
       }
 
-      // Генерируем magic token (15 минут)
-      const { SignJWT } = await import('jose');
-      const secret = new TextEncoder().encode('magic:' + (process.env.JWT_SECRET ?? ''));
-      const magicToken = await new SignJWT({ userId: linkedUser.id })
-        .setProtectedHeader({ alg: 'HS256' })
-        .setExpirationTime('15m')
-        .sign(secret);
+      const { magicLinkAllowed, signMagicToken, MAGIC_LINK_REFUSED_TEXT } = await import('@/lib/auth/magic-link');
+      // Не прочиталось — ссылку не выдаём: решение «можно» без данных было бы угадыванием.
+      const gate = await query<{ mfa_enabled: boolean | null; preferences: unknown }>(
+        'SELECT mfa_enabled, preferences FROM users WHERE id = $1', [linkedUser.id],
+      ).then((r) => r.rows[0] ?? null).catch(() => null);
+      if (!gate || !magicLinkAllowed({ role: linkedUser.role, mfa_enabled: gate.mfa_enabled, preferences: gate.preferences })) {
+        await sendHTML(chatId, esc(MAGIC_LINK_REFUSED_TEXT));
+        return;
+      }
+      const magicToken = await signMagicToken(linkedUser.id);
 
       const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
       const link = `${siteUrl}/api/auth/magic?token=${magicToken}`;
@@ -1372,7 +1378,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
         `<b>Привет, ${linkedUser.name.split(' ')[0]}!</b>`,
         '',
         'Нажми кнопку ниже — войдёшь без пароля.',
-        '<i>Ссылка действует 15 минут.</i>',
+        '<i>Ссылка действует 5 минут и срабатывает один раз.</i>',
         '',
         `<a href="${link}">Войти в систему →</a>`,
       ].join('\n'));
