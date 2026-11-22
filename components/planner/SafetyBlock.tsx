@@ -16,19 +16,38 @@ function pointsWord(n: number): string {
   return 'пунктов';
 }
 
-export function SafetyBlock({ items }: { items: readonly SafetyItem[] }) {
-  if (items.length === 0) return null;
+/**
+ * `planItems` — оговорки о самом плане (сезон по записи оператора, тур
+ * продают целиком): с 22.11 они не висят плашками над днями, а стоят здесь
+ * же, первым разделом «О плане» — предупреждения в одном месте.
+ */
+export function SafetyBlock({ items, planItems = [] }: { items: readonly SafetyItem[]; planItems?: readonly string[] }) {
+  if (items.length === 0 && planItems.length === 0) return null;
   const critical = items.filter((i) => i.severity === 'critical').length;
+  const total = items.length + planItems.length;
   return (
     <details className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--bg-card)]" data-safety-block>
       <summary className="flex items-center gap-2 px-3 py-2.5 cursor-pointer text-xs font-semibold text-[var(--text-primary)]">
         <ShieldAlert className="w-4 h-4 text-[var(--warning)] shrink-0" aria-hidden="true" />
         <span>{SAFETY_BLOCK_TITLE}</span>
         <span className="text-[10px] font-normal text-[var(--text-muted)]">
-          {items.length} {pointsWord(items.length)}
+          {total} {pointsWord(total)}
           {critical > 0 && <span className="ml-1 text-[var(--danger)] font-semibold">· важно: {critical}</span>}
         </span>
       </summary>
+      {planItems.length > 0 && (
+        <div className="px-3 pb-2" data-plan-notes>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)] mb-1">О плане</p>
+          <ul className="space-y-1.5">
+            {planItems.map((t) => (
+              <li key={t} className="text-[11px] leading-snug text-[var(--text-secondary)]">{t}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {planItems.length > 0 && items.length > 0 && (
+        <p className="px-3 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)] mb-1">Безопасность</p>
+      )}
       <ul className="px-3 pb-3 space-y-1.5">
         {items.map((it) => (
           <li key={it.text} className={`text-[11px] leading-snug ${it.severity === 'critical' ? 'text-[var(--danger)]' : 'text-[var(--text-secondary)]'}`}>
