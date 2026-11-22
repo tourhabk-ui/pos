@@ -118,3 +118,28 @@ describe('туда и обратно', () => {
     expect(buildPlannerMarkers({ routes: [], days, editingDayId: null }).filter(m => m.note)).toHaveLength(1);
   });
 });
+
+describe('плашки карты при плане (v2)', () => {
+  it('пустой каталог при плане — честная строка, а не «нет маршрутов»', async () => {
+    const { planEmptyKindsText } = await import('@/components/planner/PlannerMapOverlay');
+    expect(planEmptyKindsText(['Рыбалка'])).toBe('Готовых маршрутов с треком по «Рыбалка» в каталоге нет — на план это не влияет.');
+  });
+  it('строка-подсказка о днях закрывается крестиком и пропадает, когда день открыли', async () => {
+    const { PlannerMapOverlay } = await import('@/components/planner/PlannerMapOverlay');
+    const props = {
+      status: 'ok' as const, legend: [], total: 0, partial: false, hasPlan: true,
+      onRetry: () => {}, onStopEditing: () => {},
+    };
+    const { rerender, container } = render(<PlannerMapOverlay {...props} editing={null} />);
+    expect(container.querySelector('[data-map-hint]')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Скрыть подсказку' }));
+    expect(container.querySelector('[data-map-hint]')).toBeNull();
+    // Открытый день тоже убирает подсказку насовсем.
+    const second = render(<PlannerMapOverlay {...props} editing={null} />);
+    expect(second.container.querySelector('[data-map-hint]')).not.toBeNull();
+    second.rerender(<PlannerMapOverlay {...props} editing={{ number: 2, title: 'Д', refusal: null, sameZone: 0, dayZone: 'avachinsky' }} />);
+    second.rerender(<PlannerMapOverlay {...props} editing={null} />);
+    expect(second.container.querySelector('[data-map-hint]')).toBeNull();
+    rerender(<PlannerMapOverlay {...props} editing={null} />);
+  });
+});

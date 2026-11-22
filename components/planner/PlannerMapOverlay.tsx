@@ -97,6 +97,8 @@ export const MAP_TEXT = {
   partial: 'Часть маршрутов не загрузилась.',
   legendTitle: 'Маршруты по зонам',
   days: 'Дни вашего плана. Нажмите кружок — день откроется в плане.',
+  // Телефон, план есть: одна строка вместо колонки плашек (22.11).
+  daysShort: 'Кружок — день плана, внизу — все дни',
   hintNoPlan: 'Точки — маршруты под ваши интересы. Нажмите точку — откроется карточка маршрута.',
   hintTap: 'Нажмите точку — откроется карточка маршрута.',
   hintPlan: 'Нажмите точку — её можно добавить в план новым днём или поставить вместо дня.',
@@ -179,6 +181,15 @@ export interface PlannerMapSearch {
 
 const NO_SEARCH: PlannerMapSearch = { byDefault: false, shown: [], empty: [] };
 
+/**
+ * План с днями есть: фоновые точки — готовые маршруты из каталога, а не
+ * дни. «На карте нет маршрутов: «Вулканы»» при дне с вулканами в плане
+ * читалось как ошибка (владелец 22.11) — говорим, чего именно нет.
+ */
+export function planEmptyKindsText(labels: readonly string[]): string {
+  return `Готовых маршрутов с треком по ${quoted(labels)} в каталоге нет — на план это не влияет.`;
+}
+
 /** Плашка «пусто» (на карте ничего): что искали и что сделать. */
 export function emptyText(search: PlannerMapSearch): string {
   const what = search.empty.length > 0 ? emptyKindsText(search.empty) : MAP_TEXT.emptyBare;
@@ -191,11 +202,18 @@ export function editingDayTitle(n: number, replaceable: boolean): string {
 }
 
 const GLASS = 'fx-glass-dense rounded-2xl px-3 py-2.5 shadow-lg text-[var(--glass-fg)]';
+/** Телефон с планом: та же плашка в одну строку. */
+const GLASS_COMPACT = 'fx-glass-dense rounded-xl px-3 py-1.5 shadow-lg text-[var(--glass-fg)]';
+/** Одна строка на телефоне, прежняя плашка на компьютере. */
+const GLASS_RESP = 'fx-glass-dense rounded-xl lg:rounded-2xl px-3 py-1.5 lg:py-2.5 shadow-lg text-[var(--glass-fg)]';
+const MOBILE_TRUNCATE = 'truncate lg:whitespace-normal lg:overflow-visible';
 const WARN_EDGE = { border: '1px solid color-mix(in srgb, var(--warning) 60%, transparent)' } as const;
 
 /** Кружок с номером — как пин дня на карте. */
-function DaySwatch({ n, size = 'sm' }: { n: number; size?: 'sm' | 'md' }) {
-  const box = size === 'md' ? 'w-7 h-7 text-[11px]' : 'w-4 h-4 text-[9px]';
+function DaySwatch({ n, size = 'sm' }: { n: number; size?: 'sm' | 'md' | 'resp' }) {
+  const box = size === 'md' ? 'w-7 h-7 text-[11px]'
+    : size === 'resp' ? 'w-5 h-5 text-[10px] lg:w-7 lg:h-7 lg:text-[11px]'
+    : 'w-4 h-4 text-[9px]';
   return (
     <span
       aria-hidden
@@ -334,6 +352,12 @@ export function PlannerMapOverlay({
   const [legendOpenForDay, setLegendOpenForDay] = useState<number | null>(null);
   const showLegend = status === 'ok' && (!editing || fixedDay !== null);
   const showDays = hasPlan && !editing;
+  // Телефон с планом: одна строка-подсказка с крестиком вместо колонки —
+  // классами экрана (lg:), а не ширимой в JS: текст тот же, на телефоне
+  // скрыт лишний. Закрыли или открыли день (пин, полоса) — подсказка не
+  // возвращается.
+  const [hintDismissed, setHintDismissed] = useState(false);
+  if (editing !== null && !hintDismissed) setHintDismissed(true);
   const legendCollapsed = squeezed
     ? !openWithCard
     : foldForDay ? legendOpenForDay !== fixedDay : collapsed;
@@ -351,7 +375,7 @@ export function PlannerMapOverlay({
   // Что делать — только в плашке «пусто»: здесь точки на карте есть.
   const searchLine = search.byDefault
     ? (search.shown.length > 0 ? byDefaultText(search.shown) : null)
-    : (search.empty.length > 0 ? emptyKindsText(search.empty) : null);
+    : (search.empty.length > 0 ? (hasPlan ? planEmptyKindsText(search.empty) : emptyKindsText(search.empty)) : null);
   const hint = fixedDay !== null
     ? MAP_TEXT.hintAddOnly
     : hasPlan
@@ -369,11 +393,11 @@ export function PlannerMapOverlay({
     >
       {editing && (
         <div
-          className={`${GLASS} pointer-events-auto flex items-start gap-3`}
+          className={`${hasPlan ? GLASS_RESP : GLASS} pointer-events-auto flex ${hasPlan ? 'items-center gap-2 lg:items-start lg:gap-3' : 'items-start gap-3'}`}
           // Отказ в плашке дня узнаётся кромкой предупреждения, как плашка отказа.
           style={failedInDay ? WARN_EDGE : { border: `1px solid color-mix(in srgb, ${planDayHex()} 80%, transparent)` }}
         >
-          <DaySwatch n={editing.number} size="md" />
+          <DaySwatch n={editing.number} size={hasPlan ? 'resp' : 'md'} />
           <div className="flex-1 min-w-0">
             {/* На телефоне это же название уже стоит на полосе над вкладками —
                 здесь оно только на широком экране, и не обрезается. */}
@@ -381,14 +405,15 @@ export function PlannerMapOverlay({
               {editingDayTitle(editing.number, replaceable)}: {editing.title}
             </p>
             {editing.refusal !== null && (
-              <p className="text-[11px] leading-snug text-[var(--glass-fg)]">{editing.refusal}</p>
+              <p className={`text-[11px] leading-snug text-[var(--glass-fg)] ${hasPlan ? MOBILE_TRUNCATE : ''}`} title={editing.refusal}>{editing.refusal}</p>
             )}
             {/* Карточка точки открыта (телефон) — точка уже нажата, «Заменить
                 день N» — в карточке: колонка короче, карточка под ней. */}
             {replaceable && status === 'ok' && !squeezed && (
               <>
-                <p className="text-[11px] leading-snug text-[var(--glass-fg-muted)]">{editActionText(editing.number)}</p>
-                <p className="text-[11px] leading-snug text-[var(--glass-fg-muted)]">
+                <p className={`text-[11px] leading-snug text-[var(--glass-fg-muted)] ${hasPlan ? MOBILE_TRUNCATE : ''}`}>{editActionText(editing.number)}</p>
+                {/* Цвета точек — на телефоне не словами: одна строка (22.11). */}
+                <p className={`text-[11px] leading-snug text-[var(--glass-fg-muted)] ${hasPlan ? 'hidden lg:block' : ''}`}>
                   {editColorsText(editing)}
                 </p>
               </>
@@ -417,7 +442,7 @@ export function PlannerMapOverlay({
             type="button"
             onClick={onStopEditing}
             aria-label={replaceable ? 'Закончить замену дня' : 'Закрыть день'}
-            className="w-9 h-9 -mr-1 -mt-1 flex items-center justify-center rounded-lg text-[var(--glass-fg-muted)] hover:text-[var(--glass-fg)] transition-colors duration-200 shrink-0"
+            className={`${hasPlan ? 'w-8 h-8 -my-1 lg:w-9 lg:h-9 lg:my-0 lg:-mt-1' : 'w-9 h-9 -mt-1'} -mr-1 flex items-center justify-center rounded-lg text-[var(--glass-fg-muted)] hover:text-[var(--glass-fg)] transition-colors duration-200 shrink-0`}
           >
             <X className="w-4 h-4" />
           </button>
@@ -441,7 +466,9 @@ export function PlannerMapOverlay({
         </div>
       )}
 
-      {status === 'empty' && !(replaceable && editingInline) && (
+      {/* С планом пустой каталог — не плашка: на карте дни, и «нет
+          маршрутов» читалось как ошибка (22.11). */}
+      {status === 'empty' && !hasPlan && !(replaceable && editingInline) && (
         <div role="status" className={`${GLASS} text-xs leading-snug`}>
           {emptyText(search)}
         </div>
@@ -459,8 +486,25 @@ export function PlannerMapOverlay({
         </div>
       )}
 
+      {showDays && !hintDismissed && (
+        <div data-map-hint className={`${GLASS_COMPACT} lg:hidden pointer-events-auto flex items-center gap-2 text-xs`}>
+          <DaySwatch n={1} />
+          <span className="flex-1 min-w-0 truncate">{MAP_TEXT.daysShort}</span>
+          <button
+            type="button"
+            onClick={() => setHintDismissed(true)}
+            aria-label="Скрыть подсказку"
+            className="w-8 h-8 -my-1 -mr-1 flex items-center justify-center rounded-lg text-[var(--glass-fg-muted)] hover:text-[var(--glass-fg)] shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {(showLegend || showDays) && (
-        <div className={GLASS} aria-live="polite">
+        // Телефон с планом: пока висит строка-подсказка, легенда не видна;
+        // закрыли — легенда свёрнутой строкой (22.11).
+        <div className={`${GLASS} ${showDays && !hintDismissed ? 'hidden lg:block' : ''} ${showDays && !showLegend ? 'hidden lg:block' : ''}`} aria-live="polite">
           {showLegend && (
             <button
               type="button"
@@ -495,7 +539,7 @@ export function PlannerMapOverlay({
           {/* Строка о днях видна и в свёрнутой легенде: кружки с номером —
               главное, что появилось на карте вместе с планом. */}
           {showDays && (
-            <p className={`flex items-center gap-1.5 text-xs leading-snug ${showLegend ? 'mt-1.5' : ''}`}>
+            <p className={`hidden lg:flex items-center gap-1.5 text-xs leading-snug ${showLegend ? 'mt-1.5' : ''}`}>
               <DaySwatch n={1} />
               {MAP_TEXT.days}
             </p>
