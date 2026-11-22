@@ -49,7 +49,7 @@ import { returnLegMissingMessage } from '@/lib/planner/plan-edit-warnings';
 import { calculatePriceBreakdown, type PriceBreakdown } from '@/lib/planner/estimate';
 import { tourPlanSpan, tourRoom } from '@/lib/planner/tour-span';
 import {
-  ROAD_CHECK_MIN_KM, tooFarForDayTrip, farDayTourLine, farDayTourReason, noRoadLine, roadUnreadLine,
+  ROAD_CHECK_MIN_KM, tooFarForDayTrip, farDayTourLine, farSelfRouteLine, farDayTourReason, noRoadLine, roadUnreadLine,
   pointUnknownLine, adjacentToursLine, isAirTour, roadDayLine, type RoadEstimate,
 } from '@/lib/planner/road-reach';
 import { roadEstimate } from '@/lib/planner/road-hours';
@@ -1302,6 +1302,8 @@ async function generateDayPlans(
   const roadUnreadTours = new Map<string, string>();
   /** Дорога до места тура, что остался в плане: строка дня с «оценкой». */
   const roadOfTour = new Map<string, { km: number; hours: number }>();
+  /** То же для самостоятельного маршрута (этап 3, п. 2): id маршрута → дорога. */
+  const roadOfRoute = new Map<string, { km: number; hours: number }>();
   /**
    * Однодневный тур Авачинской зоны с точкой дальше ROAD_CHECK_MIN_KM от
    * Петропавловска: сколько до него ехать по дороге. Дальше порога в одну
@@ -1733,6 +1735,30 @@ async function generateDayPlans(
           return !reason;
         });
       }
+      // Дорога до самостоятельного маршрута (этап 3 аудита дорог, п. 2): то же
+      // правило DAY_TRIP_MAX_ROAD_HOURS, что у однодневного тура. Пример с
+      // прода 22.11 — «Мутновско-Гореловская группа» днём «сам» без слова о
+      // дороге. Дальше порога — днём не ставится, строка с числом; ближе —
+      // на дне строка км/ч с «оценкой».
+      if (routes.length > 0 && block.zone === 'avachinsky') {
+        const keptRoutes: RouteFromDB[] = [];
+        for (const r of routes) {
+          const lat = Number(r.lat);
+          const lng = Number(r.lng);
+          const far = Number.isFinite(lat) && Number.isFinite(lng)
+            && straightKm({ lat: PKC_COORDS[0], lng: PKC_COORDS[1] }, { lat, lng }) >= ROAD_CHECK_MIN_KM;
+          const road = far ? await roadEstimate(PKC_COORDS, [lat, lng]) : null;
+          if (road?.kind === 'road' && !tooFarForDayTrip(road)) roadOfRoute.set(r.id, road);
+          if (road && tooFarForDayTrip(road)) {
+            farTourLines.set(`route:${r.id}`, farSelfRouteLine(r.title, road));
+            missFor(interest, farDayTourReason(r.title, road));
+            continue;
+          }
+          if (road?.kind === 'unread') roadUnreadTours.set(`route:${r.id}`, r.title);
+          keptRoutes.push(r);
+        }
+        routes = keptRoutes;
+      }
       m.routes = routes;
 
       // Отказ запроса запоминается ИМЕННО как отказ. День при этом собирается
@@ -2113,7 +2139,9 @@ async function generateDayPlans(
         minChildAge: c.minChildAge,
         // Минимум группы тура (E3): группа меньше — «нужен набор группы».
         dayWarnings: withGroupMinimum(
-          realTour && roadOfTour.has(realTour.tourId) ? [...dayWarnings, roadDayLine(roadOfTour.get(realTour.tourId)!)] : dayWarnings,
+          realTour && roadOfTour.has(realTour.tourId) ? [...dayWarnings, roadDayLine(roadOfTour.get(realTour.tourId)!)]
+            : !realTour && route && roadOfRoute.has(route.id) ? [...dayWarnings, roadDayLine(roadOfRoute.get(route.id)!, true)]
+              : dayWarnings,
           realTour?.minParticipants, groupSize(profile)),
         activityMode: activityMode({ realTour, route }),
         ...(route ? { routeId: route.id } : {}),
@@ -2354,7 +2382,8 @@ async function generateDayPlans(
     roadNotes: {
       farTours: [...farTourLines.values()],
       noRoad: [...noRoadTours].filter(([id]) => placedTours.has(id)).map(([, t]) => t),
-      unread: [...roadUnreadTours].filter(([id]) => placedTours.has(id)).map(([, t]) => t),
+      unread: [...roadUnreadTours].filter(([id]) => placedTours.has(id)
+        || (id.startsWith('route:') && days.some((d) => d.routeId === id.slice(6)))).map(([, t]) => t),
     },
   };
 }

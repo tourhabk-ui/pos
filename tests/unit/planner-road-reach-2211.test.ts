@@ -8,6 +8,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 interface Tour { tourId: string; title: string; zone: string; activityType: string; durationHours?: number; seasonStart?: string | null; seasonEnd?: string | null; lat?: number; lng?: number; coordsKnown?: boolean; included?: string[] }
 let TOURS: Record<string, Tour[]> = {};
 let KEEPS: Record<string, boolean | null> = {};
+/** Маршруты треккинга Авачинской зоны в тесте; null — одна ближняя тропа. */
+let TREK_ROUTES: Array<Record<string, unknown>> | null = null;
 let ON_REQUEST: Set<string> | null = new Set();
 const onRequestCalls: number[] = [];
 
@@ -48,6 +50,8 @@ vi.mock('@/lib/planner/road-hours', () => ({
     roadCalls.push(b);
     if (Math.abs(b[0] - 55.433) < 0.01) return { kind: 'road', km: 410.3, hours: 6.33 };
     if (Math.abs(b[0] - 52.3) < 0.01) return { kind: 'no_road' };
+    if (Math.abs(b[0] - 52.0) < 0.01) return { kind: 'road', km: 260, hours: 4.4 };
+    if (Math.abs(b[0] - 52.55) < 0.01) return { kind: 'road', km: 107, hours: 2.1 };
     return { kind: 'road', km: 60, hours: 1.2 };
   }),
 }));
@@ -70,7 +74,7 @@ vi.mock('@/lib/db-pool', () => ({
       if (sql.includes('FROM agent_route_knowledge')) {
         const [zone, act] = params as [string, string];
         return zone === 'avachinsky' && act === 'trekking'
-          ? { rows: [{ id: 'r-trek-ok', title: 'Тропа к Сухой речке', zone, activity_type: act, lat: 53.1, lng: 158.6, location_type: null }] }
+          ? { rows: TREK_ROUTES ?? [{ id: 'r-trek-ok', title: 'Тропа к Сухой речке', zone, activity_type: act, lat: 53.1, lng: 158.6, location_type: null }] }
           : { rows: [] };
       }
       return { rows: [] };
@@ -160,6 +164,26 @@ describe('аудит дорог 22.11: однодневный тур дальш�
     const rec = await recommendTrip({ ...WINTER, interests: ['fishing', 'snowmobile'] });
     expect(rec.days.some((d) => d.realTour?.tourId === 't-boat')).toBe(true);
     expect(rec.warnings.map((w) => w.message).join('\n')).toMatch(/До места тура «Рыбалка в бухте Ходутка» проезжей дороги в нашем дорожном графе нет/);
+  });
+
+  it('этап 3, п. 2: маршрут «сам» дальше 3 ч днём не ставится; ближе — строка км/ч «оценка»', async () => {
+    TOURS = {};
+    TREK_ROUTES = [
+      { id: 'r-far', title: 'Дальняя тропа', zone: 'avachinsky', activity_type: 'trekking', lat: 52.0, lng: 157.9, location_type: null },
+      { id: 'r-mid', title: 'Мутновско-Гореловская группа', zone: 'avachinsky', activity_type: 'trekking', lat: 52.55, lng: 158.1, location_type: null },
+    ];
+    try {
+      const rec = await recommendTrip({ ...WINTER, interests: ['trekking'], travelStyle: 'self',
+        arrivalDate: `${NEXT}-08-05`, departureDate: `${NEXT}-08-13` });
+      expect(rec.days.some((d) => d.routeId === 'r-far')).toBe(false);
+      const mid = rec.days.find((d) => d.routeId === 'r-mid');
+      expect(mid).toBeDefined();
+      expect(mid!.dayWarnings.join('\n')).toContain('107 км, ≈2,1 ч по дороге в одну сторону (оценка');
+      const text = rec.warnings.map((w) => w.message).join('\n');
+      expect(text).toContain('Маршрут «Дальняя тропа» (самостоятельно): до него от Петропавловска 260 км, ≈4,4 ч');
+    } finally {
+      TREK_ROUTES = null;
+    }
   });
 
   it('стиль «сам»: пустой день называет свою причину, а не «подходящего тура нет»', async () => {
