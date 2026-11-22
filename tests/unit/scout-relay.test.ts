@@ -124,7 +124,7 @@ describe('воркер: /fetch закрыт секретом и белым сп�
     const m = /RELAY_HOSTS = "([^"]+)"/.exec(TOML);
     expect(m, 'RELAY_HOSTS нет в wrangler.toml').not.toBeNull();
     const hosts = m![1].split(',');
-    for (const h of ['simonwillison.net', 'huggingface.co', 'habr.com', 'openai.com', 'anthropic.com', 't.me']) {
+    for (const h of ['simonwillison.net', 'huggingface.co', 'habr.com', 'openai.com', 'anthropic.com', 't.me', 'github.com', 'cursor.com']) {
       expect(hosts, `в белом списке нет ${h}`).toContain(h);
     }
   });

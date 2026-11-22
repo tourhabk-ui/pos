@@ -1,0 +1,87 @@
+/**
+ * Смена авиационного кода KVERT → событие для external_alerts.
+ *
+ * Синк пишет коды в volcano_status, но разведка (Scout Digest) читает
+ * раздел «Камчатка» только из external_alerts за последние 25 часов.
+ * Пока смена цвета туда не попадала, дайджест не видел VONA, даже если
+ * kvert-acc отработал зелёно. Событие строится здесь, без сети и без БД:
+ * запись — дело вызывающего (saveEvent), чтобы правило «когда писать»
+ * проверялось без базы.
+ *
+ * Пишем только ИЗМЕНЕНИЕ: повтор того же кода — не событие. Первый
+ * увиденный зелёный код тоже не пишем (это фон, не новость). Первый
+ * жёлтый/оранжевый/красный — пишем: для разведки это появление угрозы.
+ * Код unassigned событием не бывает.
+ */
+import { ACC_META, type AccColor } from '@/lib/services/safety/kvert-vona';
+import type { SeismicEvent } from '@/lib/services/safety/seismic-parser';
+
+const COLOR: ReadonlySet<string> = new Set(['green', 'yellow', 'orange', 'red', 'unassigned']);
+
+export function isAccColor(value: string | null | undefined): value is AccColor {
+  return !!value && COLOR.has(value);
+}
+
+/**
+ * Нужно ли событие при переходе prev → next.
+ * prev = null: вулкана ещё не было в volcano_status.
+ */
+export function aviationColorChanged(prev: AccColor | null, next: AccColor): boolean {
+  if (next === 'unassigned') return false;
+  if (prev === next) return false;
+  if (prev === null && next === 'green') return false;
+  return true;
+}
+
+const SEVERITY: Record<Exclude<AccColor, 'unassigned'>, 0 | 1 | 2 | 3> = {
+  green: 0,
+  yellow: 1,
+  orange: 2,
+  red: 3,
+};
+
+export function buildKvertColorAlert(opts: {
+  slug: string;
+  volcanoName: string;
+  prev: AccColor | null;
+  next: AccColor;
+  sourceUrl: string | null;
+  observedAt: Date | null;
+  summary: string | null;
+  ashHeightM: number | null;
+}): SeismicEvent | null {
+  if (!aviationColorChanged(opts.prev, opts.next)) return null;
+  if (opts.next === 'unassigned') return null;
+
+  const nextMeta = ACC_META[opts.next];
+  const prevLabel = opts.prev && opts.prev !== 'unassigned' ? ACC_META[opts.prev].short : null;
+  const title = prevLabel
+    ? `KVERT: ${opts.volcanoName} — авиационный код ${nextMeta.short.toLowerCase()} (было: ${prevLabel.toLowerCase()})`
+    : `KVERT: ${opts.volcanoName} — авиационный код ${nextMeta.short.toLowerCase()}`;
+
+  const lines: string[] = [
+    `${opts.volcanoName}: авиационный цветовой код ${nextMeta.short} (${nextMeta.label}).`,
+  ];
+  if (prevLabel) lines.push(`Предыдущий код: ${prevLabel}.`);
+  if (opts.ashHeightM != null) lines.push(`Высота пепла: ${opts.ashHeightM} м.`);
+  if (opts.summary) lines.push(opts.summary);
+
+  const publishedAt = opts.observedAt ?? new Date();
+  const day = publishedAt.toISOString().slice(0, 10);
+  const elevated = opts.next === 'orange' || opts.next === 'red';
+
+  return {
+    source_id: `kvert-acc/${opts.slug}/${opts.next}/${day}`,
+    source_url: opts.sourceUrl || 'http://kvert.febras.net/van/index.php?type=3&lend=en',
+    published_at: publishedAt,
+    alert_type: elevated ? 'ash_cloud' : 'info',
+    severity: SEVERITY[opts.next],
+    title,
+    description: lines.join(' '),
+    affected_zones: [],
+    volcano_name: opts.volcanoName,
+    volcano_scope: 'named',
+    ash_height_m: opts.ashHeightM ?? undefined,
+    expires_hours: elevated ? 120 : 72,
+  };
+}
