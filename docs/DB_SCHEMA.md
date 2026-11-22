@@ -1,15 +1,15 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-22 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+5): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1496_magic_link_redemptions.sql`.
+> Снято 2026-11-22 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+5): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1498_trip_vote_links.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
 | Что | Сколько |
 |---|---:|
-| Таблиц | 336 |
+| Таблиц | 338 |
 | Представлений (VIEW) | 13 |
-| Колонок | 4343 |
-| Внешних ключей | 398 |
+| Колонок | 4354 |
+| Внешних ключей | 400 |
 | Таблиц без единого FK в обе стороны | 91 |
 
 Обозначения в списках колонок: `!` — NOT NULL, `=` — есть DEFAULT, `PK` — первичный ключ, `→` — внешний ключ.
@@ -32,7 +32,7 @@
 | [Эко и лояльность](#эко-и-лояльность) | 10 | `eco_achievements` `eco_balances` `eco_compensation_claims` `eco_ledger` `eco_points` `loyalty_levels` `loyalty_transactions` `user_achievements` `user_eco_activities` `user_eco_points` |
 | [Контент, уведомления, поездки туриста](#контент-уведомления-поездки-туриста) | 21 | `articles` `assets` `email_templates` `faqs` `notification_log` `notification_preferences` `notifications` `page_views` `platform_settings` `push_subscriptions` `pwa_installs` `review_assets` `reviews` `smart_notifications_log` `support_tickets` `system_settings` `trip_preparation_events` `trip_preparation_items` `trip_preparation_plans` `trip_preparation_shares` `user_trips` |
 | [Служебные](#служебные) | 2 | `_migration_failures` `_migrations` |
-| [Прочее](#прочее) | 52 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `admin_chat_actions` `admin_max_bindings` `admin_max_link_tokens` `admin_tg_bindings` `admin_tg_link_tokens` `answer_notices` `car_rental_offers` `car_rental_terms` `carrier_review_invites` `carrier_reviews` `client_errors` `content_translations` `editor_no_write` `magic_link_redemptions` `manager_queue_takes` `messenger_bind_codes` `model_catalog` `operator_chat_date_proposals` `operator_client_notes` `operator_members` `operator_notification_reads` `operator_price_changes` `other_offer_asks` `park_approved_route_links` `park_approved_routes` `password_reset_tokens` `rental_car_busy` `rental_offer_edits` `request_chat_waits` `request_drafts` `request_handoff_codes` `request_messages` `retention_purge_log` `tourist_mail_failures` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_situation_notices` `trip_situations` `trip_watch_flow` `ugms_forecasts` `user_last_login` `volcano_bulletin_kfegs` `weather_forecast_last_good` `widget_daily` |
+| [Прочее](#прочее) | 54 | `a2a_contexts` `a2a_dialogs` `a2a_requests` `a2a_tasks` `admin_chat_actions` `admin_max_bindings` `admin_max_link_tokens` `admin_tg_bindings` `admin_tg_link_tokens` `answer_notices` `car_rental_offers` `car_rental_terms` `carrier_review_invites` `carrier_reviews` `client_errors` `content_translations` `editor_no_write` `magic_link_redemptions` `manager_queue_takes` `messenger_bind_codes` `model_catalog` `operator_chat_date_proposals` `operator_client_notes` `operator_members` `operator_notification_reads` `operator_price_changes` `other_offer_asks` `park_approved_route_links` `park_approved_routes` `password_reset_tokens` `rental_car_busy` `rental_offer_edits` `request_chat_waits` `request_drafts` `request_handoff_codes` `request_messages` `retention_purge_log` `tourist_mail_failures` `tourist_notification_preferences` `tourist_wishlist` `tracker_links` `trip_group_members` `trip_groups` `trip_plan_drafts` `trip_situation_notices` `trip_situations` `trip_vote_links` `trip_votes` `trip_watch_flow` `ugms_forecasts` `user_last_login` `volcano_bulletin_kfegs` `weather_forecast_last_good` `widget_daily` |
 
 ## ER-диаграмма ядра (две дороги туриста)
 
@@ -1463,7 +1463,7 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id uuid!=` `token uuid!=` `plan_id uuid!` `snapshot jsonb!` `scope varchar!=` `expires_at timestamptz!` `revoked_at timestamptz` `created_at timestamptz!=`
 
-**user_trips** · 25 кол. · PK id · user_id → users.id · на неё ссылаются: users · индексов 4 · триггеры: trg_user_trips_updated_at
+**user_trips** · 25 кол. · PK id · user_id → users.id · на неё ссылаются: trip_vote_links, users · индексов 4 · триггеры: trg_user_trips_updated_at
 
 `id uuid!=` `user_id uuid!` `title varchar!=` `arrival_date date` `departure_date date` `places text[]!=` `activities text[]!=` `days jsonb!=` `transport_by_day jsonb!=` `deleted_at timestamptz` `created_at timestamptz!=` `updated_at timestamptz!=` `flight_arrival varchar` `flight_departure varchar` `flight_arrival_time varchar=` `flight_departure_time varchar=` `needs_airport_transfer boolean!=` `share_token uuid=` `is_public boolean!=` `party jsonb` `choices jsonb` `needs_lodging boolean` `needs_car boolean` `warnings jsonb` `save_key uuid`
 
@@ -1664,6 +1664,14 @@ B2B-агенты, продающие туры за комиссию. Не пут
 **trip_situations** · 6 кол. · PK tour_id, trip_date · tour_id → operator_tours.id · индексов 1
 
 `tour_id bigint!` `trip_date date!` `kind text!` `line text!` `fingerprint text!` `checked_at timestamptz!=`
+
+**trip_vote_links** · 6 кол. · PK id · trip_id → user_trips.id · на неё ссылаются: trip_votes · индексов 3
+
+`id uuid!=` `trip_id uuid!` `token_hash text!` `deadline_at timestamptz!` `created_at timestamptz!=` `closed_at timestamptz`
+
+**trip_votes** · 5 кол. · PK link_id, day_num, voter_key · link_id → trip_vote_links.id · индексов 1
+
+`link_id uuid!` `day_num smallint!` `voter_key text!` `vote smallint!` `updated_at timestamptz!=`
 
 **trip_watch_flow** · 4 кол. · PK channel, chat_id · индексов 1
 
