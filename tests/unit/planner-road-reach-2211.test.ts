@@ -126,22 +126,57 @@ describe('аудит дорог 22.11: однодневный тур дальш�
     expect(engine).not.toMatch(/hours\s*>\s*3\b/);
   });
 
-  it('кейс ID36 (24.11–04.12): рыбалка в 410 км не стоит днём; строка с числом; термальный без точки — назван', async () => {
+  it('кейс ID36 (24.11–04.12), этап 3: рыбалка в 410 км с проживанием — связкой «дорога + тур + дорога»; термальный без точки — назван', async () => {
     KEEPS = { 't-fish36': false, 't-thermal5': false, 't-snow': false, 't-boat': false };
     ON_REQUEST = new Set(['hot_spring', 'fishing', 'snowmobile']);
     TOURS = { 'avachinsky:hot_spring': [THERMAL5], 'avachinsky:fishing': [FISH_FAR], 'avachinsky:snowmobile': [SNOW] };
     const rec = await recommendTrip(WINTER);
-    expect(rec.days.some((d) => d.realTour?.tourId === 't-fish36')).toBe(false);
+    expect(rec.days).toHaveLength(11);
+    const at = rec.days.findIndex((d) => d.realTour?.tourId === 't-fish36');
+    expect(at).toBeGreaterThan(0);
+    const before = rec.days[at - 1];
+    const after = rec.days[at + 1];
+    expect(before.type).toBe('travel');
+    expect(before.roadLeg).toMatchObject({ tourId: 't-fish36', direction: 'to', nightOnSite: 'tour' });
+    expect(before.description).toContain('410 км, ≈6,3 ч по дороге в одну сторону (оценка');
+    expect(before.description).toContain('Трансфер план не бронирует и не обещает');
+    expect(after.roadLeg).toMatchObject({ tourId: 't-fish36', direction: 'back' });
     expect(rec.days.some((d) => d.realTour?.tourId === 't-snow')).toBe(true);
     const text = rec.warnings.map((w) => w.message).join('\n');
-    expect(text).toContain('«Зимняя рыбалка: ноябрь — январь» — однодневный тур');
-    expect(text).toContain('410 км, ≈6,3 ч по дороге в одну сторону (оценка');
+    expect(text).toContain('«Зимняя рыбалка: ноябрь — январь» стоит связкой из трёх дней');
     expect(text).toMatch(/У тура «Камчатка: термальный маршрут» в наших данных нет точки места/);
     const thermal = rec.days.filter((d) => d.realTour?.tourId === 't-thermal5');
     expect(thermal.length).toBeGreaterThan(0);
     for (const d of thermal) expect(d.pointUnknown).toBe(true);
+    // Ночи связки — у места: жильё города на них не ищется.
+    const { nightLodgingIncluded } = await import('@/lib/planner/lodging-included');
+    expect(nightLodgingIncluded(before, rec.days[at])).toBe(true);
+    expect(nightLodgingIncluded(rec.days[at], after)).toBe(true);
+    expect(nightLodgingIncluded(after, rec.days[at + 2])).not.toBe(true);
     // Тур без точки и ближний (<40 км по прямой) граф не спрашивают.
     expect(roadCalls.every((b) => Math.abs(b[0] - 53.01) > 0.01 && Math.abs(b[0] - 53.1) > 0.01)).toBe(true);
+  });
+
+  it('этап 3: далёкий тур без проживания в составе — не ставится, сказано, что ночлега у места нет', async () => {
+    const NO_NIGHT: Tour = { ...FISH_FAR, tourId: 't-fish-nonight', title: 'Рыбалка без ночлега', included: ['Сопровождение гида'] };
+    KEEPS = { 't-fish-nonight': false, 't-snow': false };
+    ON_REQUEST = new Set(['fishing', 'snowmobile']);
+    TOURS = { 'avachinsky:fishing': [NO_NIGHT], 'avachinsky:snowmobile': [SNOW] };
+    const rec = await recommendTrip({ ...WINTER, interests: ['fishing', 'snowmobile'] });
+    expect(rec.days.some((d) => d.realTour?.tourId === 't-fish-nonight')).toBe(false);
+    expect(rec.days.some((d) => d.roadLeg)).toBe(false);
+    const text = rec.warnings.map((w) => w.message).join('\n');
+    expect(text).toContain('ночлега у места в составе тура нет');
+    expect(text).toContain('Жилья на платформе в 30 км от места тоже нет');
+  });
+
+  it('этап 3: связка не помещается в короткую поездку — тур не ставится, сказано, сколько дней нужно', async () => {
+    KEEPS = { 't-fish36': false };
+    ON_REQUEST = new Set(['fishing']);
+    TOURS = { 'avachinsky:fishing': [FISH_FAR] };
+    const rec = await recommendTrip({ ...WINTER, interests: ['fishing'], departureDate: `${NEXT}-11-27` });
+    expect(rec.days.some((d) => d.realTour?.tourId === 't-fish36')).toBe(false);
+    expect(rec.warnings.map((w) => w.message).join('\n')).toMatch(/нужна связка из 3 дней|однодневный тур, а до его места/);
   });
 
   it('далёкий тур вне сезона поездки строкой не называется (прод 22.11: «Летняя рыбалка на кижуча» в ноябре)', async () => {
@@ -152,7 +187,7 @@ describe('аудит дорог 22.11: однодневный тур дальш�
     TOURS = { 'avachinsky:fishing': [FISH_FAR, SUMMER_FAR], 'avachinsky:snowmobile': [SNOW] };
     const rec = await recommendTrip({ ...WINTER, interests: ['fishing', 'snowmobile'] });
     const text = rec.warnings.map((w) => w.message).join('\n');
-    expect(text).toContain('«Зимняя рыбалка: ноябрь — январь» — однодневный тур');
+    expect(text).toContain('«Зимняя рыбалка: ноябрь — январь» стоит связкой');
     expect(text).not.toContain('Летняя рыбалка на кижуча');
     expect(rec.days.some((d) => d.realTour?.tourId === 't-fish-summer')).toBe(false);
   });

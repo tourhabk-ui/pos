@@ -85,6 +85,35 @@ export function farSelfRouteLine(title: string, e: { km: number; hours: number }
     + `Одним днём с возвращением не успеть — поэтому днём в план не поставлен. Нужна ночёвка у маршрута или тур оператора с заброской.`;
 }
 
+/** День дороги к месту далёкого тура (связка, этап 3). Трансфер не обещаем. */
+export function roadToTourText(title: string, e: { km: number; hours: number }): string {
+  return `Дорога к месту тура «${title}»: ${roadLegRu(e)}. Трансфер план не бронирует и не обещает — как и на чём добраться, уточните у оператора. `
+    + 'Ночь — у места: проживание есть в составе тура; сколько ночей входит в цену, уточните у оператора.';
+}
+
+/** День дороги обратно от далёкого тура (связка, этап 3). */
+export function roadBackText(title: string, e: { km: number; hours: number }): string {
+  return `Дорога обратно от места тура «${title}» в Петропавловск: ${roadLegRu(e)}. Трансфер план не бронирует и не обещает — уточните у оператора.`;
+}
+
+/** Строка плана: далёкий тур поставлен связкой. */
+export function farBundleLine(title: string, e: { km: number; hours: number }): string {
+  return `«${title}» стоит связкой из трёх дней: день дороги туда, день тура, день дороги обратно — до места ${roadLegRu(e)}. Ночёвки — у места (проживание в составе тура). Трансфер план не бронирует.`;
+}
+
+/** Связка не поместилась в оставшиеся дни. */
+export function farBundleNoRoomLine(title: string, e: { km: number; hours: number }, need: number): string {
+  return `«${title}» — до места ${roadLegRu(e)}: нужна связка из ${need} дней (дорога туда, тур, дорога обратно), а в поездке на неё дней не осталось — в план не поставлен. Добавьте дни к поездке.`;
+}
+
+/** Ночлега у места нет — связку не ставим; рядом найденное жильё называем. */
+export function farNoNightLine(title: string, e: { km: number; hours: number }, near: readonly { name: string; km: number }[]): string {
+  const nearText = near.length > 0
+    ? ` На платформе рядом с местом есть жильё: ${near.map((n) => `«${n.name}» (≈${Math.round(n.km)} км)`).join(', ')} — связку с ним план сам не собирает, спросите оператора.`
+    : ' Жилья на платформе в 30 км от места тоже нет.';
+  return `«${title}» — однодневный тур, а до его места от Петропавловска ${roadLegRu(e)}. Одним днём не успеть, а ночлега у места в составе тура нет — поэтому в план не поставлен.${nearText}`;
+}
+
 /** Причина пропуска по интересу (коротко, для «почему не вошло»). */
 export function farDayTourReason(title: string, e: { km: number; hours: number }): string {
   return `«${title}» — ${Math.round(e.km)} км и ${hoursRu(e.hours)} по дороге в одну сторону (оценка), одним днём не успеть`;
