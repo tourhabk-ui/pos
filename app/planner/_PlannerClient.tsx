@@ -3376,18 +3376,20 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                 ...(builtFor.arrival ? { arrivalDate: builtFor.arrival } : {}), ...(builtFor.departure ? { departureDate: builtFor.departure } : {}),
               },
               zones: recommendation.zones.slice(0, 5).map((z) => ({ zone: z.zone, score: Math.max(0, Math.min(100, Math.round(z.score))) })),
+              // Без свободного текста: id тура, типы и числа; названия — из БД на сервере (ревью #3743).
               days: days.slice(0, 40).map((d) => ({
-                day: d.day, type: d.type, title: d.title.slice(0, 200), zone: d.zone,
-                ...(d.realTour?.operatorName ? { realTour: { operatorName: d.realTour.operatorName.slice(0, 120), ...(d.realTour.priceUnit ? { priceUnit: d.realTour.priceUnit } : {}) } } : {}),
+                day: d.day, type: d.type, zone: d.zone,
+                ...(/^[a-z_]{1,30}$/.test(d.activityType ?? '') ? { activityType: d.activityType } : {}),
+                ...(d.type === 'activity' && d.realTour?.tourId ? { tourId: d.realTour.tourId } : {}),
                 ...(d.realPrice ? { realPrice: d.realPrice } : {}),
-                ...(d.priceMissing ? { priceMissing: d.priceMissing.slice(0, 200) } : {}),
+                ...(d.priceMissing ? { priceMissing: true } : {}),
                 ...(() => {
-                  const f = (d as { weatherForecast?: { description?: string; tempMin?: number; tempMax?: number } }).weatherForecast;
-                  return f && typeof f.description === 'string' && Number.isFinite(f.tempMin) && Number.isFinite(f.tempMax)
-                    ? { weatherForecast: { description: f.description.slice(0, 60), tempMin: f.tempMin as number, tempMax: f.tempMax as number } } : {};
+                  const f = (d as { weatherForecast?: { tempMin?: number; tempMax?: number } }).weatherForecast;
+                  return f && Number.isFinite(f.tempMin) && Number.isFinite(f.tempMax)
+                    ? { temp: { min: f.tempMin as number, max: f.tempMax as number } } : {};
                 })(),
               })),
-              warnings: (recommendation.warnings ?? []).slice(0, 30).map((w) => ({ type: w.type, severity: w.severity, message: w.message.slice(0, 600) })),
+              warnings: (recommendation.warnings ?? []).slice(0, 30).map((w) => ({ type: w.type, severity: w.severity })),
             } : null)} />
           )}
 

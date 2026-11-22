@@ -3,15 +3,18 @@
  * слово владельца 23.11: план показывать сразу, программу — по кнопке).
  *
  * Один вызов модели на нажатие (дневной стоп бюджета — в callAIWithModelDirect).
- * Только после входа, лимит 5 в минуту. На вход — только поля, из которых
- * собирается текст: заголовки, зоны, оператор, цена, прогноз, предупреждения;
- * длины ограничены. Ни БД, ни занятости здесь нет.
+ * Только после входа, лимит 5 в минуту. Свободного текста от браузера нет:
+ * типы, зоны, id туров, числа. Названия туров и операторов — из БД (только
+ * витрина), остальное — фразы из закрытых списков (lib/planner/itinerary-input).
+ * Занятости здесь нет.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { plannerSession } from '@/lib/planner/require-session';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
-import { scrubItineraryInput } from '@/lib/planner/itinerary-input';
+import { itineraryDays, itineraryWarnings, DAY_TYPES, type PublicTour } from '@/lib/planner/itinerary-input';
+import { pool } from '@/lib/db-pool';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 import { aiItineraryText } from '@/lib/planner/engine';
 
 export const dynamic = 'force-dynamic';
@@ -32,18 +35,17 @@ const Body = z.object({
   zones: z.array(z.object({ zone: ZONE, score: z.number().min(0).max(100) })).max(5),
   days: z.array(z.object({
     day: z.number().int().min(1).max(60),
-    type: z.enum(['arrival', 'activity', 'travel', 'rest', 'buffer', 'departure']),
-    title: z.string().max(200),
+    type: z.enum(DAY_TYPES),
     zone: ZONE,
-    realTour: z.object({ operatorName: z.string().max(120), priceUnit: z.string().max(40).optional() }).optional(),
+    activityType: z.string().regex(/^[a-z_]{1,30}$/).optional(),
+    tourId: z.string().regex(/^[A-Za-z0-9-]{1,64}$/).optional(),
     realPrice: z.number().min(0).max(10_000_000).optional(),
-    priceMissing: z.string().max(200).optional(),
-    weatherForecast: z.object({ description: z.string().max(60), tempMin: z.number(), tempMax: z.number() }).optional(),
-  })).min(1).max(40),
+    priceMissing: z.boolean().optional(),
+    temp: z.object({ min: z.number().min(-60).max(50), max: z.number().min(-60).max(50) }).optional(),
+  }).strict()).min(1).max(40),
   warnings: z.array(z.object({
     type: z.string().max(30),
     severity: z.enum(['critical', 'important', 'info']),
-    message: z.string().max(600),
   })).max(30),
 });
 
@@ -60,7 +62,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: false, error: 'План пришёл не целиком — обновите страницу.' }, { status: 400 });
   }
   const { profile, zones } = parsed.data;
-  const { days, warnings } = scrubItineraryInput(parsed.data.days, parsed.data.warnings);
+  const tourIds = [...new Set(parsed.data.days.map((d) => d.tourId).filter((id): id is string => Boolean(id)))];
+  const tours = new Map<string, PublicTour>();
+  if (tourIds.length > 0) {
+    try {
+      const { rows } = await pool.query<{ id: string; title: string; operator_name: string; price_unit: string | null }>(
+        `SELECT ot.id::text AS id, ot.title, p.name AS operator_name, ot.price_unit
+           FROM operator_tours ot JOIN partners p ON p.id = ot.operator_id
+          WHERE ot.id::text = ANY($1::text[]) AND ${publicTourSql('ot')}`,
+        [tourIds],
+      );
+      for (const r of rows) tours.set(r.id, { id: r.id, title: r.title, operatorName: r.operator_name, priceUnit: r.price_unit });
+    } catch (err) {
+      console.error('[planner/itinerary] туры плана не прочитаны:', err instanceof Error ? err.message : String(err));
+      return NextResponse.json({ success: false, error: 'Не смогли прочитать туры плана — программу не писали. Попробуйте ещё раз.' }, { status: 503 });
+    }
+  }
+  const days = itineraryDays(parsed.data.days, tours);
+  const warnings = itineraryWarnings(parsed.data.warnings);
   const t0 = performance.now();
   const text = await aiItineraryText(profile as unknown as Args[0], zones as unknown as Args[1], days as unknown as Args[2], warnings as unknown as Args[3]);
   const ms = Math.round(performance.now() - t0);

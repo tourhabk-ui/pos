@@ -1,29 +1,41 @@
 /**
  * POST /api/planner/itinerary (фича 7): «Подробная программа» по кнопке —
- * один вызов модели на нажатие, вход обязателен, лишнее на вход не берётся.
- * Модель подменена: платных вызовов в тестах нет.
+ * один вызов модели на нажатие, вход обязателен. Свободного текста от
+ * браузера в промпте нет (ревью безопасности #3743): названия туров и
+ * операторов — из БД (витрина), остальное — фразы из закрытых списков.
+ * Модель и БД подменены: платных вызовов в тестах нет.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const { ai } = vi.hoisted(() => ({ ai: vi.fn() }));
+const { ai, query } = vi.hoisted(() => ({ ai: vi.fn(), query: vi.fn() }));
 vi.mock('@/lib/planner/require-session', () => ({ plannerSession: vi.fn(async () => ({ userId: 'u1' })) }));
 vi.mock('@/lib/planner/engine', () => ({ aiItineraryText: ai }));
+vi.mock('@/lib/db-pool', () => ({ pool: { query } }));
 
 const { POST } = await import('@/app/api/planner/itinerary/route');
 
+const TOUR = '11111111-2222-3333-4444-555555555555';
 const body = {
   profile: { adults: 2, children: [], fitnessLevel: 'moderate', budgetTier: 'comfort', arrivalDate: '2027-07-01', departureDate: '2027-07-04' },
   zones: [{ zone: 'avachinsky', score: 80 }],
-  days: [{ day: 1, type: 'arrival', title: 'Прилёт', zone: 'avachinsky' }],
-  warnings: [{ type: 'mchs', severity: 'important', message: 'Сводка МЧС' }],
+  days: [
+    { day: 1, type: 'arrival', zone: 'avachinsky' },
+    { day: 2, type: 'activity', zone: 'avachinsky', activityType: 'volcano', tourId: TOUR, realPrice: 20000, temp: { min: 3, max: 9 } },
+    { day: 3, type: 'activity', zone: 'avachinsky', activityType: 'hot_spring' },
+  ],
+  warnings: [{ type: 'mchs', severity: 'important' }],
 };
 let ip = 0;
 const call = (b: unknown) => POST(new NextRequest('http://x/api/planner/itinerary', {
   method: 'POST', body: JSON.stringify(b), headers: { 'content-type': 'application/json', 'x-real-ip': `10.1.0.${++ip}` },
 }));
 
-beforeEach(() => { ai.mockReset(); });
+beforeEach(() => {
+  ai.mockReset();
+  query.mockReset();
+  query.mockResolvedValue({ rows: [{ id: TOUR, title: 'Восхождение на Авачинский', operator_name: 'Камчатка Тур', price_unit: 'person' }] });
+});
 
 describe('itinerary', () => {
   it('текст модели — одним вызовом, со временем в Server-Timing', async () => {
@@ -33,66 +45,55 @@ describe('itinerary', () => {
     expect(ai).toHaveBeenCalledTimes(1);
     expect(res.headers.get('Server-Timing')).toMatch(/^ai_itinerary;dur=\d+$/);
   });
+  it('название тура и оператор — из БД, только витрина; дни без тура — фразы из списка', async () => {
+    ai.mockResolvedValueOnce('ok');
+    await call(body);
+    expect(String(query.mock.calls[0][0])).toMatch(/operator_tours[\s\S]*AND /);
+    expect(query.mock.calls[0][1]).toEqual([[TOUR]]);
+    const days = ai.mock.calls[0][2] as Array<Record<string, unknown>>;
+    expect(days[0].title).toBe('Прилёт и размещение');
+    expect(days[1]).toMatchObject({ title: 'Восхождение на Авачинский', realTour: { operatorName: 'Камчатка Тур', priceUnit: 'person' }, realPrice: 20000,
+      weatherForecast: { tempMin: 3, tempMax: 9 } });
+    expect(days[2].title).toBe('Самостоятельный день: термальные');
+    expect(ai.mock.calls[0][3]).toEqual([{ type: 'mchs', severity: 'important', message: 'по маршруту есть сводки МЧС' }]);
+  });
+  it('тура нет на витрине — день без тура и без цены', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    ai.mockResolvedValueOnce('ok');
+    await call(body);
+    const days = ai.mock.calls[0][2] as Array<Record<string, unknown>>;
+    expect(days[1].title).toBe('Самостоятельный день: вулкан');
+    expect(days[1]).not.toHaveProperty('realTour');
+    expect(days[1]).not.toHaveProperty('realPrice');
+  });
+  it('свободный текст не принимается: заголовок, оператор, сообщение — 400 или игнор', async () => {
+    const r1 = await call({ ...body, days: [{ ...body.days[0], title: 'у меня астма, +7 914 123-45-67' }] });
+    expect(r1.status).toBe(400);
+    const r2 = await call({ ...body, days: [{ ...body.days[0], type: 'астма' }] });
+    expect(r2.status).toBe(400);
+    const r3 = await call({ ...body, days: [{ ...body.days[1], activityType: 'ВИЧ' }] });
+    expect(r3.status).toBe(400);
+    expect(ai).not.toHaveBeenCalled();
+    ai.mockResolvedValueOnce('ok');
+    await call({ ...body, warnings: [
+      { type: 'season', severity: 'important', message: 'У ребёнка аутизм, самочувствие плохое' },
+      { type: 'fitness', severity: 'important', message: 'Ограниченная подвижность' },
+      { type: 'safety', severity: 'critical', message: 'безбарьерная' },
+    ] });
+    const all = JSON.stringify(ai.mock.calls[0].slice(2));
+    expect(all).not.toMatch(/аутизм|самочувств|подвижн|безбарьер|астм|914/i);
+    expect(ai.mock.calls[0][3]).toEqual([{ type: 'season', severity: 'important', message: 'часть активностей зависит от сезона' }]);
+  });
+  it('БД не ответила — 503, модель не зовётся', async () => {
+    query.mockRejectedValueOnce(new Error('db down'));
+    const res = await call(body);
+    expect(res.status).toBe(503);
+    expect(ai).not.toHaveBeenCalled();
+  });
   it('модель не ответила — честный отказ, план не трогается', async () => {
     ai.mockResolvedValueOnce(null);
     const data = await (await call(body)).json();
     expect(data.success).toBe(false);
     expect(data.error).toContain('план от этого не меняется');
-  });
-  it('неверный вход — 400, модель не зовётся', async () => {
-    const res = await call({ ...body, days: [{ day: 1, type: 'arrival', title: 'x'.repeat(500), zone: 'avachinsky' }] });
-    expect(res.status).toBe(400);
-    expect(ai).not.toHaveBeenCalled();
-  });
-  it('лишние поля дня (tourId и др.) в модель не идут', async () => {
-    ai.mockResolvedValueOnce('ok');
-    await call({ ...body, days: [{ ...body.days[0], realTour: { operatorName: 'Оператор', tourId: '123' }, secret: 'x' }] });
-    const days = ai.mock.calls[0][2] as Array<Record<string, unknown>>;
-    expect(days[0]).not.toHaveProperty('secret');
-    expect(days[0].realTour).toEqual({ operatorName: 'Оператор' });
-  });
-  it('здоровье в модель не идёт и подставленным текстом (ревью #3743)', async () => {
-    ai.mockResolvedValueOnce('ok');
-    await call({
-      ...body,
-      days: [{ ...body.days[0], title: 'Ограниченная подвижность: маршруты адаптированы!', priceMissing: 'у меня астма',
-        realTour: { operatorName: 'коляска' }, weatherForecast: { description: 'больное колено', tempMin: 1, tempMax: 2 } }],
-      warnings: [
-        body.warnings[0],
-        { type: 'fitness', severity: 'important', message: 'Ограниченная подвижность: маршруты адаптированы, исключены многочасовые переходы и крутые подъёмы.!' },
-        { type: 'mchs', severity: 'critical', message: 'Камчатка имеет крайне ограниченную безбарьерную инфраструктуру' },
-        { type: 'season', severity: 'important', message: 'беременность — без вертолёта' },
-      ],
-    });
-    const [, , days, warnings] = ai.mock.calls[0];
-    const all = JSON.stringify({ days, warnings });
-    expect(all).not.toMatch(/подвижн|астм|коляск|колен|безбарьер|беремен/i);
-    expect(warnings).toEqual([body.warnings[0]]);
-    expect((days as Array<{ title: string }>)[0].title).toBe('День 1');
-  });
-  it('тип дня — только из списка движка; слова вроде «сердечно-сосудистые», «инсульт» ловятся (ревью #3743, заход 3)', async () => {
-    const r = await call({ ...body, days: [{ ...body.days[0], type: 'астма' }] });
-    expect(r.status).toBe(400);
-    expect(ai).not.toHaveBeenCalled();
-    ai.mockResolvedValueOnce('ok');
-    await call({ ...body, days: [{ ...body.days[0], realTour: { operatorName: 'Оператор', priceUnit: 'после инсульта' } }],
-      warnings: [{ type: 'season', severity: 'important', message: 'при сердечно-сосудистых заболеваниях' }] });
-    const all = JSON.stringify(ai.mock.calls[0].slice(2));
-    expect(all).not.toMatch(/инсульт|сердечн|заболев/i);
-  });
-  it('словарь здоровья видит кириллицу целиком: ВИЧ, СПИД, ДЦП, рак (ревью #3743, заход 4)', async () => {
-    const { HEALTH_WORDS } = await vi.importActual<typeof import('@/lib/planner/itinerary-input')>('@/lib/planner/itinerary-input');
-    for (const w of ['ВИЧ', 'СПИД', 'ДЦП', 'рак', 'у меня рак.', 'ограничения по здоровью', 'сердечно-сосудистые', 'инсульт']) {
-      expect(HEALTH_WORDS.test(w), w).toBe(true);
-    }
-    for (const w of ['Ракетный городок', 'Авача', 'вичуга', 'спидометр']) expect(HEALTH_WORDS.test(w), w).toBe(false);
-  });
-  it('телефон и почта в свободном тексте до модели не доходят (ревью #3743, заход 5)', async () => {
-    ai.mockResolvedValueOnce('ok');
-    await call({ ...body, days: [{ ...body.days[0], title: 'звонить +7 914 123-45-67, почта ivan@example.com' }],
-      warnings: [{ type: 'season', severity: 'important', message: 'пишите ivan@example.com' }] });
-    const all = JSON.stringify(ai.mock.calls[0].slice(2));
-    expect(all).not.toContain('ivan@example.com');
-    expect(all).not.toMatch(/914[\s-]*123/);
   });
 });

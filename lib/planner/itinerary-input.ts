@@ -1,48 +1,81 @@
 /**
  * Вход «Подробной программы» (/api/planner/itinerary) приходит из браузера —
  * ему нельзя верить как источнику того, что уходит в зарубежную модель.
- * Сведения о здоровье (особая категория ПД, решение владельца 26.09) не
- * должны туда попасть ни в виде наших предупреждений, ни подставленным
- * текстом (ревью безопасности #3743, два захода):
- *  — предупреждения берутся только безопасных типов: `fitness`, `safety`,
- *    `seasickness` — те, что выводятся из подвижности/самочувствия, — не идут;
- *  — тип дня — только из списка движка (проверяет zod в роуте);
- *  — свободный текст проходит redactPII (телефоны, почты, документы);
- *  — любое предупреждение, заголовок дня, пометка цены, оператор или погода со словами о
- *    здоровье отбрасывается целиком (заголовок заменяется нейтральным).
+ * Пять заходов ревью безопасности #3743 показали: чистить свободный текст
+ * словарём бесполезно — словарь здоровья всегда неполон. Поэтому свободного
+ * текста от браузера в промпте нет вовсе:
+ *  — заголовок дня с туром и имя оператора — из НАШЕЙ БД по id тура
+ *    (только туры с витрины, publicTourSql); тур не найден — день без тура;
+ *  — день без тура — фиксированная фраза по типу дня и виду активности
+ *    из закрытых списков;
+ *  — предупреждения — фиксированные фразы по типу из закрытого списка;
+ *    текст предупреждения от браузера не читается; типы fitness, safety,
+ *    seasickness (выводятся из самочувствия) не идут совсем;
+ *  — прогноз — только температуры; цена — число и единица тура из БД.
  */
-import { redactPII } from '@/lib/security/pii-redact';
+import { ACTIVITY_LABEL } from '@/lib/planner-constants';
 
-export const ITINERARY_WARNING_TYPES = [
-  'permit', 'season', 'children', 'duration', 'weather', 'license', 'crowd',
-  'mchs', 'zone_days', 'home_nights', 'tour_dates', 'dates',
-] as const;
-const SAFE_TYPES = new Set<string>(ITINERARY_WARNING_TYPES);
+export const DAY_TYPES = ['arrival', 'activity', 'travel', 'rest', 'buffer', 'departure'] as const;
+export type ItineraryDayType = typeof DAY_TYPES[number];
 
-/**
- * Слова о здоровье и подвижности. Границы слов — через [а-яё]: \b в JS
- * кириллицу не видит (ревью #3743, заход 4). Ложное срабатывание стоит одной строки в промпте — не страшно. */
-export const HEALTH_WORDS = /подвижн|коляск|безбарьер|инвалид|здоров|болезн|болит|больн|заболев|хронич|диагноз|астм|диабет|сердц|сердеч|инфаркт|инсульт|гипертон|давлени|беремен|аллерг|травм|колен|спин[аеуы]|операци|лекарств|укачива|эпилеп|онко|(?<![а-яё])(?:рак|вич|спид|дцп)(?![а-яё])|гепатит|туберк|психи|депресс|протез|слепо|слабовид|глух|слабослыш|ограничени[а-яё]* по здоровью/i;
+const DAY_PHRASE: Record<ItineraryDayType, string> = {
+  arrival: 'Прилёт и размещение',
+  activity: 'Самостоятельный день',
+  travel: 'Переезд',
+  rest: 'День отдыха',
+  buffer: 'Резервный день на случай непогоды',
+  departure: 'Вылет',
+};
 
-type W = { type: string; severity: string; message: string };
-type D = { title: string; priceMissing?: string; realTour?: { operatorName: string; priceUnit?: string }; weatherForecast?: { description: string } } & Record<string, unknown>;
+export const WARNING_PHRASE: Record<string, string> = {
+  permit: 'для части мест нужно разрешение',
+  season: 'часть активностей зависит от сезона',
+  children: 'в группе дети — программа адаптирована',
+  duration: 'срок поездки ограничивает программу',
+  weather: 'погода может менять планы',
+  license: 'часть услуг — только у лицензированного оператора',
+  crowd: 'в популярных местах бывает людно',
+  mchs: 'по маршруту есть сводки МЧС',
+  zone_days: 'дальняя зона уместилась не целиком',
+  home_nights: 'ночи в Авачинской зоне — дома у туриста',
+  tour_dates: 'часть туров не встала по датам',
+  dates: 'даты поездки уточняются',
+};
 
-export function scrubItineraryInput<Day extends D, Warn extends W>(days: Day[], warnings: Warn[]): { days: Day[]; warnings: Warn[] } {
-  return {
-    warnings: warnings
-      .filter((w) => SAFE_TYPES.has(w.type) && !HEALTH_WORDS.test(w.message))
-      .map((w) => ({ ...w, message: redactPII(w.message) })),
-    days: days.map((d) => {
-      // Телефоны, почты, документы — тем же redactPII, что и в остальных путях к модели (ревью #3743, заход 5).
-      const out = { ...d, title: redactPII(d.title) };
-      if (d.priceMissing) out.priceMissing = redactPII(d.priceMissing);
-      if (d.realTour) out.realTour = { ...d.realTour, operatorName: redactPII(d.realTour.operatorName), ...(d.realTour.priceUnit ? { priceUnit: redactPII(d.realTour.priceUnit) } : {}) };
-      if (d.weatherForecast) out.weatherForecast = { ...d.weatherForecast, description: redactPII(d.weatherForecast.description) };
-      if (HEALTH_WORDS.test(d.title)) out.title = `День ${String(d.day ?? '')}`.trim();
-      if (d.priceMissing && HEALTH_WORDS.test(d.priceMissing)) delete out.priceMissing;
-      if (d.realTour && (HEALTH_WORDS.test(d.realTour.operatorName) || HEALTH_WORDS.test(d.realTour.priceUnit ?? ''))) delete out.realTour;
-      if (d.weatherForecast && HEALTH_WORDS.test(d.weatherForecast.description)) delete out.weatherForecast;
-      return out;
-    }),
-  };
+export interface ItineraryDayIn {
+  day: number; type: ItineraryDayType; zone: string;
+  activityType?: string; tourId?: string; realPrice?: number; priceMissing?: boolean;
+  temp?: { min: number; max: number };
+}
+export interface PublicTour { id: string; title: string; operatorName: string; priceUnit: string | null }
+
+/** Дни для промпта: весь текст — из БД или закрытых списков. */
+export function itineraryDays(days: ItineraryDayIn[], tours: ReadonlyMap<string, PublicTour>) {
+  return days.map((d) => {
+    const tour = d.type === 'activity' && d.tourId ? tours.get(d.tourId) : undefined;
+    const label = d.activityType ? ACTIVITY_LABEL[d.activityType] : undefined;
+    const title = tour
+      ? tour.title
+      : d.type === 'activity' && label ? `${DAY_PHRASE.activity}: ${label.toLowerCase()}` : DAY_PHRASE[d.type];
+    return {
+      day: d.day, type: d.type, title, zone: d.zone,
+      ...(tour ? { realTour: { operatorName: tour.operatorName, ...(tour.priceUnit ? { priceUnit: tour.priceUnit } : {}) } } : {}),
+      ...(tour && d.realPrice ? { realPrice: d.realPrice } : {}),
+      ...(d.priceMissing ? { priceMissing: 'цену называет оператор' } : {}),
+      ...(d.temp ? { weatherForecast: { description: 'прогноз', tempMin: d.temp.min, tempMax: d.temp.max } } : {}),
+    };
+  });
+}
+
+/** Предупреждения для промпта: фраза по типу, без текста браузера, без повторов. */
+export function itineraryWarnings(warnings: Array<{ type: string; severity: 'critical' | 'important' | 'info' }>) {
+  const seen = new Set<string>();
+  const out: Array<{ type: string; severity: 'critical' | 'important' | 'info'; message: string }> = [];
+  for (const w of warnings) {
+    const message = WARNING_PHRASE[w.type];
+    if (!message || seen.has(w.type)) continue;
+    seen.add(w.type);
+    out.push({ type: w.type, severity: w.severity, message });
+  }
+  return out;
 }
