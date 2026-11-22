@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { roleMenuBox } from '@/components/layout/RoleSwitcher';
-import { formatRuPercent } from '@/lib/format/ru-percent';
+import { formatRuPercent } from '@/lib/text/ru-percent';
 
 describe('место меню «Войти как»', () => {
   it('у кнопки у левого края меню начинается внутри экрана 390 px', () => {

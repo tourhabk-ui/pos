@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import DaySummaryStrip from './_DaySummary';
 import AdminMessengers from './_AdminMessengers';
-import { formatRuPercent } from '@/lib/format/ru-percent';
+import { formatRuPercent } from '@/lib/text/ru-percent';
 
 /* ═══════════════════════════════════════════
    Types
