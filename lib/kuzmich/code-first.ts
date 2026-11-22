@@ -14,7 +14,7 @@ import { publicTourSql } from '@/lib/tours/public-visibility';
 import { REQUEST_KEY_MAX_CHARS, REQUEST_KEY_MIN_CHARS } from '@/lib/mcp/request-status-schema';
 import { extractHandoffCode } from '@/lib/requests/handoff';
 import { isMyTripAsk } from '@/lib/requests/my-trip-ask';
-import { parseTourPick, CONFIRM_YES, isCorrection } from '@/lib/kuzmich/quick-replies';
+import { parseTourPick, CONFIRM_YES, CONFIRM_FIX } from '@/lib/kuzmich/quick-replies';
 
 export type CodeFirst =
   | { kind: 'status'; key: string }
@@ -43,6 +43,11 @@ export function extractRequestKey(text: string): string | null {
   return null;
 }
 
+function isStaleButton(t: string): boolean {
+  const low = t.toLowerCase();
+  return low === CONFIRM_YES.toLowerCase() || low === CONFIRM_FIX.toLowerCase();
+}
+
 /** Только разбор текста; базы не трогает. `hasOpenFlow` — есть ли черновик заявки в чате. */
 export function classifyCodeFirst(text: string, hasOpenFlow: boolean): CodeFirst {
   const t = text.trim();
@@ -55,7 +60,10 @@ export function classifyCodeFirst(text: string, hasOpenFlow: boolean): CodeFirst
   if (isMyTripAsk(t)) return { kind: 'my_trip' };
   if (hasOpenFlow) return { kind: 'none' }; // кнопки и «отмену» внутри заявки ведут её шаги
   if (CANCEL_ONLY.test(t)) return { kind: 'cancel_idle' };
-  if (t === CONFIRM_YES || isCorrection(t) && t.length <= 12) return { kind: 'stale_confirm' };
+  // Устаревшая кнопка — только её точный текст. Набранные «не так», «изменить»
+  // без открытой заявки — возражение по сути, его решает модель (разбор 03.11:
+  // человек спорил с Кузьмичом и получал «черновик заявки истёк»).
+  if (isStaleButton(t)) return { kind: 'stale_confirm' };
   if (/·/.test(t)) {
     const id = parseTourPick(t);
     if (id) return { kind: 'tour', tourId: id };

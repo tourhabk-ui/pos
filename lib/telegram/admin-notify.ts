@@ -86,15 +86,25 @@ export function notifyAdminNewTicket(ticket: SupportTicket): void {
  * отправлен» вызывающий вправе сказать только при `ok: true`.
  */
 export function notifyBudgetAlert(spentUsd: number, limitUsd: number): Promise<TgSendOutcome> {
-  return sendAdminMessage('llm-budget-check', [
+  return sendAdminMessage('llm-budget-check', budgetAlertText(spentUsd, limitUsd));
+}
+
+/**
+ * Текст тревоги о бюджете. Ссылка — на раздел, где расход разложен по
+ * моделям и агентам: «Расходы AI», вкладка «Деньги» (`/hub/admin/ai-usage`).
+ * До 22.11 тревога вела в корень админки и звала в «Статистику LLM» —
+ * раздела с таким именем нет (разбор 03.11).
+ */
+export function budgetAlertText(spentUsd: number, limitUsd: number): string {
+  return [
     '<b>Превышен дневной бюджет LLM</b>',
     '',
     `<b>Потрачено:</b> $${spentUsd.toFixed(4)}`,
     `<b>Лимит:</b> $${limitUsd.toFixed(2)}`,
     `<b>Превышение:</b> $${(spentUsd - limitUsd).toFixed(4)}`,
     '',
-    'Проверь <a href="https://vedarai.ru/hub/admin">панель</a> → Статистика LLM.',
-  ].join('\n'));
+    'Расход по моделям и агентам — <a href="https://vedarai.ru/hub/admin/ai-usage">Расходы AI → Деньги</a>.',
+  ].join('\n');
 }
 
 /**
