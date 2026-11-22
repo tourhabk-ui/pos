@@ -160,7 +160,8 @@ describe('у территории своя запись — её каналы, �
   it('адрес из справочника идёт в ссылку, только если это веб-адрес и почта', () => {
     const odd = caseOf(input, { state: 'one', park: record({ displayName: 'Парк', permitUrl: 'javascript:alert(1)', email: 'not an email', officeAddress: 'Офис' }) });
     const r = shot(<ParkPermitAction {...input} permit={odd} />);
-    expect(r.links).toEqual([]);
+    // Своя ссылка платформы — справка о разрешениях (#3566 п.5); адресов из записи нет.
+    expect(r.links.filter((h) => h !== '/razreshenie-na-poseshchenie')).toEqual([]);
     expect(r.t).toContain('Офис');
   });
 });

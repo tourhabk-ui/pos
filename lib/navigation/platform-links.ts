@@ -78,6 +78,8 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       // Посчитаны из базы (разбор видимости в ответах ИИ, 19.11).
       { label: 'Сколько стоит поездка',   href: '/skolko-stoit-poezdka-na-kamchatku', icon: Ticket },
       { label: 'Когда ехать на Камчатку', href: '/kogda-ehat-na-kamchatku', icon: CalendarDays },
+      // Справка о разрешениях на охраняемые территории (#3566 п.5).
+      { label: 'Нужно ли разрешение',     href: '/razreshenie-na-poseshchenie', icon: Ticket },
       { label: PLANNER_MENU,              href: '/planner',        icon: Route },
       { label: PLANNING_MENU,             href: '/planning',       icon: Backpack },
       { label: 'Жильё',                   href: '/accommodations', icon: BedDouble },

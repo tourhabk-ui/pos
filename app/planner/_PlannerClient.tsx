@@ -85,6 +85,7 @@ import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 import { adultsFromParam, MAX_ADULTS } from '@/lib/planner/party-limits';
 import { dayCardWarning, planShapeWarnings, runLabel, safetyBlock, shortWeather, tourRuns, type TourRun } from '@/lib/planner/day-card-view';
 import { SafetyBlock } from '@/components/planner/SafetyBlock';
+import { PlanNotes } from '@/components/planner/PlanNotes';
 import { PLANNER_NAME, PLANNING_MENU } from '@/lib/navigation/tool-names';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
@@ -3012,34 +3013,14 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
       {/* Results */}
       {recommendation && (
         <>
-          {planShapeWarnings(recommendation.warnings ?? []).length > 0 && (
+          {/* Сверху — только критичное о плане («план не собрался»); остальные
+              заметки о плане — одним свёрнутым блоком под днями (22.11). */}
+          {planShapeWarnings(recommendation.warnings ?? []).some(w => w.severity === 'critical') && (
             <div className="space-y-1.5">
               {planShapeWarnings(recommendation.warnings ?? []).filter(w => w.severity === 'critical').map((w, i) => (
                 <div key={`crit-${i}`} className="flex items-start gap-2 p-3 bg-[var(--danger)]/10 border border-[var(--danger)]/30 rounded-lg">
                   <ShieldAlert className="w-4 h-4 text-[var(--danger)] shrink-0 mt-0.5" />
-                  <p className="text-xs text-[var(--danger)]">
-                    {w.type === 'mchs' && <span className="font-bold mr-1">МЧС</span>}
-                    {w.message}
-                  </p>
-                </div>
-              ))}
-              {planShapeWarnings(recommendation.warnings ?? []).filter(w => w.severity === 'important').map((w, i) => (
-                <div key={`imp-${i}`} className="flex items-start gap-2 p-3 bg-[var(--warning)]/10 border border-[var(--warning)]/30 rounded-lg">
-                  <AlertTriangle className="w-4 h-4 text-[var(--warning)] shrink-0 mt-0.5" />
-                  <p className="text-xs text-[var(--warning)]">
-                    {w.type === 'mchs' && <span className="font-bold mr-1">МЧС</span>}
-                    {w.type === 'crowd' && <span className="font-bold mr-1">Загрузка</span>}
-                    {w.message}
-                  </p>
-                </div>
-              ))}
-              {planShapeWarnings(recommendation.warnings ?? []).filter(w => w.severity === 'info').map((w, i) => (
-                <div key={`info-${i}`} className="flex items-start gap-2 p-3 bg-[var(--ocean)]/10 border border-[var(--ocean)]/20 rounded-lg">
-                  <Info className="w-4 h-4 text-[var(--ocean)] shrink-0 mt-0.5" />
-                  <p className="text-xs text-[var(--ocean)]">
-                    {w.type === 'crowd' && <span className="font-bold mr-1">Загрузка</span>}
-                    {w.message}
-                  </p>
+                  <p className="text-xs text-[var(--danger)]">{w.message}</p>
                 </div>
               ))}
             </div>
@@ -3116,6 +3097,7 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                 ))}
               </Reorder.Group>
 
+              <PlanNotes notes={planShapeWarnings(recommendation.warnings ?? []).filter(w => w.severity !== 'critical')} />
               <SafetyBlock items={safetyBlock(days, recommendation.warnings ?? [])} />
 
               {editNote && (

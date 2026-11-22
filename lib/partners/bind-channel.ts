@@ -36,6 +36,7 @@ import { operatorBoundText, operatorDeskButtons } from '@/lib/telegram/operator-
 import { getPublicBaseUrl } from '@/lib/config';
 import { GUIDE_OWN_PATH } from '@/lib/partners/cabinet-links';
 import { partnerMenu, partnerMenuExtras } from '@/lib/roles/role-menu';
+import { guideKeyboardRows } from '@/lib/telegram/guide-desk';
 import type { MenuButton } from '@/lib/roles/chat-menu';
 
 export type PartnerChannel = 'telegram' | 'max';
@@ -320,13 +321,16 @@ export function bindReplyText(channel: PartnerChannel, result: BindResult): stri
  * кнопками под «Бронями» (вопрос, затем «Да», lib/bookings/chat-owner-action)
  * или в кабинете, остальным — в кабинете; заявку продавец отмечает кнопками
  * под «Входящими». Строки нет (кабинет чата у другой карточки) — кнопок текст
- * не обещает.
+ * не обещает. В Telegram ответ на привязку несёт постоянную клавиатуру гида
+ * (lib/telegram/guide-desk, 30.10) — `keyboard`, её подписи, — и текст
+ * называет её, а не строку под сообщением.
  */
 export function guideBoundText(
   name: string,
   channel: PartnerChannel,
   menu: readonly MenuButton[] | null = null,
   sellsTours = false,
+  keyboard: readonly string[] | null = null,
 ): string {
   const contacts = channel === 'max'
     ? 'Имя и телефон туриста приходят в этот чат.'
@@ -336,7 +340,9 @@ export function guideBoundText(
     'Сюда будут приходить брони, заявки и запросы мест на туры, которые вы продаёте сами, и сообщения туристов из чата платформы.',
     contacts,
   ];
-  if (menu && menu.length > 0) {
+  if (menu && menu.length > 0 && keyboard && keyboard.length > 0) {
+    lines.push('', `Кнопки внизу экрана — кабинет в чате: ${keyboard.map((t) => `«${t}»`).join(', ')}. «Помощь» в «Ещё» — что каждая показывает.`);
+  } else if (menu && menu.length > 0) {
     lines.push('', `Кнопки под этим сообщением — кабинет в чате: ${menu.map((b) => `«${b.text}»`).join(', ')}. «Помощь» в «Ещё» — что каждая показывает.`);
   }
   // Кнопки брони и заявки — гиду со своими турами (lib/bookings/chat-owner-press).
@@ -357,7 +363,12 @@ export function channelBoundText(channel: PartnerChannel, result: BindResult): s
   const base = result.ok && result.category === 'operator' && !isRentalPilotSlug(result.slug)
     ? operatorBoundText(result.displayName || result.partnerName, channel)
     : result.ok && result.category === 'guide'
-      ? guideBoundText(result.displayName || result.partnerName, channel, boundMenuRow(result), result.ok && result.sellsTours === true)
+      ? guideBoundText(
+        result.displayName || result.partnerName, channel, boundMenuRow(result), result.ok && result.sellsTours === true,
+        channel === 'telegram' && boundMenuRow(result) !== null
+          ? guideKeyboardRows({ partnerId: result.partnerId, category: 'guide', slug: result.slug, sellsTours: result.sellsTours === true }).flat()
+          : null,
+      )
       : result.ok && result.category === 'stay'
         ? stayBoundText(result.displayName || result.partnerName, channel, boundMenuRow(result))
       : result.ok && isRentalPilotSlug(result.slug) && channel === 'max'

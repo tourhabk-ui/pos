@@ -7,8 +7,17 @@ import { pool } from '@/lib/db-pool';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import { MCHS_DEADLINE_SHORT } from '@/lib/safety/mchs-registration';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { formatRecordDate, recordDateIso } from '@/lib/seo/record-modified';
 import { UTC_WALL_NOW_SQL, isoUtcSql } from '@/lib/db/timestamp-iso';
 import IncidentsBoard, { type IncidentAlert, type IncidentClosedPlace } from '@/components/safety/IncidentsBoard';
+import {
+  SAFETY_AUTHOR,
+  SAFETY_INCIDENTS_LEAD,
+  SAFETY_INCIDENTS_PREP_HEADING,
+  SAFETY_PAGE_DATE,
+  SAFETY_PAGE_H1,
+  SAFETY_RELATED_LINKS,
+} from '@/lib/seo/safety-page';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 300;
@@ -135,9 +144,21 @@ export default async function IncidentsPage() {
               <span className="italic">и предупреждения</span>
             </h1>
             <p className="text-[var(--text-secondary)] text-lg font-light max-w-2xl">
-              Актуальные алерты, закрытые маршруты и экстренные контакты Камчатки.
-              Данные обновляются каждые 5 минут из системы мониторинга платформы.
+              {SAFETY_INCIDENTS_LEAD}{' '}
+              <Link href="/safety" className="underline" style={{ color: 'var(--ocean)' }}>
+                {SAFETY_PAGE_H1}
+              </Link>
+              .
             </p>
+            <p className="text-[var(--text-secondary)] text-base font-light max-w-2xl mt-3">
+              Актуальные алерты, закрытые маршруты и экстренные контакты. Данные обновляются каждые 5 минут из системы мониторинга платформы.
+            </p>
+            {formatRecordDate(SAFETY_PAGE_DATE) && (
+              <p className="text-xs text-[var(--text-muted)] mt-3" data-record-modified="">
+                {SAFETY_AUTHOR} · факты проверены{' '}
+                <time dateTime={recordDateIso(SAFETY_PAGE_DATE) ?? undefined}>{formatRecordDate(SAFETY_PAGE_DATE)}</time>
+              </p>
+            )}
           </div>
         </section>
 
@@ -178,7 +199,7 @@ export default async function IncidentsPage() {
         <section className="px-6 pb-10 border-t border-[var(--border)] pt-10">
           <div className="max-w-4xl mx-auto">
             <h2 className="font-playfair text-2xl font-bold text-[var(--text-primary)] mb-6">
-              Перед выходом на маршрут
+              {SAFETY_INCIDENTS_PREP_HEADING}
             </h2>
             <div className="grid md:grid-cols-3 gap-4">
               {[
@@ -205,6 +226,26 @@ export default async function IncidentsPage() {
                 </div>
               ))}
             </div>
+          </div>
+        </section>
+
+        <section className="px-6 pb-10">
+          <div className="max-w-4xl mx-auto">
+            <h2 className="font-playfair text-2xl font-bold text-[var(--text-primary)] mb-4">Читайте также</h2>
+            <ul className="flex flex-col gap-2 text-sm">
+              <li>
+                <Link href="/safety" className="underline" style={{ color: 'var(--ocean)' }}>
+                  {SAFETY_PAGE_H1}
+                </Link>
+              </li>
+              {SAFETY_RELATED_LINKS.filter((l) => l.href !== '/safety/incidents').map((l) => (
+                <li key={l.href}>
+                  <Link href={l.href} className="underline" style={{ color: 'var(--ocean)' }}>
+                    {l.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </div>
         </section>
 

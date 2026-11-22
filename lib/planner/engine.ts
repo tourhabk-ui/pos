@@ -1405,7 +1405,9 @@ async function generateDayPlans(
       if (b.zone === 'avachinsky' || b.onlyTour || b.tail) return false;
       const lists = await Promise.all([...new Set(b.interests)].map((i) =>
         fetchRealToursForZone(b.zone, i, b.activeDays + 2, cache, tripWindow(profile))));
-      if (!lists.every((l) => Array.isArray(l) && l.length === 0)) return false;
+      // Тур, который в дни своего блока не влезает, туда не повезут
+      // (правило ниже: в чужую зону без влезающего тура не едем) — не в счёт.
+      if (lists.some((l) => Array.isArray(l) && l.some((t) => (tourPlanSpan(t.durationHours, t.multiDayCount) ?? 1) <= b.activeDays))) return false;
     }
     return true;
   };
@@ -1551,6 +1553,20 @@ async function generateDayPlans(
       // Кейс владельца 21.11: 7 ч внедорожником в Западную и вертолёт на
       // 600 км в Северную — ради «идеи без тура». В чужую зону без тура
       // оператора не едут в любом стиле; дома — по правилу стиля, как было.
+      // Кейс владельца с /planner (22.11): в Западной зоне есть только
+      // трёхдневный тур, а блоку раскладка дала один день на месте — план
+      // ехал туда ради «Подходящего тура на эти даты нет», а дома оставались
+      // пустые дни. Тур длиннее дней блока в чужой зоне не встанет никогда
+      // (растяжки там нет) — зона не берётся, тур назван «не поместились».
+      const fitsBlock = (t: RealTour) => (tourPlanSpan(t.durationHours, t.multiDayCount) ?? 1) <= block.activeDays;
+      if (block.zone !== 'avachinsky' && !block.onlyTour && style !== 'self'
+        && [...material.values()].some((mt) => mt.tours.length > 0)
+        && [...material.values()].every((mt) => mt.tours.every((t) => !fitsBlock(t)))) {
+        for (const mt of material.values()) {
+          for (const t of mt.tours) tooLong.add(`${t.title} (${tourPlanSpan(t.durationHours, t.multiDayCount)} дн.)`);
+        }
+        continue;
+      }
       if ((style === 'operator' || block.zone !== 'avachinsky') && !block.onlyTour && [...material.values()].every((mt) => mt.tours.length === 0)) {
         skippedNoTour.push({ zone: block.zone, interests: block.interests.slice() });
         continue;
@@ -1627,7 +1643,10 @@ async function generateDayPlans(
     const share = Math.ceil(block.activeDays / Math.max(1, material.size));
     for (const [interest, m] of material) {
       const selfOutOfSeason = onRequestOnlyEverywhere(season, interest);
-      if (selfOutOfSeason && m.tours.length < share) {
+      // Вертолёт, катер, разрешение — без оператора нельзя в любой сезон:
+      // «вертолётные экскурсии без оператора — не сезон» читалось шумом при
+      // вертолёте с оператором в плане (кейс владельца с /planner, 22.11).
+      if (selfOutOfSeason && m.tours.length < share && !activitySelfBlocker(interest)) {
         selfSkipped.add(`${ACTIVITY_NAMES[interest] ?? interest} без оператора — по нашему сезонному ориентиру не сезон`);
       }
       const routesOrNull = m.tours.length >= share || selfOutOfSeason

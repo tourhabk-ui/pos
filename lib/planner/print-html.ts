@@ -116,6 +116,12 @@ function style(origin: string): string {
   .contents strong { color: ${C.night}; }
   h2 { font-size: 20px; color: ${C.night}; margin: 0 0 10px; }
   .section { margin-bottom: 18px; }
+  /* Заголовок не отрывается от своего содержимого (прод 22.11: «Смета на
+     группу» внизу страницы, таблица — на следующей). */
+  h2 { break-after: avoid; page-break-after: avoid; }
+  .estimate-block { break-inside: avoid; page-break-inside: avoid; }
+  table.estimate thead { display: table-header-group; }
+  table.estimate tr { break-inside: avoid; page-break-inside: avoid; }
   .note { font-size: 10.5px; color: ${C.mist}; margin: 0 0 8px; }
   .plan-note { font-size: 10.5px; border-left: 3px solid ${C.lava}; padding: 4px 8px; margin: 0 0 6px; background: ${C.cream}; }
   .row { display: grid; grid-template-columns: 22mm 1fr auto; gap: 10px; padding: 9px 0; border-top: 1px solid ${C.line}; page-break-inside: avoid; }

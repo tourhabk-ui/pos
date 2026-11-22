@@ -35,7 +35,9 @@
  * Блок непрозрачный: это действие, а не контекст (§5). Стекла нет.
  */
 
+import Link from 'next/link';
 import { Leaf, ExternalLink, Ticket, Check } from 'lucide-react';
+import { PERMIT_GUIDE_PATH } from '@/lib/seo/permit-guide-path';
 import {
   PARK_PERMIT_CHANNELS,
   PARK_PERMIT_SOURCE,
@@ -84,6 +86,18 @@ function mailHref(email: string | null): string | null {
 const BTN =
   'inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg px-4 py-2.5 ' +
   'text-sm font-semibold transition-all duration-200 hover:shadow-sm';
+
+
+/** Ссылка на справку «Нужно ли разрешение» — одна на все ветки блока (#3566 п.5). */
+function PermitGuideLink() {
+  return (
+    <p className="text-xs">
+      <Link href={PERMIT_GUIDE_PATH} className="font-semibold text-[var(--ocean)] hover:underline">
+        Кто и как выдаёт разрешения — справка
+      </Link>
+    </p>
+  );
+}
 
 export default function ParkPermitAction({
   title,
@@ -179,6 +193,7 @@ export default function ParkPermitAction({
             </span>{' '}
             заповеднику — право находиться на территории, спасателям — сведения о группе. Нужны оба.
           </p>
+          <PermitGuideLink />
         </div>
       </div>
     );
@@ -288,6 +303,7 @@ export default function ParkPermitAction({
             </span>{' '}
             территории — право находиться на ней, спасателям — сведения о группе.
           </p>
+          <PermitGuideLink />
         </div>
       </div>
     );
@@ -403,6 +419,7 @@ export default function ParkPermitAction({
           парку — право находиться на территории, спасателям — сведения о группе.{' '}
           {conditional ? 'В парке нужны оба.' : 'Нужны оба.'}
         </p>
+        <PermitGuideLink />
 
         <details className="group border-t border-[var(--border)] pt-3">
           <summary className="flex min-h-[44px] cursor-pointer list-none items-center text-xs font-semibold text-[var(--ocean)] transition-opacity duration-200 hover:opacity-80">

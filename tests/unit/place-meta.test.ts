@@ -209,10 +209,10 @@ describe('связка со страницами', () => {
     expect(articles).toContain('href="/blog"');
   });
 
-  it('/safety: заголовок — вопрос, на который страница отвечает живыми данными', () => {
-    expect(read('app/safety/page.tsx')).toMatch(/title: 'Безопасно ли сейчас на Камчатке/);
-    // Проверяется текст H1, а не его классы: размер на телефоне меняли
-    // отдельно (03.10, заголовок занимал треть первого экрана).
-    expect(read('app/safety/_SafetyClient.tsx')).toMatch(/<h1 className="ds-h1[^"]*"[^>]*>Безопасно ли сейчас на Камчатке<\/h1>/);
+  it('/safety: заголовок — вопрос, прямой ответ в серверном HTML, не в клиенте', () => {
+    expect(read('app/safety/page.tsx')).toMatch(/title: SAFETY_PAGE_TITLE/);
+    expect(read('app/safety/page.tsx')).toMatch(/SafetyIntro/);
+    expect(read('app/safety/SafetyAbout.tsx')).toMatch(/SAFETY_PAGE_H1/);
+    expect(read('app/safety/_SafetyClient.tsx')).not.toMatch(/<h1\b/);
   });
 });
