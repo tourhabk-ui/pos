@@ -72,6 +72,10 @@ export interface DayPlan {
     priceLabel?: string;
     /** Ведёт ли тур расписание (движок; lib/planner/item-status). */
     calendar?: TourCalendar;
+    /** Адрес оператора, нижняя граница группы, зависит ли тур от погоды — от движка. */
+    operatorSlug?: string;
+    minParticipants?: number;
+    weatherDependent?: boolean;
   };
   /** Цена тура за единицу по правилу брони — у первого дня тура (смета, #2304). */
   realPrice?: number;
