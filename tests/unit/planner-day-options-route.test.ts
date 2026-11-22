@@ -23,7 +23,7 @@ function row(id: string, over: Record<string, unknown> = {}) {
     duration_hours: 8, multi_day_count: null, duration_type: 'hours',
     season_start: null, season_end: null, keeps_schedule: true,
     free_on_date: '2026-11-26', nearest_free_date: '2026-11-26', any_day_open: true,
-    lat: 54.4, lng: 160.1, operator_name: 'Вертолёты Камчатки', operator_slug: 'heli-kam',
+    group_size_unlimited: false, lat: 54.4, lng: 160.1, operator_name: 'Вертолёты Камчатки', operator_slug: 'heli-kam',
     ...over,
   };
 }
@@ -91,6 +91,13 @@ describe('варианты дня', () => {
     ] });
     const body = await (await get('https://vedarai.ru/api/planner/day-options?mode=ground&zone=avachinsky&date=2026-11-26&participants=2')).json() as { options: Array<{ id: string }> };
     expect(body.options.map((o) => o.id)).toEqual(['803']);
+  });
+
+  it('группа без потолка: лимит не передаётся ни в варианты, ни в перечитку мест', async () => {
+    queryMock.mockResolvedValue({ rows: [row('901', { max_participants: 6, group_size_unlimited: true })] });
+    const body = await (await get(URL_SAME)).json() as { options: Array<{ maxParticipants: number | null }> };
+    expect(body.options[0].maxParticipants).toBeNull();
+    expect(rereadMock).toHaveBeenCalledWith(expect.objectContaining({ tourId: '901', maxParticipants: null }));
   });
 
   it('скрытый оператор (is_public = false) в варианты не попадает — условие в запросе', async () => {

@@ -3230,12 +3230,13 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                     photo={day.realTour ? dayPhotos[day.realTour.tourId] ?? null : null}
                     dateLabel={arrival ? dayDateShort(dayDateFrom(arrival, day)) : ''}
                     extra={(
+                      // key по дате: после обмена дней варианты прежней даты не остаются (ревью #3708).
                       <>
-                        <DayPlanB day={day} days={days} people={planPeople}
+                        <DayPlanB key={`planb-${planStart ? dayDateFrom(planStart, day) : ''}`} day={day} days={days} people={planPeople}
                           date={planStart ? dayDateFrom(planStart, day) : ''}
                           dateOf={(n) => (planStart ? dayDateShort(planDayDate(planStart, n - 1)) : '')}
                           onPut={putOptionOnDay} onSwap={swapPlanDays} />
-                        <DayCompare day={day} days={days} people={planPeople}
+                        <DayCompare key={`compare-${planStart ? dayDateFrom(planStart, day) : ''}`} day={day} days={days} people={planPeople}
                           date={planStart ? dayDateFrom(planStart, day) : ''} onPut={putOptionOnDay} />
                       </>
                     )}

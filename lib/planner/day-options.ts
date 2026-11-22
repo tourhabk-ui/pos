@@ -22,6 +22,7 @@ import { withGroupMinimum } from './group-minimum';
 import { tourGroup } from './plan-ops';
 import { ACTIVITY_CONSTRAINTS, normalizeActivity, type TransportType } from './constants';
 import { weatherKindOfActivity, WEATHER_KIND_SHORT } from './weather-plan-b';
+import { weatherKitLine } from './weather-kit';
 
 /** Вариант дня — как его отдаёт GET /api/planner/day-options. */
 export interface DayOption {
@@ -90,6 +91,8 @@ export interface CompareDay {
   difficulty?: 'easy' | 'moderate' | 'hard';
   childFriendly?: boolean;
   minChildAge?: number;
+  weatherForecast?: Parameters<typeof weatherKitLine>[0];
+  weatherKit?: string;
 }
 
 const fmt = (n: number) => Math.round(n).toLocaleString('ru-RU').replace(/\u00a0/g, ' ');
@@ -256,6 +259,9 @@ export function dayWithOption<T extends CompareDay>(day: T, o: DayOption, people
     warnings.push(OPTION_LIMITS_UNKNOWN);
   }
   next.dayWarnings = withGroupMinimum(warnings, o.minParticipants, people);
+  // Совет по одежде — под новое занятие, по прогнозу этой даты (ревью #3708).
+  const kit = next.weatherForecast ? weatherKitLine(next.weatherForecast, next.activityType) : null;
+  if (kit) next.weatherKit = kit; else delete next.weatherKit;
   return next;
 }
 

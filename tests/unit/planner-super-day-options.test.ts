@@ -124,6 +124,13 @@ describe('«Сравнить и заменить»: честные «за» и �
     expect(unknown.defaultTransport).toBe('walking');
   });
 
+  it('«Поставить»: совет по одежде — под новое занятие по прогнозу дня, не прежний', () => {
+    const climb = { ...OWNER[2], activityType: 'volcano', weatherKit: 'старый совет про вершину' };
+    const put = dayWithOption(climb, option({ activityType: 'thermal', minParticipants: 1 }), PEOPLE);
+    expect(put.weatherKit).not.toBe('старый совет про вершину');
+    expect(put.weatherKit).toMatch(/^Прогноз для зоны дня: Снегопад/);
+  });
+
   it('день многодневного тура узнаётся — План Б не предлагает менять один его день', () => {
     expect(isMultiDayTourDay(OWNER, OWNER[4])).toBe(true);
     expect(isMultiDayTourDay(OWNER, OWNER[2])).toBe(false);

@@ -51,6 +51,7 @@ interface Row {
   difficulty: string | null;
   min_participants: number | null;
   max_participants: number | null;
+  group_size_unlimited: boolean;
   duration_hours: number | null;
   multi_day_count: number | null;
   duration_type: string | null;
@@ -70,6 +71,7 @@ const SELECT = `
   SELECT
     ot.id::text AS id, ot.title, ot.short_description, ot.base_price::text AS base_price, ot.price_unit,
     ot.activity_type, ot.difficulty, ot.min_participants, ot.max_participants,
+    COALESCE(ot.group_size_unlimited, FALSE) AS group_size_unlimited,
     ot.duration_hours::float8 AS duration_hours, ot.multi_day_count, ot.duration_type,
     ot.season_start::text AS season_start, ot.season_end::text AS season_end,
     ${keepsScheduleSql('ot.id')} AS keeps_schedule,
@@ -131,9 +133,11 @@ export async function dayOptions(input: DayOptionsInput): Promise<DayOption[]> {
     otherZone = rows.length > 0;
   }
   return Promise.all(rows.map(async (r): Promise<DayOption> => {
+    // Группа без потолка (аудит E3): лимита нет — и места, и цена без него.
+    const cap = r.group_size_unlimited ? null : r.max_participants ?? null;
     const read = await rereadTourDay({
       tourId: r.id, date: input.date, participants: input.participants,
-      maxParticipants: r.max_participants ?? null,
+      maxParticipants: cap,
     }).catch((err: unknown) => {
       const e = err as { code?: string; message?: string } | undefined;
       console.error('[planner/day-options] места и цена варианта не прочитаны', { tourId: r.id, sqlstate: e?.code ?? null, message: e?.message ?? null });
@@ -150,7 +154,7 @@ export async function dayOptions(input: DayOptionsInput): Promise<DayOption[]> {
       basePrice: Number.isFinite(price) && price > 0 ? price : null,
       priceUnit: r.price_unit,
       minParticipants: r.min_participants,
-      maxParticipants: r.max_participants,
+      maxParticipants: cap,
       calendar: r.keeps_schedule ? 'dated' : 'request',
       otherZone,
       difficulty: r.difficulty,
