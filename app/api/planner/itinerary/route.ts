@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { plannerSession } from '@/lib/planner/require-session';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
+import { scrubItineraryInput } from '@/lib/planner/itinerary-input';
 import { aiItineraryText } from '@/lib/planner/engine';
 
 export const dynamic = 'force-dynamic';
@@ -58,7 +59,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!parsed.success) {
     return NextResponse.json({ success: false, error: 'План пришёл не целиком — обновите страницу.' }, { status: 400 });
   }
-  const { profile, zones, days, warnings } = parsed.data;
+  const { profile, zones } = parsed.data;
+  const { days, warnings } = scrubItineraryInput(parsed.data.days, parsed.data.warnings);
   const t0 = performance.now();
   const text = await aiItineraryText(profile as unknown as Args[0], zones as unknown as Args[1], days as unknown as Args[2], warnings as unknown as Args[3]);
   const ms = Math.round(performance.now() - t0);

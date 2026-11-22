@@ -51,4 +51,23 @@ describe('itinerary', () => {
     expect(days[0]).not.toHaveProperty('secret');
     expect(days[0].realTour).toEqual({ operatorName: 'Оператор' });
   });
+  it('здоровье в модель не идёт и подставленным текстом (ревью #3743)', async () => {
+    ai.mockResolvedValueOnce('ok');
+    await call({
+      ...body,
+      days: [{ ...body.days[0], title: 'Ограниченная подвижность: маршруты адаптированы!', priceMissing: 'у меня астма',
+        realTour: { operatorName: 'коляска' }, weatherForecast: { description: 'больное колено', tempMin: 1, tempMax: 2 } }],
+      warnings: [
+        body.warnings[0],
+        { type: 'fitness', severity: 'important', message: 'Ограниченная подвижность: маршруты адаптированы, исключены многочасовые переходы и крутые подъёмы.!' },
+        { type: 'mchs', severity: 'critical', message: 'Камчатка имеет крайне ограниченную безбарьерную инфраструктуру' },
+        { type: 'season', severity: 'important', message: 'беременность — без вертолёта' },
+      ],
+    });
+    const [, , days, warnings] = ai.mock.calls[0];
+    const all = JSON.stringify({ days, warnings });
+    expect(all).not.toMatch(/подвижн|астм|коляск|колен|безбарьер|беремен/i);
+    expect(warnings).toEqual([body.warnings[0]]);
+    expect((days as Array<{ title: string }>)[0].title).toBe('День 1');
+  });
 });
