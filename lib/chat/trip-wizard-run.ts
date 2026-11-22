@@ -20,6 +20,8 @@ export function wizardBuildAllowed(channel: 'telegram' | 'max', chatId: number |
   return true;
 }
 
+const CARDS_WAIT_MS = 4_000;
+
 export const WIZARD_BUSY_TEXT = 'Уже собираю план — подождите несколько секунд.';
 
 export async function runWizardPlan(s: WizardState): Promise<WizardScreen> {
@@ -30,6 +32,17 @@ export async function runWizardPlan(s: WizardState): Promise<WizardScreen> {
     loadDays: async (id) => {
       const read = await loadDraft(id);
       return read.kind === 'found' ? read.draft.days : null;
+    },
+    loadCards: async (days) => {
+      const { dayPlaceCardsOnServer } = await import('@/lib/planner/day-place-cards-server');
+      // Карточки — украшение: не дольше 4 секунд, иначе план без ссылок.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<Record<number, never>>((resolve) => { timer = setTimeout(() => resolve({}), CARDS_WAIT_MS); });
+      try {
+        return await Promise.race([dayPlaceCardsOnServer(days, { absolute: true }), late]);
+      } finally {
+        clearTimeout(timer);
+      }
     },
     site: process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru',
   });

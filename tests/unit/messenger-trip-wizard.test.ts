@@ -136,6 +136,17 @@ describe('диалог целиком', () => {
     ]);
   });
 
+  it('карточка места дня — ссылка в конце строки; сбой карточек — план без ссылок', async () => {
+    const s: WizardState = { step: 5, start: '2027-01-01', days: 7, adults: 2, kid: 0, mask: 1 };
+    const makePlan = async () => `Страница плана: https://vedarai.ru/trip/${ID}`;
+    const card = { kind: 'place' as const, id: 'p1', title: 'Авачинский вулкан', text: '', href: 'https://vedarai.ru/places/p1?a=1&b=2', photo: null };
+    const out = await buildWizardPlan(s, { makePlan, loadDays: async () => DAYS, loadCards: async () => ({ 2: card }) });
+    expect(out.text).toContain('День 2, 02.01 — Авачинский вулкан — места есть · <a href="https://vedarai.ru/places/p1?a=1&amp;b=2">Авачинский вулкан</a>');
+    const bad = await buildWizardPlan(s, { makePlan, loadDays: async () => DAYS, loadCards: async () => { throw new Error('db'); } });
+    expect(bad.text).not.toContain('<a ');
+    expect(bad.text).toContain('День 2, 02.01 — Авачинский вулкан — места есть');
+  });
+
   it('дни словом', () => {
     expect([1, 3, 5, 7, 10, 14, 21, 22].map(daysWord)).toEqual(['1 день', '3 дня', '5 дней', '7 дней', '10 дней', '14 дней', '21 день', '22 дня']);
   });

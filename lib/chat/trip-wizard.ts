@@ -19,6 +19,7 @@
  */
 import { tourRuns } from '@/lib/planner/day-card-view';
 import type { DayPlan } from '@/lib/planner/engine';
+import type { DayPlaceCard } from '@/lib/planner/day-place-cards';
 
 export const WIZARD_BUTTON = 'Спланировать поездку';
 export const WIZARD_PREFIX = 'tp:';
@@ -272,7 +273,17 @@ function seatsWord(d: DayPlan): string {
 }
 
 /** Строка на день; многодневный тур — одной строкой «Дни 2–4». HTML-безопасно. */
-export function dayLines(days: readonly DayPlan[], arrivalIso: string): string[] {
+/** Ссылка на место дня (карточка планера) — в конце строки дня. */
+function cardLink(card: DayPlaceCard | undefined): string {
+  if (!card || !/^https:\/\//.test(card.href)) return '';
+  return ` · <a href="${esc(card.href)}">${esc(card.title)}</a>`;
+}
+
+export function dayLines(
+  days: readonly DayPlan[],
+  arrivalIso: string,
+  cards: Readonly<Record<number, DayPlaceCard>> = {},
+): string[] {
   const runs = tourRuns(days);
   const out: string[] = [];
   let prev = 0;
@@ -291,7 +302,7 @@ export function dayLines(days: readonly DayPlan[], arrivalIso: string): string[]
     const date = run
       ? `${ddmm(addDays(arrivalIso, run.first - 1))}–${ddmm(addDays(arrivalIso, run.last - 1))}`
       : ddmm(addDays(arrivalIso, d.day - 1));
-    out.push(`${label}, ${date} — ${esc(d.title)}${seatsWord(d)}`);
+    out.push(`${label}, ${date} — ${esc(d.title)}${seatsWord(d)}${cardLink(cards[d.day])}`);
   }
   return out;
 }
@@ -301,6 +312,8 @@ const TRIP_ID_RE = /\/trip\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 export interface WizardDeps {
   makePlan: (args: ReturnType<typeof wizardPlanArgs>) => Promise<string>;
   loadDays: (id: string) => Promise<DayPlan[] | null>;
+  /** Карточки мест дней (фото, описание, ссылка — на сайте); сбой — без ссылок. */
+  loadCards?: (days: readonly DayPlan[]) => Promise<Record<number, DayPlaceCard>>;
   site?: string;
 }
 
@@ -337,10 +350,11 @@ export async function buildWizardPlan(s: WizardState, deps: WizardDeps): Promise
     const reason = full.trim().slice(0, 1200);
     return { text: esc(reason), buttons: [[planner], [RESTART]] };
   }
+  const cards = deps.loadCards ? await deps.loadCards(days).catch(() => ({})) : {};
   const kid = kidOf(s.kid);
   const head = `План на ${daysWord(s.days)} с ${ruDate(s.start)}, взрослых: ${s.adults}${kid && kid.age !== null ? `, ребёнок ${kid.label.replace('Ребёнок ', '')} (допуски — по младшему возрасту)` : ''}:`;
   return {
-    text: [head, '', ...dayLines(days, s.start), '', WIZARD_FOOTER].join('\n'),
+    text: [head, '', ...dayLines(days, s.start, cards), '', WIZARD_FOOTER].join('\n'),
     buttons: [
       [{ text: 'Открыть план целиком', url: `${site}/trip/${id}` }],
       [planner],
