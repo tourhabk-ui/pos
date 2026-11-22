@@ -72,7 +72,7 @@ export type VerdictReasonCode =
   | 'park_closed'        // парк отмечает маршрут закрытым (оранжевый)
   | 'volcano_orange'     // оранжевый код на коридоре
   | 'alert_warning'      // предупреждение важности 1
-  | 'out_of_season'      // маршрут вне своего сезона
+  | 'out_of_season'      // маршрут вне своего сезона (с 22.11 — «Не сегодня»)
   | 'clear';             // препятствий на сегодня не найдено
 
 /**
@@ -285,6 +285,17 @@ export function goVerdict(s: RouteSignals): Verdict {
     };
   }
 
+  // Вне своего сезона — «Не сегодня», а не «Осторожно» (22.11, слово
+  // владельца: «если закрыт значит закрыт не хрен судьбу испытывать»).
+  // Сезон записан по паспорту маршрута или ООПТ: вне него маршрут не
+  // обслуживается, и «осторожно» читалось бы как «можно».
+  if (s.inSeason === false) {
+    return {
+      status: 'no', code: 'out_of_season',
+      reason: 'Маршрут вне своего сезона', unknown,
+    };
+  }
+
   // ── Сомнения ────────────────────────────────────────────────────────────
   // Незнание идёт первым: это самая частая причина «Осторожно», и называть её
   // надо прямо, а не прятать за общим словом.
@@ -321,13 +332,6 @@ export function goVerdict(s: RouteSignals): Verdict {
   const warn = mostSpecific(warningsOf(s.alerts ?? []), 1);
   if (warn) {
     return { status: 'caution', code: 'alert_warning', reason: warn.title, unknown };
-  }
-
-  if (s.inSeason === false) {
-    return {
-      status: 'caution', code: 'out_of_season',
-      reason: 'Маршрут вне своего сезона', unknown,
-    };
   }
 
   return {

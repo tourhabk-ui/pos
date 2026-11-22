@@ -79,7 +79,13 @@ export const ROUTE_SEASON_RU: Record<string, string> = {
 };
 
 export function routeSeasonLabel(code: string | null | undefined): string | null {
-  const words = (code ?? '').split(',').map((x) => x.trim()).filter(Boolean)
+  // Русская запись — текст с источником (1385, 1472), печатается целиком: запятая
+  // внутри оговорки «(в мае–июне ограничения, kronoki.ru)» резала строку на
+  // «…ограничения» без скобки, а «kronoki.ru» выбрасывался (22.11). На коды
+  // делится только латиница импорта: «summer, autumn».
+  const raw = (code ?? '').trim();
+  if (/[а-яё]/i.test(raw)) return raw;
+  const words = raw.split(',').map((x) => x.trim()).filter(Boolean)
     .map((x) => ROUTE_SEASON_RU[x] ?? (/[а-яё]/i.test(x) ? x : null))
     .filter((x): x is string => x !== null);
   return words.length ? words.join(', ') : null;
