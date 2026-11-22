@@ -1,23 +1,18 @@
 /**
  * GET /api/auth/magic?token=<jwt>
  *
- * Magic link вход — без пароля.
- * Токен генерируется ботом по команде /login (15 минут жизни).
- * После валидации ставит auth_token cookie и редиректит в ЛК.
+ * Вход по ссылке из Telegram-бота (команда /login) — без пароля.
+ * Ссылка живёт 5 минут и срабатывает один раз; роли admin и учётным записям
+ * с двухфакторной проверкой не выдаётся и здесь не принимается
+ * (lib/auth/magic-link.ts). После проверки ставит auth_token cookie.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
 import { createToken } from '@/lib/auth/jwt';
 import { pool } from '@/lib/db-pool';
+import { magicLinkAllowed, readMagicToken, redeemMagicJti } from '@/lib/auth/magic-link';
 
 export const dynamic = 'force-dynamic';
-
-function getMagicSecret(): Uint8Array {
-  const s = process.env.JWT_SECRET;
-  if (!s) throw new Error('JWT_SECRET not set');
-  return new TextEncoder().encode('magic:' + s);
-}
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token');
@@ -26,13 +21,14 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const { payload } = await jwtVerify(token, getMagicSecret());
-    const userId = payload.userId as string;
+    const read = await readMagicToken(token);
+    if (!read) {
+      return NextResponse.redirect(new URL('/auth/signin?error=expired', req.url));
+    }
 
-    // Загружаем пользователя из БД
-    const { rows } = await pool.query<{ id: string; email: string; name: string; role: string }>(
-      'SELECT id, email, name, role FROM users WHERE id = $1',
-      [userId]
+    const { rows } = await pool.query<{ id: string; email: string; name: string; role: string; mfa_enabled: boolean | null }>(
+      'SELECT id, email, name, role, mfa_enabled FROM users WHERE id = $1',
+      [read.userId]
     );
 
     if (!rows[0]) {
@@ -40,6 +36,14 @@ export async function GET(req: NextRequest) {
     }
 
     const user = rows[0];
+    if (!magicLinkAllowed(user)) {
+      return NextResponse.redirect(new URL('/auth/login?error=magic_not_allowed', req.url));
+    }
+
+    // Одноразовость: погашение одной вставкой. Уже погашена — входа нет.
+    if (!(await redeemMagicJti(pool, read.jti, user.id))) {
+      return NextResponse.redirect(new URL('/auth/signin?error=expired', req.url));
+    }
 
     // Создаём полноценный auth_token (7 дней)
     const authToken = await createToken({
@@ -64,10 +68,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(new URL('/auth/login?error=session_failed', req.url));
     }
 
-    // Редирект в зависимости от роли и email
-    const redirect = user.role === 'admin'
-      ? (user.email === 'artem@mchs-kamchatka.ru' ? '/hub/admin/artem' : '/hub/admin')
-      : '/hub/tourist';
+    const redirect = '/hub/tourist';
 
     const res = NextResponse.redirect(new URL(redirect, req.url));
     res.cookies.set('auth_token', authToken, {
