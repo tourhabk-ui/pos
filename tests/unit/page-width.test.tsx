@@ -51,7 +51,7 @@ describe('правило ширины', () => {
 describe('/fish: у витрины есть ширина и поля', () => {
   it('сетка видов — внутри контейнера витрины, а не от края до края', async () => {
     const { container } = render(await FishIndexPage());
-    const grid = container.querySelector('a[href^="/fish/"]')?.closest('.grid') as HTMLElement;
+    const grid = container.querySelector('.grid a[href^="/fish/"]')?.closest('.grid') as HTMLElement;
     const shell = grid.parentElement as HTMLElement;
     expect(shell.className).toContain('max-w-[1280px]');
     expect(shell.className).toContain('px-4');

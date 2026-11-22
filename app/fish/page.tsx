@@ -1,41 +1,43 @@
 import type { Metadata } from 'next';
 import { OfficialSeasonNote } from '@/components/fish/OfficialSeasonNote';
+import FishIndexAbout, { FishIndexFirstSection, FishIndexIntro, FishIndexSources } from '@/components/fish/FishIndexAbout';
 import { pageContainer } from '@/lib/layout/page-width';
 import Link from 'next/link';
 import { Fish, Calendar, Trophy } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
-import { FISH_SPECIES, formatSeasonMonths } from '@/lib/fish-species';
-import { DEFAULT_OG_IMAGE, defaultOgImages } from '@/lib/seo/og-image';
+import { FISH_SPECIES } from '@/lib/fish-species';
+import { defaultOgImages } from '@/lib/seo/og-image';
 import { FishingToursBlock } from '@/components/fish/FishingToursBlock';
 import { getFishingTours } from '@/lib/fish/fishing-tours';
 import { BreadcrumbJsonLd, JsonLd } from '@/components/seo/JsonLd';
-import { FISH_TEXT_REVISION, fishBaseUrl } from '@/lib/fish/fish-sources';
+import {
+  FISH_PAGE_DESCRIPTION,
+  FISH_PAGE_TITLE,
+  fishArticleJsonLd,
+} from '@/lib/seo/fish-page';
 
 // Рендер на запросе, как у /fish/[id]: туры читаются из базы.
 export const dynamic = 'force-dynamic';
 
-const FISH_INDEX_TITLE = 'Какая рыба водится на Камчатке: виды и сезоны';
-const FISH_INDEX_DESCRIPTION =
-  'Рыба Камчатки по видам: лососи (чавыча, нерка, кижуч, горбуша, кета), микижа, хариус, кунджа, голец, палтус, треска и краб. Когда идёт и как её ловят.';
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
 export const metadata: Metadata = {
-  // Под запросы GSC 18–19.11 (Сыщик 21.11): «какая рыба водится на камчатке»,
-  // «рыба камчатки виды» — 89 показов на 6-м месте и ни одного клика.
-  title: FISH_INDEX_TITLE,
-  description: FISH_INDEX_DESCRIPTION,
+  // Под запрос «рыбалка на Камчатке»; виды и сезоны остаются в описании.
+  title: FISH_PAGE_TITLE,
+  description: FISH_PAGE_DESCRIPTION,
   keywords: [
-    'рыбы Камчатки', 'лосось Камчатка', 'чавыча', 'нерка', 'кижуч', 'горбуша',
-    'рыбалка Камчатка', 'камчатский краб', 'палтус', 'рыболовные туры',
+    'рыбалка на Камчатке', 'рыбы Камчатки', 'лосось Камчатка', 'чавыча', 'нерка', 'кижуч', 'горбуша',
+    'путёвка на рыбалку', 'камчатский краб', 'палтус', 'рыболовные туры',
   ],
   alternates: { canonical: 'https://vedarai.ru/fish' },
   openGraph: {
     images: defaultOgImages(),
-    title: FISH_INDEX_TITLE,
-    description: FISH_INDEX_DESCRIPTION,
+    title: FISH_PAGE_TITLE,
+    description: FISH_PAGE_DESCRIPTION,
     url: 'https://vedarai.ru/fish',
     siteName: 'Ведар',
     locale: 'ru_RU',
-    type: 'website',
+    type: 'article',
   },
 };
 
@@ -49,21 +51,7 @@ export default async function FishIndexPage() {
   return (
     <>
       <Header />
-      {/* Article: справочник — текст редакции Ведара; источники — FishBase. */}
-      <JsonLd data={{
-        '@context': 'https://schema.org',
-        '@type': 'Article',
-        headline: 'Рыбы Камчатки — справочник видов',
-        url: 'https://vedarai.ru/fish',
-        inLanguage: 'ru',
-        // Ревизия текста справочника — единственная известная дата (Сыщик 21.11, §4.6).
-        datePublished: FISH_TEXT_REVISION,
-        dateModified: FISH_TEXT_REVISION,
-        image: `https://vedarai.ru${DEFAULT_OG_IMAGE}`,
-        author: { '@id': 'https://vedarai.ru/#organization' },
-        publisher: { '@id': 'https://vedarai.ru/#organization' },
-        citation: FISH_SPECIES.map((f) => fishBaseUrl(f.nameLatin)).filter((u): u is string => Boolean(u)),
-      }} />
+      <JsonLd data={fishArticleJsonLd(SITE)} />
       {/* Список видов (Сыщик 21.11, §4.2): короткие имена, как на карточках. */}
       <JsonLd data={{
         '@context': 'https://schema.org',
@@ -77,102 +65,77 @@ export default async function FishIndexPage() {
       {/* Хлебные крошки (seomator 20.11: у места, маршрута и тура были, у /fish нет). */}
       <BreadcrumbJsonLd items={[
         { name: 'Главная', url: 'https://vedarai.ru' },
-        { name: 'Рыбы Камчатки', url: 'https://vedarai.ru/fish' },
+        { name: 'Рыбалка на Камчатке', url: 'https://vedarai.ru/fish' },
       ]} />
       {/* Витрина (lib/layout/page-width, 14.11): до этого у страницы не было ни
           ширины, ни полей — сетка видов шла от края до края окна. */}
       <main className="ds-page pb-16">
         <div className={`${pageContainer('showcase')} pt-6`}>
 
-        {/* Hero */}
-        <div className="mb-10">
-          <p className="text-xs font-semibold text-[var(--accent)] uppercase tracking-widest mb-2">
-            Справочник
-          </p>
-          <h1
-            className="ds-h1 mb-3"
-            style={{ fontFamily: 'var(--font-playfair)' }}
-          >
-            Рыбы Камчатки
-          </h1>
-          {/* Первый абзац — прямой ответ «какая рыба водится на Камчатке, где и
-              когда её ловить» (Сыщик 21.11, GSC). Только данные карточек ниже:
-              виды, места обитания и сроки хода из lib/fish-species. */}
-          <p className="text-[var(--text-primary)] max-w-2xl leading-relaxed" data-lead-answer>
-            На Камчатке водятся тихоокеанские лососи — чавыча, нерка, кижуч, горбуша и кета, — а ещё микижа,
-            хариус, кунджа и голец; в море ловят палтуса, треску, навагу и камчатского краба. Лососи идут в реки
-            и озёра летом и осенью: чавыча — в крупные реки (Камчатка, Жупанова, Опала) с июня до середины июля,
-            нерка — в озёрно-речные системы, особенно в Курильское озеро, в июле и августе, кижуч — с августа
-            по октябрь. Палтуса, треску и краба ловят в Авачинском заливе, навагу — зимой из-подо льда в бухтах.
-          </p>
-          <p className="text-[var(--text-secondary)] max-w-xl mt-3">
-            Ниже — {FISH_SPECIES.length} видов: сроки хода, способы ловли, рекорды и маршруты.
-          </p>
-        </div>
+        <FishIndexIntro />
+
+        <FishIndexFirstSection />
 
         {/* Сроки в карточках — по ходу рыбы; официальные сроки лова — рядом (Сыщик 21.11). */}
-        <div className="mb-6"><OfficialSeasonNote /></div>
+        <div className="mb-6 mt-4"><OfficialSeasonNote /></div>
 
-        {/* Grid */}
+        {/* Виды — H3 под вопросом о сезоне, чтобы H2 отвечали на запросы туристов. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {FISH_SPECIES.map(species => (
-            <Link
-              key={species.id}
-              href={`/fish/${species.id}`}
-              className="ds-card p-4 group flex items-start gap-4 hover:shadow-md transition-all duration-200 hover:border-[var(--accent)]/30"
-            >
-              {/* Icon */}
-              <div
-                className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 transition-transform duration-200 group-hover:scale-110"
-                style={{ background: `${species.color}18` }}
-              >
-                <Fish className="w-6 h-6" style={{ color: species.color }} />
-              </div>
+                {FISH_SPECIES.map(species => (
+                  <Link
+                    key={species.id}
+                    href={`/fish/${species.id}`}
+                    className="ds-card p-4 group flex items-start gap-4 hover:shadow-md transition-all duration-200 hover:border-[var(--accent)]/30"
+                  >
+                    <div
+                      className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 transition-transform duration-200 group-hover:scale-110"
+                      style={{ background: `${species.color}18` }}
+                    >
+                      <Fish className="w-6 h-6" style={{ color: species.color }} />
+                    </div>
 
-              <div className="flex-1 min-w-0">
-                {/* Name */}
-                <h2 className="font-bold text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors">
-                  {species.name}
-                </h2>
-                <p className="text-xs text-[var(--text-muted)] italic mb-2">{species.nameLatin}</p>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors">
+                        {species.name}
+                      </h3>
+                      <p className="text-xs text-[var(--text-muted)] italic mb-2">{species.nameLatin}</p>
 
-                {/* Short desc */}
-                <p className="text-xs text-[var(--text-secondary)] leading-relaxed line-clamp-2">
-                  {species.shortDesc}
-                </p>
+                      <p className="text-xs text-[var(--text-secondary)] leading-relaxed line-clamp-2">
+                        {species.shortDesc}
+                      </p>
 
-                {/* Meta */}
-                <div className="flex items-center gap-3 mt-3">
-                  <span className="flex items-center gap-1 text-xs text-[var(--text-muted)]">
-                    <Calendar className="w-3 h-3" />
-                    {species.season}
-                  </span>
-                  <span className="flex items-center gap-1 text-xs text-[var(--text-muted)]">
-                    <Trophy className="w-3 h-3" />
-                    {species.recordKg}
-                  </span>
-                </div>
+                      <div className="flex items-center gap-3 mt-3">
+                        <span className="flex items-center gap-1 text-xs text-[var(--text-muted)]">
+                          <Calendar className="w-3 h-3" />
+                          {species.season}
+                        </span>
+                        <span className="flex items-center gap-1 text-xs text-[var(--text-muted)]">
+                          <Trophy className="w-3 h-3" />
+                          {species.recordKg}
+                        </span>
+                      </div>
 
-                {/* Season months strip */}
-                <div className="flex gap-0.5 mt-2">
-                  {Array.from({ length: 12 }, (_, i) => {
-                    const active = species.seasonMonths.includes(i + 1);
-                    return (
-                      <div
-                        key={i}
-                        className="h-1.5 flex-1 rounded-full"
-                        style={{
-                          background: active ? species.color : 'var(--bg-hover)',
-                          opacity: active ? 1 : 0.4,
-                        }}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            </Link>
-          ))}
+                      <div className="flex gap-0.5 mt-2">
+                        {Array.from({ length: 12 }, (_, i) => {
+                          const active = species.seasonMonths.includes(i + 1);
+                          return (
+                            <div
+                              key={i}
+                              className="h-1.5 flex-1 rounded-full"
+                              style={{
+                                background: active ? species.color : 'var(--bg-hover)',
+                                opacity: active ? 1 : 0.4,
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </Link>
+                ))}
         </div>
+
+        <FishIndexAbout />
 
         {/* Туры на рыбалку из базы; не прочитались — прежняя кнопка в каталог. */}
         {tours.length > 0 ? (
@@ -190,22 +153,7 @@ export default async function FishIndexPage() {
         </div>
         )}
 
-        {/* Источники и дата (Сыщик 21.11): латинские названия — по FishBase. */}
-        <section className="mt-12 text-sm text-[var(--text-secondary)]" aria-labelledby="fish-sources" data-fish-sources="">
-          <h2 id="fish-sources" className="ds-h3 mb-2">Источники</h2>
-          <p className="mb-2">Латинские названия видов — по карточкам FishBase:</p>
-          <ul className="flex flex-wrap gap-x-4 gap-y-1">
-            {FISH_SPECIES.map((f) => {
-              const url = fishBaseUrl(f.nameLatin);
-              return url ? (
-                <li key={f.id}>
-                  <a href={url} className="underline hover:text-[var(--accent)]" rel="noopener" target="_blank">{f.name} — <i>{f.nameLatin}</i></a>
-                </li>
-              ) : null;
-            })}
-          </ul>
-          <p className="mt-3 text-[var(--text-muted)]">Обновлено: <time dateTime={FISH_TEXT_REVISION}>{new Date(FISH_TEXT_REVISION).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })}</time></p>
-        </section>
+        <FishIndexSources />
         </div>
       </main>
     </>
