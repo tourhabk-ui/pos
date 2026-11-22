@@ -336,40 +336,44 @@ describe('личка: свободный текст идёт в мозг Куз�
     expect(out[0]).not.toContain('Оператор свяжется');
   });
 
-  it('номер после разговора о рыбалке без беды — лид, как раньше (интересы — из истории Кузьмича)', async () => {
+  // Решение владельца 22.11 19:09 (pd-guard): телефон туриста в Telegram не
+  // принимается совсем. Заявка с телефоном — на сайте и в MAX.
+  it('номер без беды — не лид и не модель: отказ с кнопками «на сайте» и «MAX», номер нигде не сохранён', async () => {
     m.history = [
       { role: 'user', content: 'хочу на рыбалку в июле' },
       { role: 'assistant', content: 'Есть туры на рыбалку.' },
     ];
     await post(PHONE);
 
-    expect(m.createLead).toHaveBeenCalledTimes(1);
+    expect(m.createLead).not.toHaveBeenCalled();
     expect(m.tools).not.toHaveBeenCalled();
-    expect(sent().some((t) => t.includes('Оператор свяжется'))).toBe(true);
+    expect(m.fallback).not.toHaveBeenCalled();
+    const body = m.tgSend.mock.calls.at(-1)?.[0] as { text?: string; replyMarkup?: { inline_keyboard?: Array<Array<{ text: string; url?: string }>> } };
+    expect(body.text).toContain('Телефон в Telegram не принимаю');
+    expect(body.text).not.toContain('914');
+    const links = body.replyMarkup?.inline_keyboard?.flat() ?? [];
+    expect(links.map((b) => b.url)).toEqual(['https://vedarai.ru/contact', 'https://max.ru/id4101147649_biz']);
+    expect(JSON.stringify([m.db.mock.calls, m.pool.mock.calls])).not.toMatch(/914[\s-]*123/);
   });
 
-  // Пустые catch, часть 3 (слово владельца 16.11): до правки отказ записи
-  // глотался, а бот всё равно отвечал «Оператор свяжется» — по заявке,
-  // которой нет.
-  for (const [name, fail] of [
-    ['createLead вернул null', () => m.createLead.mockResolvedValue(null)],
-    ['createLead упал исключением', () => m.createLead.mockRejectedValue(new Error('pool exhausted'))],
-  ] as const) {
-    it(`номер после разговора о рыбалке, ${name} — «записать не удалось», а не «Оператор свяжется»`, async () => {
-      m.history = [
-        { role: 'user', content: 'хочу на рыбалку в июле' },
-        { role: 'assistant', content: 'Есть туры на рыбалку.' },
-      ];
-      fail();
-      await post(PHONE);
+  it('номер внутри фразы («позвоните мне +7 …») — тот же отказ, без модели', async () => {
+    await post(`позвоните мне ${PHONE}, хочу на вулкан`);
+    expect(m.createLead).not.toHaveBeenCalled();
+    expect(m.tools).not.toHaveBeenCalled();
+    expect(sent().join('\n')).toContain('Телефон в Telegram не принимаю');
+  });
 
-      const out = sent();
-      expect(out).toHaveLength(1);
-      expect(out[0]).toContain('Заявку записать не удалось');
-      expect(out.join('\n')).not.toContain('Оператор свяжется');
-      expect(out.join('\n')).not.toContain('Заявка принята');
-    });
-  }
+  it('беда с номером — Кузьмич с блоком 112, номер до модели и в базу не доходит', async () => {
+    await post(`помогите, мы заблудились, мой номер ${PHONE}`);
+    expect(sent().join('\n')).toContain(SOS_HEAD);
+    expect(modelInput()).not.toMatch(/914[\s-]*123/);
+    expect(JSON.stringify([m.db.mock.calls, m.pool.mock.calls])).not.toMatch(/914[\s-]*123/);
+  });
+
+  it('даты и цены — не телефон', async () => {
+    await post('хочу на рыбалку 2027-07-10, бюджет 150 000');
+    expect(sent().join('\n')).not.toContain('Телефон в Telegram не принимаю');
+  });
 });
 
 describe('/start lead: «Заявка принята» — только по записанной заявке', () => {

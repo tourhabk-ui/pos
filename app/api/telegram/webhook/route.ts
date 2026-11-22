@@ -34,8 +34,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminChatYieldsToPartner } from '@/lib/roles/admin-partner-chat';
 import { repairTelegramHtml, splitTelegramHtmlReport, TELEGRAM_CAPTION_LIMIT } from '@/lib/notifications/telegram-html';
 import { z } from 'zod';
-import { pool } from '@/lib/db-pool';
 import { telegramService } from '@/lib/notifications/telegram';
+import { TG_PHONE_REFUSAL_BUTTONS, TG_PHONE_REFUSAL_TEXT, hasPhone, maskPhones } from '@/lib/telegram/phone-guard';
 import { verifyWebhookSecret, refuseUnconfiguredWebhook } from '@/lib/telegram/webhook-secret';
 import { isRepeatedTelegramUpdate } from '@/lib/telegram/update-dedup';
 import { admitInbound, markInboundDone, claimStaleTelegram } from '@/lib/chat/inbound-seen';
@@ -53,13 +53,11 @@ import { telegramWatchRedirect } from '@/lib/kuzmich/watch-flow';
 import { query } from '@/lib/database';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
-import { type ChatMessage } from '@/lib/ai/prompts';
 import { collapseRepeatedReply, requestButton, telegramOfferLinks } from '@/lib/kuzmich/answer-quality';
 import { KUZMICH_SYSTEM, aiChat, getHistory, type ReplyFn } from '@/lib/kuzmich/core';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
 import { stripTags } from '@/lib/html/text';
 import { logSwallowedFailure, logUndelivered } from '@/lib/observability/swallowed';
-import { parseInterestsFromText, findRoutesByInterests } from '@/lib/planner/interests';
 import {
   postRouteToChannel,
   postOperatorToChannel,
@@ -104,7 +102,6 @@ import { leadProcessor } from '@/lib/services/operators/lead-processor.service';
 import { groupMonitor } from '@/lib/telegram/group-monitor';
 import { createLead } from '@/lib/leads/create';
 import { getPublicBaseUrl, isTechnicalHost } from '@/lib/config';
-import { sendPdAlert } from '@/lib/notifications/pd-alert';
 import { applyLeadStatus, LEAD_STATUS_ACTIONS } from '@/lib/leads/status-action';
 import {
   handleTelegramAdminTurn,
@@ -694,30 +691,6 @@ async function getLastLeads(): Promise<string> {
 
 // ── Lead creation from bot ───────────────────────────────────────────────────
 
-interface ExtractedInterests {
-  interests?: string[];
-  dateFrom?: string;
-  dateTo?: string;
-}
-
-function extractLastInterestsFromHistory(history: ChatMessage[]): ExtractedInterests {
-  for (let i = history.length - 1; i >= Math.max(0, history.length - 10); i--) {
-    if (history[i]?.role === 'user') {
-      const parsed = parseInterestsFromText(history[i].content);
-      if (parsed.interests.length > 0) return parsed;
-    }
-  }
-  return {};
-}
-
-interface OperatorRow2 {
-  name: string;
-  slug: string;
-  /** Адрес оператора в MAX — туда идут ПД. NULL: ПД ему не уходят. */
-  max_chat_id: string | null;
-  telegram_chat_id: string | null;
-}
-
 /**
  * Заявка не записалась — турист слышит это, а не «оператор свяжется» (§4.0).
  * До 16.11 отказ записи глотался пустым catch, и бот всё равно отвечал
@@ -726,130 +699,6 @@ interface OperatorRow2 {
  */
 const LEAD_NOT_SAVED_TEXT =
   'Заявку записать не удалось — сбой на нашей стороне. Напишите сюда ещё раз через несколько минут или оставьте заявку на сайте: https://vedarai.ru/contact';
-
-/**
- * Заявка из телефона в чате бота. Возвращает, записана ли она: «оператор
- * свяжется» говорится только по записанной. Отказ после записи (автоответ,
- * письма операторам) заявку не отменяет — он назван в логе.
- */
-async function createLeadFromBot(
-  chatId: string,
-  phoneText: string,
-  interests: ExtractedInterests
-): Promise<boolean> {
-  const phone = phoneText;
-  const interestList = interests.interests ?? [];
-  const comment = interestList.length > 0
-    ? `Интересы: ${interestList.join(', ')}${interests.dateFrom ? ` · Даты: ${interests.dateFrom} - ${interests.dateTo}` : ''}`
-    : 'Заявка с Telegram бота';
-
-  let leadId: string | null;
-  try {
-    leadId = await createLead({
-      name: 'Турист',
-      phone,
-      comment,
-      source_url: 'https://t.me/kuzmichai_bot',
-      source_data: {
-        source: 'telegram_bot',
-        interests: interestList,
-        date_from: interests.dateFrom,
-        date_to: interests.dateTo,
-        chat_id: chatId,
-        timestamp: new Date().toISOString(),
-      },
-      telegram_chat_id: chatId,
-    });
-  } catch (err) {
-    logSwallowedFailure('telegram/webhook', 'запись заявки из телефона в чате бота', err);
-    return false;
-  }
-  // null — createLead сам назвал причину в логе.
-  if (!leadId) return false;
-
-  try {
-    // ── 1. Автоответ туристу ───────────────────────────────────────────────
-    const routes = interestList.length > 0
-      ? await findRoutesByInterests(interestList, 2)
-      : [];
-
-    const touristLines = [
-      '✅ <b>Заявка принята!</b>',
-      '',
-      'Оператор свяжется с вами в течение <b>1–2 часов</b> по номеру',
-      `<b>${esc(phone)}</b>`,
-    ];
-
-    if (routes.length > 0) {
-      touristLines.push('', '<b>Пока посмотрите подходящие маршруты:</b>');
-      routes.forEach((r, i) => {
-        touristLines.push(`${i + 1}. <a href="https://vedarai.ru/routes/${r.id}">${esc(r.title)}</a>`);
-      });
-    }
-
-    touristLines.push('', 'Если вопросы — пишите прямо здесь, помогу 🙌');
-
-    await logUndelivered('telegram/webhook', `ответ туристу о заявке ${leadId}`, telegramService.sendMessage({
-      chatId,
-      text: touristLines.join('\n'),
-      parseMode: 'HTML',
-    }));
-
-    // ── 2. Уведомление нужному оператору ──────────────────────────────────
-    if (interestList.length > 0) {
-      const opRes = await pool.query<OperatorRow2>(
-        `SELECT p.name, p.slug, p.max_chat_id::text AS max_chat_id,
-                p.contacts->>'telegram_chat_id' AS telegram_chat_id
-         FROM partners p
-         JOIN operator_tours ot ON ot.operator_id = p.id
-         JOIN agent_route_knowledge ark ON ark.id = ot.route_id
-         WHERE ark.activity_type = ANY($1)
-           AND p.is_public = TRUE
-           AND (p.max_chat_id IS NOT NULL OR (p.contacts->>'telegram_chat_id') IS NOT NULL)
-         GROUP BY p.name, p.slug, p.max_chat_id, p.contacts->>'telegram_chat_id'
-         LIMIT 3`,
-        [interestList]
-      );
-
-      const facts = [
-        `<b>Интересы:</b> ${interestList.join(', ')}`,
-        interests.dateFrom ? `<b>Даты:</b> ${interests.dateFrom} — ${interests.dateTo}` : '',
-      ].filter(s => s !== '');
-
-      for (const op of opRes.rows) {
-        // Телефон туриста — ПД: идёт в MAX оператора. Если MAX у него не
-        // привязан, в Telegram уходит заглушка без телефона.
-        const res = await sendPdAlert({
-          text: [
-            '<b>Горячий лид</b>',
-            '',
-            `<b>Телефон:</b> ${esc(phone)}`,
-            ...facts,
-            '',
-            'Свяжитесь в течение 1-2 часов — турист ждёт.',
-          ].join('\n'),
-          stub: [
-            '<b>Горячий лид</b>',
-            '',
-            ...facts,
-            '',
-            'Телефон — в MAX и в кабинете. Свяжитесь в течение 1-2 часов.',
-          ].join('\n'),
-          buttons: [{ text: 'Открыть в CRM', url: 'https://vedarai.ru/hub/operator/bookings' }],
-          to: { maxChatId: op.max_chat_id, telegramChatId: op.telegram_chat_id },
-        });
-        if (!res.delivered) {
-          console.error(`[telegram/webhook] горячий лид ${op.slug}: ПД не доставлены (${res.channel}) — ${res.reason}`);
-        }
-      }
-    }
-
-    // Уведомление админу отправлено автоматически через createLead()
-  } catch (err) {
-    logSwallowedFailure('telegram/webhook', `уведомления по заявке ${leadId} из чата бота`, err);
-  }
-  return true;
-}
 
 // ── Создание лида из Telegram /start lead flow ────────────────────────────────
 async function createLeadFromTelegramFlow(
@@ -997,7 +846,8 @@ function recoverablePayload(update: TelegramUpdate): TelegramUpdate {
       message_id: msg.message_id,
       ...(msg.from ? { from: { id: msg.from.id } } : {}),
       ...(msg.chat ? { chat: { id: msg.chat.id, type: msg.chat.type } } : {}),
-      ...(msg.text !== undefined ? { text: msg.text } : {}),
+      // Номер телефона в строку восстановления не кладём (pd-guard, 22.11).
+      ...(msg.text !== undefined ? { text: maskPhones(msg.text) } : {}),
     } as NonNullable<TelegramUpdate['message']>,
   };
 }
@@ -1067,7 +917,7 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
   if (update.message?.text && update.message.chat) {
     const chatId  = String(update.message.chat.id);
     const fromId  = update.message.from?.id ?? 0;
-    const text    = update.message.text.trim();
+    let text      = update.message.text.trim();
     const admin   = isAdmin(fromId);
 
     // ── Группы и супергруппы: тихий мониторинг ─────────────────────────────
@@ -1083,7 +933,8 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       const botUser = (await resolveTelegramBotUsername()).name;
       const mentioned = text.toLowerCase().includes(`@${botUser.toLowerCase()}`);
       if (mentioned) {
-        const cleanQ = text.replace(new RegExp(`@${botUser}`, 'gi'), '').trim();
+        // Номер в группе не уходит ни в модель, ни в историю (pd-guard, 22.11).
+        const cleanQ = maskPhones(text.replace(new RegExp(`@${botUser}`, 'gi'), '').trim());
         // Тот же мозг, что в личке (TG-BRAIN): «@бот мы заблудились» в
         // группе — такое же сообщение о беде. aiChat, а не processMessage:
         // бронь в чате спросила бы имя и телефон на виду у всей группы.
@@ -1785,6 +1636,16 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
       // слова о 112. Шаблоны ниже не меняются — блок встаёт впереди и только
       // при признаках беды (lib/safety/sos-detector).
       const emergency = detectEmergency(text).detected;
+      // Телефон в Telegram не принимается (решение владельца 22.11, pd-guard):
+      // номер не сохраняется и дальше не идёт — ни в заявку, ни в историю, ни
+      // в модель. Сообщение о беде идёт Кузьмичу с номером под маской.
+      if (!admin && hasPhone(text)) {
+        if (!emergency) {
+          await sendHtmlKeyboard(chatId, esc(TG_PHONE_REFUSAL_TEXT), { inline_keyboard: TG_PHONE_REFUSAL_BUTTONS }, 'отказ: телефон в Telegram');
+          return;
+        }
+        text = maskPhones(text);
+      }
       const withSos = (reply: string): string => withSosBlock(reply, text).text;
 
       // Кнопка клавиатуры — не текст заявки. Клавиатура остаётся на экране
@@ -1816,28 +1677,6 @@ async function deliverTelegramUpdate(update: TelegramUpdate): Promise<void> {
           update.message?.from?.username ?? null, text, withSos,
         ).catch((err) => logSwallowedFailure('telegram/webhook', 'заявка после /start lead', err));
         return;
-      }
-
-      // Check if text looks like phone number
-      const phoneMatch = text.match(/[\d+\-() ]{7,}/);
-      // Сообщение о беде с номером — не ответ на подборку туров (TG-BRAIN):
-      // «мы заблудились, телефон …» после разговора о рыбалке становилось
-      // «горячим лидом» операторам, а турист получал «оператор свяжется в
-      // течение 1–2 часов» вместо 112. Такое сообщение идёт Кузьмичу.
-      if (phoneMatch && !emergency) {
-        const phoneText = phoneMatch[0].trim();
-        // Интересы — из той же истории, что ведёт Кузьмич (tg_conversations)
-        const history = await getHistory(update.message.chat.id, KUZMICH_TG_MODE);
-        const lastIntests = extractLastInterestsFromHistory(history);
-
-        if (lastIntests.interests && lastIntests.interests.length > 0) {
-          // User responded with phone after seeing tours
-          const saved = await createLeadFromBot(chatId, phoneText, lastIntests);
-          await sendHTML(chatId, saved
-            ? '✅ Спасибо! Оператор свяжется с вами в ближайшее время.'
-            : LEAD_NOT_SAVED_TEXT);
-          return;
-        }
       }
 
       // Поддержка: обращение в тикет-систему
