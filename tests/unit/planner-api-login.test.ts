@@ -25,6 +25,7 @@ import { GET as toursForDay } from '@/app/api/planner/tours-for-day/route';
 import { POST as validate } from '@/app/api/planner/validate/route';
 import { POST as tripExtras } from '@/app/api/planner/trip-extras/route';
 import { POST as companion } from '@/app/api/planner/companion/route';
+import { GET as dayOptions } from '@/app/api/planner/day-options/route';
 import { isPublicApiPath } from '@/lib/auth/public-api-routes';
 import { PLANNER_LOGIN_REQUIRED, PLANNER_SESSION_UNCHECKED } from '@/lib/planner/require-session';
 
@@ -36,6 +37,7 @@ const DOORS: Array<{ path: string; method: 'GET' | 'POST'; handler: Handler; bod
   { path: '/api/planner/tours-for-day', method: 'GET', handler: toursForDay, query: '?activity_type=volcano' },
   { path: '/api/planner/validate', method: 'POST', handler: validate, body: { days: [] } },
   { path: '/api/planner/trip-extras', method: 'POST', handler: tripExtras, body: { needs: { lodging: true }, days: [] } },
+  { path: '/api/planner/day-options', method: 'GET', handler: dayOptions, query: '?mode=same&activity_type=helicopter&zone=avachinsky&date=2026-11-26&participants=2' },
 ];
 
 let ip = 0;
@@ -51,7 +53,7 @@ function req(path: string, method: 'GET' | 'POST', opts: { body?: unknown; query
 
 beforeEach(() => { verifyMock.mockReset(); aiMock.mockReset(); queryMock.mockReset(); });
 
-describe('шесть адресов планера — только после входа', () => {
+describe('семь адресов планера — только после входа', () => {
   it.each(DOORS)('$method $path: без входа — 401 со ссылкой на вход в планер', async ({ path, method, handler, body, query }) => {
     const res = await handler(req(path, method, { body, query }));
     expect(res.status).toBe(401);

@@ -90,6 +90,10 @@ import { DayPhoto } from '@/components/planner/DayPhoto';
 import { NotInPlan } from '@/components/planner/NotInPlan';
 import { PlanOverview } from '@/components/planner/PlanOverview';
 import { buildWaitLine, dayDateShort, notInPlanLines, splitPlanShape } from '@/lib/planner/plan-notes';
+import { dayWithOption, type DayOption } from '@/lib/planner/day-options';
+import { swapDays } from '@/lib/planner/weather-plan-b';
+import { DayCompare } from './DayCompare';
+import { DayPlanB } from './DayPlanB';
 import type { PrintPhoto } from '@/lib/planner/print-html';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
@@ -446,6 +450,8 @@ const DIFFICULTY_LABEL: Record<string, string> = {
 
 interface DayCardProps {
   day: DayPlan;
+  /** Под карточкой дня: «Сравнить и заменить» и «План Б» (DayCompare, DayPlanB). */
+  extra?: React.ReactNode;
   /** Кадр тура с подписью автора (lib/planner/print-photos) — «день как журнал». */
   photo?: PrintPhoto | null;
   /** «ср, 26 ноя» — дата дня по началу поездки; дат нет — пусто. */
@@ -507,7 +513,7 @@ function DayPriceTag({ day }: { day: DayPlan }) {
 function DayCard({
   day, idx, isEditing, transport, flightBadge, isLocked, isConfirmed, topTour, requestArrival, requestGuests,
   onToggleEdit, onTransportChange, onShowPartners, onDelete, onShowMap, onConfirm, onRef, onAskSeats,
-  editRefusal = null, onDragDone, run, photo = null, dateLabel = '',
+  editRefusal = null, onDragDone, run, photo = null, dateLabel = '', extra = null,
 }: DayCardProps) {
   // Продолжение многодневного тура — в блоке его первого дня (21.11).
   const continuation = run !== undefined && run.first !== day.day;
@@ -700,6 +706,7 @@ function DayCard({
             <span>{cardWarning}</span>
           </div>
         )}
+        {extra}
         {/* Expandable detail panel */}
         {showDetail && (
           <div className="mx-3 mb-2.5 p-3 rounded-lg bg-[var(--bg-hover)] border border-[var(--border)] space-y-2.5">
@@ -2044,6 +2051,34 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
     }
   }
 
+  /** Сколько едет и с какой даты — как у перечитки цены (rereadMovedTours). */
+  const planPeople = builtFor ? builtFor.adults + builtFor.children.length : adults + knownChildAges.length;
+  const planStart = builtFor?.arrival ?? arrival;
+
+  /**
+   * «Поставить» из «Сравнить и заменить» и «Плана Б» (супер-планер, 22.11):
+   * тур встаёт в день, цена и места на дату перечитываются, смета следом.
+   */
+  function putOptionOnDay(dayNum: number, option: DayOption) {
+    const next = daysRef.current.map((d) => (d.day === dayNum ? dayWithOption(d, option, planPeople) : d));
+    daysRef.current = next;
+    setDays(next);
+    setEditNote(null);
+    scheduleValidation(next);
+    rereadMovedTours(next);
+  }
+
+  /** «Поменять местами» из «Плана Б»: прогноз остаётся у своей даты. */
+  function swapPlanDays(a: number, b: number) {
+    const { days: next, newNumbers } = swapDays(daysRef.current, a, b);
+    daysRef.current = next;
+    setDays(next);
+    setEditNote(null);
+    followNewNumbers(newNumbers);
+    scheduleValidation(next);
+    rereadMovedTours(next);
+  }
+
   function scheduleValidation(list: DayPlan[]) {
     if (validationTimerRef.current) clearTimeout(validationTimerRef.current);
     if (list.length < 2) return;
@@ -3161,6 +3196,16 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
                     run={runs.get(day.day)}
                     photo={day.realTour ? dayPhotos[day.realTour.tourId] ?? null : null}
                     dateLabel={arrival ? dayDateShort(dayDateFrom(arrival, day)) : ''}
+                    extra={(
+                      <>
+                        <DayPlanB day={day} days={days} people={planPeople}
+                          date={planStart ? dayDateFrom(planStart, day) : ''}
+                          dateOf={(n) => (planStart ? dayDateShort(planDayDate(planStart, n - 1)) : '')}
+                          onPut={putOptionOnDay} onSwap={swapPlanDays} />
+                        <DayCompare day={day} days={days} people={planPeople}
+                          date={planStart ? dayDateFrom(planStart, day) : ''} onPut={putOptionOnDay} />
+                      </>
+                    )}
                     onRef={(el) => {
                       if (el) dayRefs.current.set(day.day, el as HTMLElement);
                       else dayRefs.current.delete(day.day);
