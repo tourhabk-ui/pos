@@ -80,4 +80,11 @@ describe('itinerary', () => {
     const all = JSON.stringify(ai.mock.calls[0].slice(2));
     expect(all).not.toMatch(/инсульт|сердечн|заболев/i);
   });
+  it('словарь здоровья видит кириллицу целиком: ВИЧ, СПИД, ДЦП, рак (ревью #3743, заход 4)', async () => {
+    const { HEALTH_WORDS } = await vi.importActual<typeof import('@/lib/planner/itinerary-input')>('@/lib/planner/itinerary-input');
+    for (const w of ['ВИЧ', 'СПИД', 'ДЦП', 'рак', 'у меня рак.', 'ограничения по здоровью', 'сердечно-сосудистые', 'инсульт']) {
+      expect(HEALTH_WORDS.test(w), w).toBe(true);
+    }
+    for (const w of ['Ракетный городок', 'Авача', 'вичуга', 'спидометр']) expect(HEALTH_WORDS.test(w), w).toBe(false);
+  });
 });
