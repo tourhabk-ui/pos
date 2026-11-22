@@ -87,4 +87,12 @@ describe('itinerary', () => {
     }
     for (const w of ['Ракетный городок', 'Авача', 'вичуга', 'спидометр']) expect(HEALTH_WORDS.test(w), w).toBe(false);
   });
+  it('телефон и почта в свободном тексте до модели не доходят (ревью #3743, заход 5)', async () => {
+    ai.mockResolvedValueOnce('ok');
+    await call({ ...body, days: [{ ...body.days[0], title: 'звонить +7 914 123-45-67, почта ivan@example.com' }],
+      warnings: [{ type: 'season', severity: 'important', message: 'пишите ivan@example.com' }] });
+    const all = JSON.stringify(ai.mock.calls[0].slice(2));
+    expect(all).not.toContain('ivan@example.com');
+    expect(all).not.toMatch(/914[\s-]*123/);
+  });
 });

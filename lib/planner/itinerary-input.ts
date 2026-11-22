@@ -7,9 +7,12 @@
  *  — предупреждения берутся только безопасных типов: `fitness`, `safety`,
  *    `seasickness` — те, что выводятся из подвижности/самочувствия, — не идут;
  *  — тип дня — только из списка движка (проверяет zod в роуте);
+ *  — свободный текст проходит redactPII (телефоны, почты, документы);
  *  — любое предупреждение, заголовок дня, пометка цены, оператор или погода со словами о
  *    здоровье отбрасывается целиком (заголовок заменяется нейтральным).
  */
+import { redactPII } from '@/lib/security/pii-redact';
+
 export const ITINERARY_WARNING_TYPES = [
   'permit', 'season', 'children', 'duration', 'weather', 'license', 'crowd',
   'mchs', 'zone_days', 'home_nights', 'tour_dates', 'dates',
@@ -26,9 +29,15 @@ type D = { title: string; priceMissing?: string; realTour?: { operatorName: stri
 
 export function scrubItineraryInput<Day extends D, Warn extends W>(days: Day[], warnings: Warn[]): { days: Day[]; warnings: Warn[] } {
   return {
-    warnings: warnings.filter((w) => SAFE_TYPES.has(w.type) && !HEALTH_WORDS.test(w.message)),
+    warnings: warnings
+      .filter((w) => SAFE_TYPES.has(w.type) && !HEALTH_WORDS.test(w.message))
+      .map((w) => ({ ...w, message: redactPII(w.message) })),
     days: days.map((d) => {
-      const out = { ...d };
+      // Телефоны, почты, документы — тем же redactPII, что и в остальных путях к модели (ревью #3743, заход 5).
+      const out = { ...d, title: redactPII(d.title) };
+      if (d.priceMissing) out.priceMissing = redactPII(d.priceMissing);
+      if (d.realTour) out.realTour = { ...d.realTour, operatorName: redactPII(d.realTour.operatorName), ...(d.realTour.priceUnit ? { priceUnit: redactPII(d.realTour.priceUnit) } : {}) };
+      if (d.weatherForecast) out.weatherForecast = { ...d.weatherForecast, description: redactPII(d.weatherForecast.description) };
       if (HEALTH_WORDS.test(d.title)) out.title = `День ${String(d.day ?? '')}`.trim();
       if (d.priceMissing && HEALTH_WORDS.test(d.priceMissing)) delete out.priceMissing;
       if (d.realTour && (HEALTH_WORDS.test(d.realTour.operatorName) || HEALTH_WORDS.test(d.realTour.priceUnit ?? ''))) delete out.realTour;
