@@ -14,6 +14,7 @@
 
 import { createHash } from 'node:crypto';
 import { redactPII } from '@/lib/security/pii-redact';
+import { stripPathToken } from '@/lib/analytics/token-path';
 
 export const CLIENT_ERROR_KINDS = ['error', 'unhandledrejection', 'boundary'] as const;
 export type ClientErrorKind = typeof CLIENT_ERROR_KINDS[number];
@@ -37,7 +38,7 @@ export function scrubErrorText(raw: string | null | undefined, max: number): str
   return redactPII(t).slice(0, max);
 }
 
-/** Путь без query и фрагмента: в них бывают ключи (/request-status#<ключ>) и ПД. */
+/** Путь без query и фрагмента (в них бывают ключи и ПД) и без ключа в самом пути (/vote/<токен>). */
 export function pathOnly(raw: string | null | undefined): string {
   let p = String(raw ?? '');
   if (/^https?:\/\//i.test(p)) {
@@ -46,7 +47,9 @@ export function pathOnly(raw: string | null | undefined): string {
   const cut = p.search(/[?#]/);
   if (cut >= 0) p = p.slice(0, cut);
   if (!p.startsWith('/')) p = '/';
-  return p.slice(0, 500);
+  // Путь-ключ (/vote/<токен>) — без ключа: перепись ошибок печатает пути
+  // в открытый лог прогона (ревью безопасности #3744).
+  return stripPathToken(p).slice(0, 500);
 }
 
 /**

@@ -33,3 +33,18 @@ describe('ключ из адреса в аналитику не идёт', () =>
     expect(hit).toMatch(/const fromPath = stripPathToken\(parsed\.data\.fromPath\)/);
   });
 });
+
+describe('и в журнал ошибок клиента ключ не идёт (ревью #3744, заход 2)', () => {
+  it('pathOnly режет /vote/<токен>', async () => {
+    const { pathOnly } = await import('@/lib/client-errors/scrub');
+    expect(pathOnly(`/vote/${T}`)).toBe('/vote');
+    expect(pathOnly(`https://vedarai.ru/vote/${T}?a=1#b`)).toBe('/vote');
+    expect(pathOnly('/catalog/tours/5?x=1')).toBe('/catalog/tours/5');
+    expect(pathOnly(`/api/trip-vote/${T}`)).toBe('/api/trip-vote');
+    expect(readFileSync('instrumentation.ts', 'utf8')).toMatch(/scrubErrorText\(pathOnly\(request\?\.path\)/);
+  });
+  it('публичная ссылка голосования гаснет через 3 дня после срока', () => {
+    const src = readFileSync('app/api/trip-vote/[token]/route.ts', 'utf8');
+    expect(src).toMatch(/l\.deadline_at > now\(\) - interval '3 days'/);
+  });
+});

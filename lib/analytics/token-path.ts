@@ -4,7 +4,7 @@
  * доступом к аналитике откроет голосование группы (ревью безопасности #3744).
  * Без node-зависимостей: файл грузится и в браузер (PageViewTracker).
  */
-const TOKEN_PATH_PREFIXES = ['/vote'] as const;
+const TOKEN_PATH_PREFIXES = ['/vote', '/api/trip-vote'] as const;
 
 export function stripPathToken(path: string): string;
 export function stripPathToken(path: string | null | undefined): string | null | undefined;
@@ -19,5 +19,5 @@ export function stripPathToken(path: string | null | undefined): string | null |
 /** Тот же ключ внутри полного адреса (referrer): `…/vote/<токен>` → `…/vote`. */
 export function stripUrlToken(url: string | null | undefined): string | null | undefined {
   if (!url) return url;
-  return url.replace(/\/vote\/[^?#\s]*/g, '/vote');
+  return url.replace(/\/(api\/trip-vote|vote)\/[^?#\s]*/g, '/$1');
 }

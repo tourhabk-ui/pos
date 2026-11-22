@@ -30,12 +30,14 @@ const GONE = 'Ссылка голосования не найдена или з�
 
 interface LinkRow { id: string; deadline_at: string; title: string; arrival_date: string | null; days: unknown }
 
+/** Ссылка читается до срока и ещё 3 дня после (группа видит итог), потом — 404; владелец видит итог в кабинете. */
 async function findLink(token: string): Promise<LinkRow | null> {
   if (!TOKEN_RE.test(token)) return null;
   const { rows } = await pool.query<LinkRow>(
     `SELECT l.id, l.deadline_at, t.title, t.arrival_date::text AS arrival_date, t.days
        FROM trip_vote_links l JOIN user_trips t ON t.id = l.trip_id
-      WHERE l.token_hash = $1 AND l.closed_at IS NULL AND t.deleted_at IS NULL`,
+      WHERE l.token_hash = $1 AND l.closed_at IS NULL AND t.deleted_at IS NULL
+        AND l.deadline_at > now() - interval '3 days'`,
     [hashToken(token)],
   );
   return rows[0] ?? null;

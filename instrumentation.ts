@@ -43,7 +43,7 @@ export async function onRequestError(
       // ключом в query. Та же чистка, что у ловушки ошибок браузера. Импорт
       // динамический по той же причине, что и у базы ниже: модуль тянет
       // node:crypto, которому не место в edge-бандле.
-      const { scrubErrorText } = await import('@/lib/client-errors/scrub');
+      const { scrubErrorText, pathOnly } = await import('@/lib/client-errors/scrub');
       // Без шаблона маршрута (routePath) маршрутом становится сырой адрес —
       // с query и сегментами, где бывает что угодно, включая ПД.
       const route = scrubErrorText(context?.routePath || (request?.path ?? '').split('?')[0], 200) || 'unknown';
@@ -61,7 +61,7 @@ export async function onRequestError(
       // и первые кадры стека, если они есть.
       // Путь чистится той же функцией: ключ заявки или почта в сегменте
       // адреса — не реже, чем в query.
-      const path = scrubErrorText((request?.path ?? '').split('?')[0], 200) || null;
+      const path = scrubErrorText(pathOnly(request?.path), 200) || null;
       const digest = typeof (err as { digest?: unknown })?.digest === 'string'
         ? ((err as { digest: string }).digest).slice(0, 64) : null;
       const frames = err instanceof Error && typeof err.stack === 'string'
