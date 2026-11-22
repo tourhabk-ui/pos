@@ -1,5 +1,5 @@
 /**
- * Ответ FAQ про SOS называет только проверенные номера (миграция 1113).
+ * Ответ FAQ про SOS называет только проверенные номера (1113, затем 1499).
  *
  * Миграция 106 записала в публичный FAQ «КМПСС (горноспасатели): +7 (914)
  * 782-22-22» — это телефон оператора «Камчатская рыбалка» (миграции 840/841,
@@ -15,7 +15,8 @@ import { join } from 'node:path';
 import { EMERGENCY_NUMBERS, VERIFIED_REGIONAL } from '@/lib/safety/emergency-numbers';
 
 const ROOT = process.cwd();
-const MIGRATION = readFileSync(join(ROOT, 'migrations/1113_faq_sos_answer_verified_numbers.sql'), 'utf-8');
+const FIRST_FIX = readFileSync(join(ROOT, 'migrations/1113_faq_sos_answer_verified_numbers.sql'), 'utf-8');
+const MIGRATION = readFileSync(join(ROOT, 'migrations/1499_cuks_phones_official_labels.sql'), 'utf-8');
 const ANSWER = MIGRATION.match(/SET answer = '([\s\S]*?)',\s*updated_at/)?.[1] ?? '';
 
 const digits = (s: string) => s.replace(/\D/g, '');
@@ -35,13 +36,14 @@ describe('FAQ «Что такое SOS-система на Камчатке?»', 
   it('каждый номер в ответе — из единого списка проверенных', () => {
     const known = new Set(EMERGENCY_NUMBERS.map((n) => digits(n.phone)));
     const found = phonesIn(ANSWER);
-    expect(found.length).toBeGreaterThanOrEqual(5);
+    expect(found.length).toBeGreaterThanOrEqual(4);
     for (const p of found) expect(known.has(digits(p)), `номер не из emergency-numbers: ${p}`).toBe(true);
   });
 
   it('112 и все проверенные линии МЧС Камчатки на месте', () => {
     expect(phonesIn(ANSWER).map(digits)).toContain('112');
     for (const n of VERIFIED_REGIONAL) expect(ANSWER).toContain(n.phone);
+    expect(ANSWER).not.toMatch(/30-10-91|20-01-12/);
   });
 
   it('ни номера рыбалки, ни непроверенного номера, ни обещания «уведомляются МЧС, КМПСС»', () => {
@@ -58,7 +60,8 @@ describe('FAQ «Что такое SOS-система на Камчатке?»', 
   });
 
   it('правится только строка с неверным номером — ручная правка не затирается', () => {
-    expect(MIGRATION).toMatch(/WHERE question = 'Что такое SOS-система на Камчатке\?'\s+AND answer LIKE '%782-22-22%';/);
+    expect(FIRST_FIX).toMatch(/WHERE question = 'Что такое SOS-система на Камчатке\?'\s+AND answer LIKE '%782-22-22%';/);
+    expect(MIGRATION).toMatch(/answer LIKE '%30-10-91%'/);
   });
 
   it('последующие миграции не возвращают номер рыбалки в FAQ', () => {

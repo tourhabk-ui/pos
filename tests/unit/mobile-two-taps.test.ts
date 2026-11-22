@@ -40,7 +40,17 @@ function bottomNavPaths(): string[] {
 /** Пути шапки: href в Header (и десктопная полоса, и значки). */
 function headerPaths(): string[] {
   const src = strip(read('components/layout/Header.tsx'));
-  return [...src.matchAll(/href[=:]\s*["']([^"']+)["']/g)].map(m => m[1]);
+  const paths = [...src.matchAll(/href[=:]\s*["']([^"']+)["']/g)].map(m => m[1]);
+  // SOS в шапке рендерится через EmergencyAction — его адреса тоже дорога
+  // с телефона. Офлайн-фолбэк той же кнопки открывает /emergency.
+  if (/EmergencyAction/.test(src)) {
+    const action = strip(read('components/shared/EmergencyAction.tsx'));
+    paths.push(...[...action.matchAll(/href[=:]\s*["']([^"']+)["']/g)].map(m => m[1]));
+    if (action.includes("'/emergency'") || action.includes('"/emergency"')) {
+      paths.push('/emergency');
+    }
+  }
+  return paths;
 }
 
 describe('1. две касания с телефона', () => {

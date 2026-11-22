@@ -591,6 +591,18 @@ export default function SosPage() {
             {sendStatus === 'queued' && 'Сохранено — отправим при появлении сети'}
             {sendStatus === 'error' && 'Ошибка — позвоните 112 напрямую'}
           </button>
+          <p style={{
+            margin: '8px 0 0',
+            fontSize: '11px',
+            lineHeight: 1.45,
+            color: 'rgba(255,255,255,0.45)',
+            textAlign: 'center',
+          }}>
+            Координаты, имя и телефон уйдут дежурным Ведара в Telegram — не в МЧС.{' '}
+            <a href="/legal/privacy" style={{ color: 'rgba(255,255,255,0.7)', textDecoration: 'underline' }}>
+              Как обрабатываем данные
+            </a>
+          </p>
 
           {/* SMS на 112 — есть всегда, с координатами и без них (21.11:
               кнопка появлялась только после того, как нашлись координаты, а

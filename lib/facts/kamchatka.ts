@@ -78,32 +78,37 @@ export const FEDERAL_EMERGENCY_NUMBERS = {
 } as const;
 
 /**
- * Телефоны ЦУКС и дежурной смены, которые названы на /safety.
- * 30-10-81 сверен по странице ГУ МЧС о регистрации групп (22.10.2026).
- * 30-10-89 и 20-01-12 — сверка владельца 17.07.2026; отдельного URL ведомства
- * в источниках страницы нет, выдумывать ссылку нельзя.
+ * Телефоны ЦУКС, которые названы на /safety и /emergency.
+ * 30-10-81 — страница ГУ МЧС о регистрации групп (повторная сверка 23.11.2026).
+ * 200-112 и 30-10-89 — FAQ ГУ МЧС «контактные данные в экстренной ситуации
+ * с туристами» (сверка 23.11.2026). Имя CUKS_DUTY_RESERVE_PHONE сохранено
+ * из-за импортов: это не «резерв», а номер старшего оперативного дежурного.
+ * Запись 20-01-12 — те же цифры, что 200-112; показываем официальный формат.
  */
+const MCHS_TOURIST_EMERGENCY_CONTACTS_URL =
+  'https://41.mchs.gov.ru/feedback_41/chasto-zadavaemye-voprosy/obespechenie-bezopasnosti-turisticheskih-grupp/kakie-kontaktnye-dannye-dlya-svyazi-v-sluchae-ekstrennoy-situacii-s-turistami-v-kamchatskom-krae';
+
 export const CUKS_CONSULT_PHONE: SourcedFact<'+7 (4152) 30-10-81'> = {
   value: '+7 (4152) 30-10-81',
   sourceUrl:
     'https://41.mchs.gov.ru/deyatelnost/poleznaya-informaciya/registraciya-turisticheskih-grupp',
-  checkedAt: '2026-10-22',
+  checkedAt: '2026-11-23',
   sourceLabel:
     'ЦУКС ГУ МЧС Камчатки — консультации по маршрутному листу и предупреждениям на маршруте',
 };
 
 export const CUKS_DUTY_PHONE: SourcedFact<'+7 (4152) 30-10-89'> = {
   value: '+7 (4152) 30-10-89',
-  sourceUrl: null,
-  checkedAt: '2026-07-17',
-  sourceLabel: 'МЧС Камчатки — оперативный дежурный (СОД); сверка владельца 17.07.2026',
+  sourceUrl: MCHS_TOURIST_EMERGENCY_CONTACTS_URL,
+  checkedAt: '2026-11-23',
+  sourceLabel: 'Начальник дежурной смены ЦУКС ГУ МЧС России по Камчатскому краю',
 };
 
-export const CUKS_DUTY_RESERVE_PHONE: SourcedFact<'+7 (4152) 20-01-12'> = {
-  value: '+7 (4152) 20-01-12',
-  sourceUrl: null,
-  checkedAt: '2026-07-17',
-  sourceLabel: 'МЧС Камчатки — оперативный дежурный, резерв (СОД); сверка владельца 17.07.2026',
+export const CUKS_DUTY_RESERVE_PHONE: SourcedFact<'+7 (4152) 200-112'> = {
+  value: '+7 (4152) 200-112',
+  sourceUrl: MCHS_TOURIST_EMERGENCY_CONTACTS_URL,
+  checkedAt: '2026-11-23',
+  sourceLabel: 'Старший оперативный дежурный ЦУКС МЧС России по Камчатскому краю',
 };
 
 const VISIT_FISH_URL = 'https://visitkamchatka.ru/activities/rybalka/';

@@ -93,11 +93,14 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     { url: `${BASE}/prepare`,             lastModified: new Date('2026-09-30'), changeFrequency: 'monthly', priority: 0.8 },
     // Сводка дня (аудит 01.10): живая, на неё ведут двадцать три страницы, а в
     // sitemap её не было. Собирается на каждый запрос (force-dynamic), поэтому
-    // дата — сегодняшняя. /emergency сюда НЕ внесена намеренно: сторож
-    // mobile-two-taps требует у каждой страницы sitemap ссылку в меню, а
-    // страница SOS открывается кнопкой в шапке — вторая дорога к тому же
-    // действию расходилась бы с ней поведением (§2, #887).
+    // дата — сегодняшняя.
     { url: `${BASE}/svodka`,               lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.85 },
+    // Экстренная помощь (23.11): /sos и статический /emergency должны быть
+    // в карте сайта. Дорога с телефона — кнопка SOS в шапке (EmergencyAction:
+    // href /sos, офлайн-фолбэк /emergency). /sos/relay — приём QR, noindex,
+    // в sitemap не идёт.
+    { url: `${BASE}/sos`,                  lastModified: new Date('2026-11-23'), changeFrequency: 'monthly', priority: 0.8 },
+    { url: `${BASE}/emergency`,            lastModified: new Date('2026-11-23'), changeFrequency: 'monthly', priority: 0.8 },
     // Погода (08.10): страница края и страницы мест — из одного списка
     // lib/weather/places, sitemap не разъезжается с роутом.
     { url: `${BASE}/weather`,              lastModified: new Date(),  changeFrequency: 'hourly',  priority: 0.85 },

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0a0a0a">
 <title>SOS — Экстренная помощь</title>
+<link rel="canonical" href="https://vedarai.ru/emergency">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html{height:100%}
@@ -56,6 +57,14 @@ body{
 .call-secondary .num{font-size:15px;font-weight:700;font-family:monospace}
 .call-secondary .name{font-size:11px;color:#9ca3af}
 .call-secondary:active{opacity:.75}
+.call-consult{
+  display:flex;align-items:center;justify-content:space-between;
+  background:#111;border:1px solid #2a2a2a;border-radius:12px;padding:13px 16px;
+  text-decoration:none;color:#fff;
+}
+.call-consult .num{font-size:15px;font-weight:700;font-family:monospace}
+.call-consult .name{font-size:11px;color:#9ca3af}
+.call-consult:active{opacity:.75}
 
 /* СИТУАЦИИ */
 .situations-label{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;margin-top:4px}
@@ -180,11 +189,11 @@ body{
   <div id="coverage-links" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;background:#0a1a0a;border:1px solid #1a3a1a">
     <div style="font-size:10px;color:#4d7a4d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px">Карты покрытия сотовой связи</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <a href="https://mts.ru/personal/mobile/coverage/" target="_blank" rel="noopener"
+      <a href="https://kamchatka.mts.ru/personal/podderzhka/zoni-obsluzhivaniya/nasha-set" target="_blank" rel="noopener"
          style="padding:7px 12px;border-radius:7px;border:1px solid #1a3a1a;background:#051a05;color:#86efac;font-size:12px;font-weight:700;text-decoration:none">МТС</a>
-      <a href="https://megafon.ru/help/coverage/" target="_blank" rel="noopener"
+      <a href="https://kamchatka.megafon.ru/help/offices/coverage/" target="_blank" rel="noopener"
          style="padding:7px 12px;border-radius:7px;border:1px solid #1a3a1a;background:#051a05;color:#86efac;font-size:12px;font-weight:700;text-decoration:none">Мегафон</a>
-      <a href="https://beeline.ru/customers/mobileinternet/coverage/" target="_blank" rel="noopener"
+      <a href="https://kamchatskiy-kr.beeline.ru/customers/beeline-map/" target="_blank" rel="noopener"
          style="padding:7px 12px;border-radius:7px;border:1px solid #1a3a1a;background:#051a05;color:#86efac;font-size:12px;font-weight:700;text-decoration:none">Билайн</a>
     </div>
   </div>
@@ -223,27 +232,27 @@ body{
     <svg width="20" height="20" fill="none" stroke="#9ca3af" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
   </a>
 
-  <!-- Региональные номера МЧС Камчатки — верифицированы владельцем 2026-07-17 -->
+  <!-- Региональные номера ЦУКС ГУ МЧС Камчатки — сверка 23.11.2026 по официальному FAQ -->
+  <a href="tel:+74152200112" class="call-secondary">
+    <div>
+      <div class="name">Старший оперативный дежурный ЦУКС МЧС</div>
+      <div class="num">+7 (4152) 200-112</div>
+    </div>
+    <svg width="20" height="20" fill="none" stroke="#9ca3af" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+  </a>
+
   <a href="tel:+74152301089" class="call-secondary">
     <div>
-      <div class="name">МЧС Камчатки — оперативный дежурный (СОД)</div>
+      <div class="name">Начальник дежурной смены ЦУКС</div>
       <div class="num">+7 (4152) 30-10-89</div>
     </div>
     <svg width="20" height="20" fill="none" stroke="#9ca3af" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
   </a>
 
-  <a href="tel:+74152200112" class="call-secondary">
+  <a href="tel:+74152301081" class="call-consult">
     <div>
-      <div class="name">МЧС Камчатки — оперативный дежурный, резерв</div>
-      <div class="num">+7 (4152) 20-01-12</div>
-    </div>
-    <svg width="20" height="20" fill="none" stroke="#9ca3af" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
-  </a>
-
-  <a href="tel:+74152301091" class="call-secondary">
-    <div>
-      <div class="name">МЧС Камчатки — начальник дежурной смены (НДС)</div>
-      <div class="num">+7 (4152) 30-10-91</div>
+      <div class="name">Регистрация тургрупп / консультации</div>
+      <div class="num">+7 (4152) 30-10-81</div>
     </div>
     <svg width="20" height="20" fill="none" stroke="#9ca3af" stroke-width="2.5" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
   </a>
