@@ -17,6 +17,7 @@
  */
 import { nightZoneOf, ZONE_NAMES, type ZoneId } from '@/lib/planner/constants';
 import { dateOfTripDay } from '@/lib/planner/flow-balance';
+import { nightLodgingIncluded } from '@/lib/planner/lodging-included';
 
 export interface NightDay {
   day: number;
@@ -24,7 +25,9 @@ export interface NightDay {
   zone: ZoneId;
   title: string;
   dayWarnings: string[];
-  realTour?: { lodgingIncluded: boolean | null } | null;
+  realTour?: { tourId: string; lodgingIncluded: boolean | null } | null;
+  realPrice?: number;
+  priceMissing?: string;
 }
 
 /** Сколько объектов жилья зоны на витрине. `null` — не прочиталось. */
@@ -63,7 +66,9 @@ export async function checkNights(days: NightDay[], countLodging: CountLodging, 
   const byZone = new Map<ZoneId, number[]>();
   for (const [i, d] of sorted.entries()) {
     if (d.type === 'departure') continue;
-    if (d.realTour?.lodgingIncluded === true) continue;
+    // Тур на N дней покрывает N−1 ночь: ночь после последнего дня — уже не
+    // его (то же правило, что у сметы и подбора жилья, Bugbot #3716).
+    if (nightLodgingIncluded(d, sorted[i + 1]) === true) continue;
     const zone = nightZoneOf(d, sorted[i + 1]);
     if (zone === 'avachinsky') continue;
     byZone.set(zone, [...(byZone.get(zone) ?? []), d.day]);

@@ -8,19 +8,23 @@ import { checkNights, nightGapLine, zoneLodgingCountSql } from '@/lib/planner/ni
 import { readFileSync } from 'node:fs';
 
 type D = Parameters<typeof checkNights>[0][number];
-const day = (n: number, type: string, zone: D['zone'], lodging: boolean | null = null): D =>
-  ({ day: n, type, zone, title: `День ${n}`, dayWarnings: [], realTour: lodging === null ? null : { lodgingIncluded: lodging } });
+const day = (n: number, type: string, zone: D['zone'], lodging: boolean | null = null, tourId = `t${n}`, first = true): D =>
+  ({ day: n, type, zone, title: `День ${n}`, dayWarnings: [], realTour: lodging === null ? null : { tourId, lodgingIncluded: lodging },
+    ...(lodging !== null && first ? { realPrice: 1000 } : {}) });
 
 describe('ночёвка вне Авачинской зоны', () => {
   it('жилья зоны нет — строка на ночах; ночь в туре с проживанием не считается', async () => {
-    const days = [day(1, 'arrival', 'avachinsky'), day(2, 'travel', 'avachinsky'), day(3, 'activity', 'western', false),
-      day(4, 'activity', 'western', true), day(5, 'travel', 'western'), day(6, 'departure', 'avachinsky')];
+    // Дни 3–4 — двухдневный тур с проживанием: ночь после дня 3 — в туре,
+    // после дня 4 (последнего) — уже нет.
+    const days = [day(1, 'arrival', 'avachinsky'), day(2, 'travel', 'avachinsky'), day(3, 'activity', 'western', true, 'tw'),
+      day(4, 'activity', 'western', true, 'tw', false), day(5, 'travel', 'western'), day(6, 'departure', 'avachinsky')];
     const asked: string[] = [];
     const gaps = await checkNights(days, async (z) => { asked.push(z); return 0; }, '2027-07-10');
     expect(asked).toEqual(['western']);
-    expect(gaps).toEqual([{ zone: 'western', days: [2, 3], kind: 'none' }]);
-    expect(days[1].dayWarnings[0]).toContain('Западная зона, ночи 11.07, 12.07 — жилья этой зоны на платформе нет');
-    expect(days[3].dayWarnings).toHaveLength(0);
+    expect(gaps).toEqual([{ zone: 'western', days: [2, 4], kind: 'none' }]);
+    expect(days[1].dayWarnings[0]).toContain('Западная зона, ночи 11.07, 13.07 — жилья этой зоны на платформе нет');
+    expect(days[2].dayWarnings).toHaveLength(0);
+    expect(days[3].dayWarnings).toHaveLength(1);
     // День переезда обратно ночует уже в Авачинской.
     expect(days[4].dayWarnings).toHaveLength(0);
   });
