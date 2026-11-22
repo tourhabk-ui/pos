@@ -27,6 +27,7 @@
  */
 
 import { VERIFIED_REFERENCE, VERIFIED_REGIONAL } from '@/lib/safety/emergency-numbers';
+import { MCHS_REGISTRATION_LEAD } from '@/lib/facts/kamchatka';
 
 /** Источник фактов. Пересказ не годится: цитируем ведомство. */
 export const MCHS_SOURCE = {
@@ -43,7 +44,7 @@ export const MCHS_SOURCE = {
    * с ней 10.11.2026 — по аудиту владельца прежний список был короче бланка.
    * Телефоны с ней НЕ сверяются: они берутся из реестра проверенных номеров.
    */
-  memoUrl: 'https://41.mchs.gov.ru/uploads/resource/2024-06-13/registraciya-turisticheskih-grupp_1718249913116706118.pdf',
+  memoUrl: MCHS_REGISTRATION_LEAD.memoUrl,
 } as const;
 
 /**
@@ -52,10 +53,9 @@ export const MCHS_SOURCE = {
  * Именно рабочих, а не календарных: подача в пятницу перед десятидневным
  * выходом — это не десять дней, а шесть.
  */
-export const MCHS_LEAD_WORKING_DAYS = 10;
+export const MCHS_LEAD_WORKING_DAYS = MCHS_REGISTRATION_LEAD.value;
 
-export const MCHS_ONLINE_FORM_URL =
-  'https://forms.mchs.gov.ru/registration_tourist_groups/form';
+export const MCHS_ONLINE_FORM_URL = MCHS_REGISTRATION_LEAD.formUrl;
 
 export interface MchsChannel {
   key: 'online' | 'post' | 'in_person';

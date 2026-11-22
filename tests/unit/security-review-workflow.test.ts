@@ -809,7 +809,7 @@ describe('платное ревью — только где ошибка сто�
     ],
     'тексты, страницы, переводы, оформление': [
       'articles', 'blog', 'calendar', 'chronicle', 'currency', 'dates', 'docs', 'fish', 'help', 'html', 'http', 'hub', 'i18n', 'landings', 'layout',
-      'partner-sites', 'seo', 'text', 'ui', 'utils', 'zh', 'share.ts', 'text-links.ts', 'theme.ts',
+      'partner-sites', 'seo', 'facts', 'text', 'ui', 'utils', 'zh', 'share.ts', 'text-links.ts', 'theme.ts',
     ],
     'снимки и видео': ['images', 'media'],
     'журналы, переписи, качество кода': [

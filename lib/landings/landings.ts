@@ -20,6 +20,7 @@ import { LANDING_TEXTS_BATCH2 } from '@/lib/landings/texts-batch2';
 import { LANDING_TEXTS_BATCH3 } from '@/lib/landings/texts-batch3';
 import { LANDING_TEXTS_BATCH4 } from '@/lib/landings/texts-batch4';
 import { LANDING_TEXTS_HUBS } from '@/lib/landings/texts-hubs';
+export { LANDINGS_WITH_VOLCANO_HEIGHTS } from '@/lib/facts/kamchatka';
 
 /** Какие туры показывает блок страницы. */
 export type LandingTourSpec =
