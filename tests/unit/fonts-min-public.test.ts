@@ -52,13 +52,13 @@ describe('каталог и карточка тура', () => {
 });
 
 describe('общие публичные подписи и парк (аудит 23.11)', () => {
-  it('подвал, шапка, гид и карточки маршрутов парка — не мельче 12px', () => {
+  it('подвал, гид и карточки маршрутов парка — не мельче 12px', () => {
+    // «Камчатка» в шапке намеренно 11px на узком экране (header-over-photo,
+    // 360–430px): иначе второе слово не помещается в ссылку логотипа.
     const footer = read('components/layout/Footer.tsx');
-    const header = read('components/layout/Header.tsx');
     const guide = read('components/landings/KamchatkaGuide.tsx');
     const park = read('app/park/[slug]/_ParkClient.tsx');
     expect(footer).not.toMatch(/text-\[1[01]px\]/);
-    expect(header).not.toMatch(/text-\[1[01]px\]/);
     expect(guide).not.toMatch(/text-\[1[01]px\]/);
     expect(park).not.toMatch(/fontSize:\s*1[01]\b/);
   });

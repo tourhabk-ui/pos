@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   title: PERMIT_GUIDE_TITLE,
   description: PERMIT_GUIDE_DESCRIPTION,
   alternates: { canonical: `${SITE}${PERMIT_GUIDE_PATH}` },
-  openGraph: { url: `${SITE}${PERMIT_GUIDE_PATH}`, title: `${PERMIT_GUIDE_TITLE} | Ведар`, description: PERMIT_GUIDE_DESCRIPTION, images: defaultOgImages(), type: 'article', siteName: 'Ведар', locale: 'ru_RU' },
+  openGraph: { url: `${SITE}${PERMIT_GUIDE_PATH}`, title: PERMIT_GUIDE_TITLE, description: PERMIT_GUIDE_DESCRIPTION, images: defaultOgImages(), type: 'article', siteName: 'Ведар', locale: 'ru_RU' },
   robots: { index: true, follow: true },
 };
 
