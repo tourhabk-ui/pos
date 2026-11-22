@@ -90,6 +90,30 @@ describe('зона сводки — та, что записала лента', (
   });
 });
 
+describe('запись-умолчание ленты не прячет извержение (ревью #3749)', () => {
+  // Разбор КБГС РАН не узнаёт родительный падеж и пишет ['avachinsky'] по умолчанию.
+  const ERUPT: AlertWarningRow = {
+    ...KLYUCH, title: 'Извержение вулкана Ключевского, пепловый выброс до 7000 м',
+    volcano_name: 'Ключевского', external_id: 'kbgs/2026-11-22/e1', affected_zones: ['avachinsky'],
+  };
+
+  it('извержение «Ключевского» с зоной-умолчанием остаётся в северном плане', () => {
+    expect(alertTouchesPlanZones(['avachinsky'], 'Ключевского', ['northern'])).toBe(true);
+    const ws = warningsFromRows([ERUPT], NOW);
+    expect(warningsForPlanZones(ws, ['northern'])).toHaveLength(1);
+  });
+
+  it('запись-умолчание с неузнанным именем — не знаем, показываем; знание мимо плана — прячем', () => {
+    expect(alertTouchesPlanZones(['avachinsky'], 'Неизвестная сопка', ['northern'])).toBe(true);
+    expect(alertTouchesPlanZones(['western'], 'Неизвестная сопка', ['northern'])).toBe(false);
+  });
+
+  it('шапка /trip северного плана берёт такое извержение', () => {
+    const payload = { data: { hasAlert: true, topTitle: ERUPT.title, topZones: ['avachinsky'], feedTitles: [], feedZones: [] } };
+    expect(planHeaderStatus(payload, ['northern'])).toEqual({ title: ERUPT.title, hasAlert: true });
+  });
+});
+
 describe('правка дат судит сводки так же, как первая сборка плана', () => {
   it('сводка о чужом вулкане в итог правки не попадает, дорога зоны — попадает', async () => {
     const ws = warningsFromRows([ROAD, KLYUCH], NOW);
@@ -115,7 +139,8 @@ describe('шапка /trip: тревога остаётся тревогой', (
   });
 
   it('совпадения нет — значок тревоги и честные слова, не зелёная галочка', () => {
-    const payload = { data: { hasAlert: true, topTitle: quake, topZones: ['northern'], feedTitles: [], feedZones: [] } };
+    const offshore = 'Землетрясение ML 5.1 у побережья';
+    const payload = { data: { hasAlert: true, topTitle: offshore, topZones: ['northern'], feedTitles: [], feedZones: [] } };
     expect(planHeaderStatus(payload, ['avachinsky'])).toEqual({ title: PLAN_HEADER_NO_MATCH, hasAlert: true });
   });
 

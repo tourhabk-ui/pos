@@ -81,8 +81,25 @@ export function planAlertZones(planZones: readonly string[]): string[] {
 }
 
 /**
- * Касается ли сводка зон плана. Записанные лентой зоны — первыми; их нет —
- * название места (`placeTouchesZones`, с его «не знаем — показываем»).
+ * Одна «Авачинская» в записи ленты бывает не знанием, а умолчанием: разбор
+ * КБГС РАН (`classifyMessage`, `seismic-parser.ts`) ищет зону вулкана по
+ * имени в именительном падеже, а в посте стоит родительный («извержение
+ * вулкана Ключевского») — ключа нет, и пишется `['avachinsky']`. Ревью
+ * безопасности #3749, 22.11.
+ */
+function mayBeDefaultZones(recorded: readonly string[] | null | undefined): boolean {
+  return Array.isArray(recorded) && recorded.length === 1 && recorded[0] === 'avachinsky';
+}
+
+/**
+ * Касается ли сводка зон плана. Касается, если её задевает хоть одно из двух:
+ * зона, записанная лентой, или зона по названию места. Запись и имя
+ * складываются, а не спорят: запись не прячет того, что узнаёт имя
+ * (извержение «Ключевского» с умолчанием `['avachinsky']` — Северной), имя не
+ * прячет того, что записала лента (дорога до Усть-Большерецка — и на
+ * Авачинской). Зон нет — судит имя, с его «не знаем — показываем»
+ * (`placeTouchesZones`). Записанные зоны мимо плана, а имя не узнано —
+ * сводку прячем, кроме записи-умолчания: о ней мы на деле не знаем ничего.
  */
 export function alertTouchesPlanZones(
   recorded: readonly string[] | null | undefined,
@@ -91,7 +108,11 @@ export function alertTouchesPlanZones(
 ): boolean {
   const plan = planAlertZones(planZones);
   const zones = recordedPlanZones(recorded);
-  return zones ? zones.some((z) => plan.includes(z)) : placeTouchesZones(label, plan);
+  if (!zones) return placeTouchesZones(label, plan);
+  if (zones.some((z) => plan.includes(z))) return true;
+  const byName = placeZones(label);
+  if (byName.length > 0) return byName.some((z) => plan.includes(z));
+  return mayBeDefaultZones(recorded);
 }
 
 /** Шапка /trip: по краю сводки есть, ни одна не названа для зон плана. */
