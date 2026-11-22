@@ -56,6 +56,16 @@ export function roadLegRu(e: { km: number; hours: number }): string {
   return `${Math.round(e.km)} км, ${hoursRu(e.hours)} по дороге в одну сторону (оценка по нашему дорожному графу)`;
 }
 
+/**
+ * Строка дня: сколько ехать до места тура и что о сезонности дороги мы не
+ * знаем (п. 4 аудита 22.11). Сезонные ограничения — только из официальных
+ * сообщений с датой; они приходят на день тревогами о дорогах, если есть.
+ * Своей таблицы зимников и перевалов без источника план не заводит.
+ */
+export function roadDayLine(e: { km: number; hours: number }): string {
+  return `Дорога до места от Петропавловска: ${roadLegRu(e)}. Сезонных ограничений этой дороги (зимник, перевал, закрытие) в официальных источниках у нас нет — проверьте перед выездом у оператора.`;
+}
+
 /** Однодневным днём не успеть. */
 export function tooFarForDayTrip(e: RoadEstimate): e is { kind: 'road'; km: number; hours: number } {
   return e.kind === 'road' && e.hours > DAY_TRIP_MAX_ROAD_HOURS;

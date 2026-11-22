@@ -50,9 +50,11 @@ import { calculatePriceBreakdown, type PriceBreakdown } from '@/lib/planner/esti
 import { tourPlanSpan, tourRoom } from '@/lib/planner/tour-span';
 import {
   ROAD_CHECK_MIN_KM, tooFarForDayTrip, farDayTourLine, farDayTourReason, noRoadLine, roadUnreadLine,
-  pointUnknownLine, adjacentToursLine, isAirTour, type RoadEstimate,
+  pointUnknownLine, adjacentToursLine, isAirTour, roadDayLine, type RoadEstimate,
 } from '@/lib/planner/road-reach';
 import { roadEstimate } from '@/lib/planner/road-hours';
+import { checkNights, nightGapLine, zoneLodgingCountSql } from '@/lib/planner/night-check';
+import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { distanceKm as straightKm } from '@/lib/geo/kamchatka';
 import { capacityWarningFor } from '@/lib/planner/tour-day-reread';
 import { withGroupMinimum } from '@/lib/planner/group-minimum';
@@ -1298,6 +1300,8 @@ async function generateDayPlans(
   const farTourLines = new Map<string, string>();
   const noRoadTours = new Map<string, string>();
   const roadUnreadTours = new Map<string, string>();
+  /** Дорога до места тура, что остался в плане: строка дня с «оценкой». */
+  const roadOfTour = new Map<string, { km: number; hours: number }>();
   /**
    * Однодневный тур Авачинской зоны с точкой дальше ROAD_CHECK_MIN_KM от
    * Петропавловска: сколько до него ехать по дороге. Дальше порога в одну
@@ -1518,6 +1522,7 @@ async function generateDayPlans(
         const kept: RealTour[] = [];
         for (const t of tours) {
           const road = await roadFromBase(t);
+          if (road?.kind === 'road' && !tooFarForDayTrip(road)) roadOfTour.set(t.tourId, road);
           if (road && tooFarForDayTrip(road)) {
             farTourLines.set(t.tourId, farDayTourLine(t.title, road));
             missFor(interest, farDayTourReason(t.title, road));
@@ -2103,7 +2108,9 @@ async function generateDayPlans(
         childFriendly: childOk,
         minChildAge: c.minChildAge,
         // Минимум группы тура (E3): группа меньше — «нужен набор группы».
-        dayWarnings: withGroupMinimum(dayWarnings, realTour?.minParticipants, groupSize(profile)),
+        dayWarnings: withGroupMinimum(
+          realTour && roadOfTour.has(realTour.tourId) ? [...dayWarnings, roadDayLine(roadOfTour.get(realTour.tourId)!)] : dayWarnings,
+          realTour?.minParticipants, groupSize(profile)),
         activityMode: activityMode({ realTour, route }),
         ...(route ? { routeId: route.id } : {}),
         ...(realTour && realTour.coordsKnown === false ? { pointUnknown: true } : {}),
@@ -2647,6 +2654,17 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   const days = honest.days;
   // Соседние туры далеко друг от друга (аудит дорог 22.11, п. 5).
   await markFarAdjacentTours(days);
+  // Ночь вне Авачинской зоны без тура с проживанием — только там, где на
+  // платформе есть жильё зоны (аудит дорог 22.11, п. 3). Живой счёт.
+  const nightGaps = await checkNights(days, async (zone) => {
+    try {
+      const { rows } = await pool.query<{ n: number }>(zoneLodgingCountSql(publicAccommodationSql('a')), [zone]);
+      return Number(rows[0]?.n ?? 0);
+    } catch (err) {
+      console.error('[planner] жильё зоны не прочиталось:', err instanceof Error ? err.message : String(err));
+      return null;
+    }
+  }, profile.arrivalDate ?? null);
   const plannedZones = new Set<ZoneId>(days.map((d) => d.zone));
   const warnings = collectWarnings(profile, zones, tripDays, alerts, season, plannedZones, days.some((d) => d.type === 'buffer'),
     days.some((d) => d.type === 'activity' && d.defaultTransport === 'helicopter'),
@@ -2808,6 +2826,9 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   }
   if ((roadNotes?.unread ?? []).length > 0) {
     warnings.push({ type: 'zone_days', severity: 'important', message: roadUnreadLine(roadNotes!.unread) });
+  }
+  for (const g of nightGaps) {
+    warnings.push({ type: 'zone_days', severity: 'important', message: nightGapLine(g, profile.arrivalDate ?? null) });
   }
   const pointless = [...new Set(days.filter((d) => d.pointUnknown && d.realTour).map((d) => d.title.replace(/ — день \d+ из \d+$/, '')))];
   if (pointless.length > 0) {
