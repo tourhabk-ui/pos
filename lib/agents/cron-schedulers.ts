@@ -298,6 +298,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'routes-dedup':              { kind: 'manual', writes: true,  note: 'схлопывание дублей маршрутов' },
   'routes-unmerge':            { kind: 'manual', writes: false, note: 'откат схлопывания' },
   'route-permit-census':       { kind: 'manual', writes: false, note: 'перепись условий посещения территорий по маршрутам' },
+  'park-scope-census':         { kind: 'manual', writes: false, note: 'каким путём закрытие парка доходит до места: места «в парке» только через проходящий маршрут (без имени и контура), маршруты-причины и цвет карточки; разбор мест и маршрутов по slug. Заведена 22.11 по слову владельца «1 да» (#3487, Халактырский пляж). Пути — те же PARK_PATHS, что у правила закрытия' },
   'tour-tracks-census':        { kind: 'manual', writes: false, note: 'перепись треков у туров' },
   'track-attachment-audit':    { kind: 'manual', writes: false, note: 'разбор привязки треков' },
   'verdict-census':            { kind: 'manual', writes: false, note: 'перепись вердиктов' },
