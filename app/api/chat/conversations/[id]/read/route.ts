@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth/middleware';
 import { chatService } from '@/lib/services/operators/chat.service';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,8 +29,9 @@ export async function POST(
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    logSwallowedFailure('chat/read', 'отметка прочтения', error);
     return NextResponse.json(
-      { success: false, error: 'Ошибка отметки прочтения', details: error instanceof Error ? error.message : 'Unknown' },
+      { success: false, error: 'Ошибка отметки прочтения' },
       { status: 500 }
     );
   }

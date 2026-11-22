@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth/middleware';
 import { chatService } from '@/lib/services/operators/chat.service';
+import { logSwallowedFailure } from '@/lib/observability/swallowed';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,8 +25,9 @@ export async function GET(request: NextRequest) {
       data: { total, perConversation },
     });
   } catch (error) {
+    logSwallowedFailure('chat/unread', 'счёт непрочитанных', error);
     return NextResponse.json(
-      { success: false, error: 'Ошибка загрузки непрочитанных', details: error instanceof Error ? error.message : 'Unknown' },
+      { success: false, error: 'Ошибка загрузки непрочитанных' },
       { status: 500 }
     );
   }
