@@ -41,6 +41,19 @@ const signed = (t: number) => {
   return r > 0 ? `+${r}` : String(r);
 };
 
+/**
+ * Что взять — закрытый список вещей строки дня. Общий блок плана сводит
+ * советы всех дней в одну строку по этим вещам (слово владельца 22.11:
+ * «совет по одежде один раз»).
+ */
+export const KIT_ITEMS = [
+  'непромокаемую обувь и гамаши от снега',
+  'дождевик и непромокаемую обувь',
+  'ветрозащитную куртку',
+  'тёплый слой — флис или пуховку, шапку и перчатки',
+  'солнцезащитный крем, очки и головной убор',
+] as const;
+
 /** Строка дня или null, если строить её не из чего. */
 export function weatherKitLine(fc: KitForecast, activityType?: string | null): string | null {
   const values = [fc.tempMax, fc.tempMin, fc.precipMm, fc.windKmh, fc.code];
@@ -55,10 +68,10 @@ export function weatherKitLine(fc: KitForecast, activityType?: string | null): s
   ].filter(Boolean);
 
   const take: string[] = [];
-  if (fc.precipMm >= 1) take.push(SNOW(fc.code) ? 'непромокаемую обувь и гамаши от снега' : 'дождевик и непромокаемую обувь');
-  if (windMs >= 10) take.push('ветрозащитную куртку');
-  if (fc.tempMin <= 5) take.push('тёплый слой — флис или пуховку, шапку и перчатки');
-  if (fc.tempMax >= 20 && CLEAR(fc.code)) take.push('солнцезащитный крем, очки и головной убор');
+  if (fc.precipMm >= 1) take.push(SNOW(fc.code) ? KIT_ITEMS[0] : KIT_ITEMS[1]);
+  if (windMs >= 10) take.push(KIT_ITEMS[2]);
+  if (fc.tempMin <= 5) take.push(KIT_ITEMS[3]);
+  if (fc.tempMax >= 20 && CLEAR(fc.code)) take.push(KIT_ITEMS[4]);
 
   let line = `Прогноз для зоны дня: ${facts.join(', ')}.`;
   if (take.length > 0) line += ` Возьмите ${take.join(', ')}.`;

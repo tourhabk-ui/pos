@@ -165,7 +165,9 @@ describe('formatTripPlanForChat', () => {
     // Цена выбранного тура — одна, без «от» (#3487).
     expect(text).toMatch(/День 1\. Авачинский вулкан — 8.500.₽/);
     expect(text).toContain('День 2. Паратунка');
-    expect(text).toContain('Важно:\n- Сентябрь');
+    // Один раздел «Безопасность и разрешения», без «Важно» (22.11).
+    expect(text).toContain('Безопасность и разрешения:\n- Сентябрь');
+    expect(text).not.toContain('Важно:');
     expect(text).toContain('/plans/kamchatka-za-7-dney-vulkany');
     expect(text).toContain('/planner');
   });

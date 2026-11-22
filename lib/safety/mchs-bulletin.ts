@@ -9,6 +9,7 @@
 import { kamchatkaDate, shiftDate } from '@/lib/analytics/kamchatka-day';
 import { UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety/alert-horizon';
 import { alertOrigin } from '@/lib/safety/alert-origin';
+import { placeTouchesZones, placeZones } from '@/lib/safety/place-zones';
 
 export interface BulletinPeriod {
   /** Как в сводке, без года, если источник год не написал: «06:00 24.10–06:00 25.10». */
@@ -456,25 +457,22 @@ export function notesForOffering(text: string, warnings: readonly ActiveWarning[
   return warnings.filter((w) => offeringMatches(text, w)).map(offeringSentence);
 }
 
-/**
- * Зона планера, только если место предупреждения уже привязано к ней
- * картой округов и вулканов. Нет привязки — пусто, зону не угадываем.
- * Ключи совпадают с VOLCANO_ZONES и округами в seismic-parser.
- */
-const PLAN_ZONE_BY_PLACE: Array<[RegExp, string]> = [
-  [/шивелуч|ключевск|безымянн|толбачик|усть-камчатск|мильков/, 'northern'],
-  [/крашенинников|карымск|кроноцк/, 'eastern'],
-  [/авачинск|корякск|мутновск|горелый|вилючинск|елизов|петропавловск/, 'avachinsky'],
-  [/ичинск|усть-большерецк|левашов|соболев|быстринск/, 'western'],
-];
-
 function plannerZones(warning: ActiveWarning): string[] {
-  const place = warning.place.toLowerCase().replace(/ё/g, 'е');
-  const zones = new Set<string>();
-  for (const [re, zone] of PLAN_ZONE_BY_PLACE) {
-    if (re.test(place)) zones.add(zone);
-  }
-  return [...zones];
+  return placeZones(warning.place);
+}
+
+/**
+ * Сводки, которые касаются зон плана (слово владельца 22.11): вулкан или
+ * дорога чужой зоны в «Безопасность и разрешения» плана не идут. Место без
+ * привязки к зоне остаётся — зону не угадываем и сводку не прячем.
+ */
+export function warningsForPlanZones<W extends Pick<ActiveWarning, 'place'>>(
+  warnings: readonly W[],
+  zones: readonly string[],
+  /** Строки дней плана: место, названное в программе дня, остаётся всегда. */
+  dayNotes: readonly string[] = [],
+): W[] {
+  return warnings.filter((w) => placeTouchesZones(w.place, zones) || dayNotes.some((n) => n.includes(w.place)));
 }
 
 /**

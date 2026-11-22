@@ -27,11 +27,11 @@ import { tourKeepsSchedule } from '@/lib/seat-requests/service';
 import {
   applyPlanEdit, planPrice, planEstimate, type PlanEdit, type PlanParams, type RereadTour, type TouchedTour,
 } from '@/lib/planner/plan-edit';
-import { estimateGroup, unpricedTail, type GroupEstimate } from '@/lib/planner/estimate';
+import { countedLine, estimateGroup, unpricedTail, type GroupEstimate } from '@/lib/planner/estimate';
 import { priceWithUnitWords } from '@/lib/tours/price-label';
 import { kamchatkaStamp } from '@/lib/safety/place-day-status';
 import { kamchatkaDate } from '@/lib/analytics/kamchatka-day';
-import { dayCardWarning, runLabel, SAFETY_BLOCK_TITLE, shortWeather, tourRuns } from '@/lib/planner/day-card-view';
+import { dayCardWarning, PLAN_SHAPE_TYPES, runLabel, SAFETY_BLOCK_TITLE, safetyBlock, safetyItemText, shortWeather, tourRuns } from '@/lib/planner/day-card-view';
 import { saveDraft, loadDraft, updateDraft, isDraftId, type DraftSurface } from '@/lib/planner/plan-drafts';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { parsePlanStart, rangeDays, planStartRefusal, type PlanStart } from '@/lib/kuzmich/plan-start';
@@ -707,6 +707,8 @@ export function formatPlanPrice(pb: PriceBreakdown, planned: boolean, group?: Gr
       if (group.people > 1) {
         lines.push(`На человека: ${range(group.perPerson)} — итог на группу, делённый на ${group.people} чел., как в планировщике.`);
       }
+      // «Посчитано X из Y позиций» — та же строка, что на экране и в PDF (22.11).
+      lines.push(`${countedLine(group.lines)}.`);
     } else {
       // Ни у одной строки нет суммы — итога нет, а не «0 ₽» (смета-2).
       lines.push('Итог не посчитан: ни у одной строки сметы нет цены — суммы назовут операторы, хозяева жилья и перевозчики по заявке.');
@@ -901,6 +903,20 @@ export function planWarningLines(rec: {
 }
 
 /**
+ * Строки плана, разделённые на «о самом плане» (сроки, сезон, зона не вошла,
+ * тур не поместился — PLAN_SHAPE_TYPES и просьбы туриста) и безопасность.
+ * Текст плана в чате ставит первые под днями без заголовка, вторые — в
+ * единственный раздел «Безопасность и разрешения» (слово владельца 22.11:
+ * второго раздела «Важно» нет).
+ */
+export function planWarningParts(rec: Parameters<typeof planWarningLines>[0]): { plan: string[]; safety: string[] } {
+  const shape = new Set(rec.warnings.filter((w) => PLAN_SHAPE_TYPES.has(w.type)).map((w) => w.message));
+  for (const n of rec.preferences?.notes ?? []) if (n.status !== 'honoured') shape.add(n.message);
+  const all = planWarningLines(rec);
+  return { plan: all.filter((m) => shape.has(m)), safety: all.filter((m) => !shape.has(m)) };
+}
+
+/**
  * Строки сметы плана и сразу под ними — допущение счёта у местного
  * (`home_nights`: «проживания в Авачинской зоне в смете нет»). Допущение — про
  * смету: без него цена плана читается как полный счёт, а последней
@@ -920,17 +936,14 @@ function calendarOf(keeps: boolean | null | undefined): TourCalendar | undefined
   return keeps === true ? 'dated' : keeps === false ? 'request' : undefined;
 }
 
-/** «дни 1–5, 8» — номера дней строки блока безопасности. */
-function daysShort(days: readonly number[]): string {
-  const sorted = [...new Set(days)].sort((a, b) => a - b);
-  const parts: string[] = [];
-  for (let i = 0; i < sorted.length; i++) {
-    let j = i;
-    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++;
-    parts.push(j > i ? `${sorted[i]}–${sorted[j]}` : String(sorted[i]));
-    i = j;
-  }
-  return `${sorted.length > 1 ? 'дни' : 'день'} ${parts.join(', ')}`;
+/**
+ * Строка дня о вулкане или дороге, место которой уже названо в строках плана
+ * (сводка МЧС одной строкой): в блоке второй раз не пишется (22.11).
+ */
+function offeringPlaceSaid(text: string, said: string): boolean {
+  const m = /о вулкане ([^:]+):/.exec(text) ?? /вулкан (.+?) назван/.exec(text) ?? /проезд — ([^(.;—]+)/.exec(text);
+  const place = m?.[1]?.trim().toLowerCase().replace(/ё/g, 'е');
+  return Boolean(place) && said.includes(place!);
 }
 
 /** План по дням → текст для чата (Telegram/MAX/веб). Чистая, под тестом. */
@@ -949,8 +962,10 @@ export function formatTripPlanForChat(
     arrivalIso?: string;
     /** Ведёт ли тур расписание — по ID, для дней с туром без свободных дат. */
     keepsSchedule?: ReadonlyMap<string, boolean | null>;
-    /** Цена плана словами (formatPlanPrice) — под днями, до «Важно». */
+    /** Цена плана словами (formatPlanPrice) — под днями, до «Безопасность и разрешения». */
     priceLines?: string[];
+    /** Строки о самом плане (planWarningParts.plan) — под днями, без заголовка. */
+    planNotes?: string[];
   },
 ): string {
   if (days.length === 0) {
@@ -971,12 +986,9 @@ export function formatTripPlanForChat(
   let prevDay = 0;
   // Многодневный тур — одним блоком «Дни 1–5» (кейс владельца 21.11).
   const runs = tourRuns(days);
-  // Строки дней, не вставшие на день, — один раз в «Безопасность и разрешения».
-  const daySafety = new Map<string, number[]>();
   for (const d of days) {
     const run = runs.get(d.day);
     if (run && run.first !== d.day) {
-      for (const w of (d.dayWarnings ?? []).filter(Boolean)) daySafety.set(w, [...(daySafety.get(w) ?? []), d.day]);
       prevDay = d.day;
       continue;
     }
@@ -1016,33 +1028,37 @@ export function formatTripPlanForChat(
     // С 21.11 (слово владельца): на дне — не больше одной короткой строки и
     // только о месте из его программы; всё остальное — один раз, без
     // повторов, в «Безопасность и разрешения» под планом. Ничего не теряется.
-    const dayWarn = (d.dayWarnings ?? []).filter(Boolean);
     const onDay = dayCardWarning(d);
     if (onDay) lines.push(`   ! ${onDay}`);
-    for (const w of dayWarn) daySafety.set(w, [...(daySafety.get(w) ?? []), d.day]);
-    // Погода — коротко; совет по одежде — в общем блоке.
+    // Погода — коротко; совет по одежде — один раз в общем блоке.
     const weather = shortWeather(d);
     if (weather) lines.push(`   Погода: ${weather}`);
-    const kit = d.weatherKit ? /Возьмите [^.]+\./.exec(d.weatherKit)?.[0] : null;
-    if (kit) daySafety.set(`Одежда по прогнозу: ${kit.replace(/^Возьмите /, 'возьмите ')}`, [...(daySafety.get(`Одежда по прогнозу: ${kit.replace(/^Возьмите /, 'возьмите ')}`) ?? []), d.day]);
     // Метка пункта — последней строкой дня: над ней цена, места и
     // предупреждения, из которых она выведена.
     const status = statusOf(d);
     if (status) lines.push(`   Статус: ${PLAN_ITEM_STATUS[status].label}`);
   }
   if (unchecked) lines.push('', unchecked);
+  if (context?.planNotes && context.planNotes.length > 0) lines.push('', ...context.planNotes);
   if (context?.priceLines && context.priceLines.length > 0) {
     lines.push('', ...context.priceLines);
   }
-  if (daySafety.size > 0) {
-    // Сводки МЧС — первыми: у агента MCP планировщика нет (разбор 14.11).
-    const entries = [...daySafety].sort(([a], [b]) => Number(isOfferingNote(b)) - Number(isOfferingNote(a)));
-    lines.push('', `${SAFETY_BLOCK_TITLE}:`, ...entries.map(([w, ds]) => `- ${w} (${daysShort(ds)})`));
-  }
-  if (warnings.length > 0) {
+  // Один раздел «Безопасность и разрешения» (слово владельца 22.11): строки
+  // плана (критичное и сводка МЧС — первыми, потолок WARNINGS_SHOWN), затем
+  // строки дней с номерами дней и совет по одежде — каждая один раз. Строка
+  // дня о вулкане, который уже назван в сводке плана, второй раз не пишется:
+  // на самом дне она стоит («! …»).
+  const planSafety = warnings.slice(0, WARNINGS_SHOWN);
+  const said = planSafety.join(' ').toLowerCase().replace(/ё/g, 'е');
+  const fromDays = safetyBlock(days, [])
+    .filter((it) => !(isOfferingNote(it.text) && offeringPlaceSaid(it.text, said)))
+    .sort((a, b) => Number(isOfferingNote(b.text)) - Number(isOfferingNote(a.text)));
+  const seen = new Set(planSafety.map((w) => w.trim()));
+  const dayLines = fromDays.filter((it) => !seen.has(it.text.trim())).map((it) => `- ${safetyItemText(it)}`);
+  if (planSafety.length > 0 || dayLines.length > 0) {
+    lines.push('', `${SAFETY_BLOCK_TITLE}:`, ...planSafety.map((w) => `- ${w}`), ...dayLines);
     // Без молчаливого потолка: прежний slice(0, 2) отрезал третье и
     // дальше, включая безопасность (проверка MCP 29.09).
-    lines.push('', 'Важно:', ...warnings.slice(0, WARNINGS_SHOWN).map((w) => `- ${w}`));
     if (warnings.length > WARNINGS_SHOWN) lines.push(`…и ещё ${warnings.length - WARNINGS_SHOWN} — в планировщике`);
   }
   lines.push('');
@@ -1156,15 +1172,17 @@ export async function makeTripPlanForKuzmich(
   const month = arrival.getUTCMonth() + 1;
   const plannedFor = plannedForLabel(arrival);
 
+  const parts = planWarningParts(rec);
   const text = formatTripPlanForChat(
     rec.days,
-    planWarningLines(rec),
+    parts.safety,
     // Образец собран на двоих взрослых — семье с детьми он показал бы занятия
     // не по возрасту (#3199, M8).
     kids.children.length > 0 ? null : matchPreset(daysNum, interests, PLAN_PRESETS, month),
     {
       refusal: buildRefusal(month, interests, SITE, rec.catalogueOpen, rec.childBlocked ?? []), plannedFor,
       arrivalIso: arrival.toISOString().slice(0, 10), keepsSchedule,
+      planNotes: parts.plan,
       priceLines: planPriceLines(
         formatPlanPrice(rec.priceBreakdown, rec.days.length > 0,
           estimateGroup(rec.days, { adults: group.adults, children: kids.children, budgetTier: budget.tier })),

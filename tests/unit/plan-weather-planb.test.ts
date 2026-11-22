@@ -107,7 +107,8 @@ describe('B-5: погода в дне плана — вызовом роута',
   });
 
   it('клиент показывает прогноз и подсвечивает плохую погоду warning-цветом', () => {
-    expect(SHARE_UI).toMatch(/Прогноз на \{shortDate\(w\.date\)\}/);
+    // Коротко, как в тексте плана (22.11): «−18…−9 °C, пасмурно».
+    expect(SHARE_UI).toMatch(/shortWeatherLine\(w\.tempMin, w\.tempMax, w\.description\)/);
     expect(SHARE_UI).toMatch(/w\.bad \? 'var\(--warning\)'/);
   });
 });

@@ -347,7 +347,8 @@ describe('сводка МЧС судится по датам поездки', ()
     expect(rec.warnings.some((w) => w.type === 'mchs')).toBe(false);
     const note = rec.warnings.find((w) => w.message.startsWith('Сводки на сегодня'));
     expect(note?.message).toMatch(/Мутновский/);
-    expect(note?.message).toMatch(/Безымянный/);
+    // Безымянный — Северная зона, а план в ней не бывает (слово владельца 22.11).
+    expect(note?.message).not.toMatch(/Безымянный/);
     expect(planWarningLines(rec)).toContain(note?.message);
   });
 
@@ -362,7 +363,9 @@ describe('сводка МЧС судится по датам поездки', ()
     expect(dayLines.some((w) => w.includes('Мутновский'))).toBe(false);
     expect(dayLines.some((w) => w.includes('Безымянный'))).toBe(false);
     expect(rec.warnings.find((w) => w.type === 'mchs')?.message).toMatch(/Мутновский/);
-    expect(rec.warnings.find((w) => w.message.startsWith('Сводки на сегодня'))?.message).toMatch(/Безымянный/);
+    // Кончившаяся сводка о Безымянном (Северная зона) плану в Авачинской не
+    // пишется вовсе (слово владельца 22.11: сводки — только о зонах плана).
+    expect(rec.warnings.map((w) => w.message).join('\n')).not.toMatch(/Безымянный/);
   });
 
   it('срок строки: срок — по дню Камчатки; без срока — горизонт от сводки; ничего — не известно', () => {

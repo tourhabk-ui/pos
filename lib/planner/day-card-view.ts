@@ -13,6 +13,7 @@
  * Многодневный тур (дни 1–5 «Камчатка: термальный маршрут») — одним блоком
  * «Дни 1–5» с одной карточкой (`tourRuns`).
  */
+import { KIT_ITEMS } from '@/lib/planner/weather-kit';
 
 export interface ViewDay {
   day: number;
@@ -29,7 +30,7 @@ export interface ViewDay {
 export interface PlanWarningLike { type: string; severity: string; message: string }
 
 /** Типы предупреждений плана, что остаются над днями: они про сам план. */
-const PLAN_SHAPE_TYPES = new Set(['duration', 'dates', 'tour_dates', 'home_nights', 'season', 'zone_days', 'children']);
+export const PLAN_SHAPE_TYPES: ReadonlySet<string> = new Set(['duration', 'dates', 'tour_dates', 'home_nights', 'season', 'zone_days', 'children']);
 
 export const SAFETY_BLOCK_TITLE = 'Безопасность и разрешения';
 export const DAY_WARNING_MAX = 140;
@@ -92,8 +93,35 @@ const signed = (n: number) => {
 export function shortWeather(d: ViewDay): string | null {
   const f = d.weatherForecast;
   if (!f || !Number.isFinite(f.tempMin) || !Number.isFinite(f.tempMax)) return null;
-  const desc = f.description?.trim().toLowerCase();
-  return `${signed(f.tempMin)}…${signed(f.tempMax)} °C${desc ? `, ${desc}` : ''}`;
+  return shortWeatherLine(f.tempMin, f.tempMax, f.description);
+}
+
+/** «−18…−9 °C, пасмурно» — одна строка погоды для плана, /trip и PDF. */
+export function shortWeatherLine(tempMin: number, tempMax: number, description?: string | null): string | null {
+  if (!Number.isFinite(tempMin) || !Number.isFinite(tempMax)) return null;
+  const desc = description?.trim().toLowerCase();
+  return `${signed(tempMin)}…${signed(tempMax)} °C${desc ? `, ${desc}` : ''}`;
+}
+
+/**
+ * Совет по одежде всего плана — одной строкой (слово владельца 22.11): вещи
+ * из строк погоды дней, у каждой — свои дни. Одинаковые дни у всех вещей —
+ * дни один раз в конце.
+ */
+export function clothingAdvice(days: readonly ViewDay[]): { text: string; days: number[] } | null {
+  const byItem = new Map<string, number[]>();
+  for (const d of days) {
+    const kit = kitAdvice(d.weatherKit);
+    if (!kit) continue;
+    for (const item of KIT_ITEMS) {
+      if (kit.includes(item)) byItem.set(item, [...(byItem.get(item) ?? []), d.day]);
+    }
+  }
+  if (byItem.size === 0) return null;
+  const entries = [...byItem];
+  const sameDays = entries.every(([, ds]) => ds.join() === entries[0][1].join());
+  if (sameDays) return { text: `Одежда по прогнозу: возьмите ${entries.map(([i]) => i).join(', ')}.`, days: entries[0][1] };
+  return { text: `Одежда по прогнозу: возьмите ${entries.map(([i, ds]) => `${i} (${daysWords(ds)})`).join('; ')}.`, days: [] };
 }
 
 /** Совет по одежде из строки погоды дня: «Возьмите …». */
@@ -148,11 +176,19 @@ export function safetyBlock(days: readonly ViewDay[], warnings: readonly PlanWar
     if (PLAN_SHAPE_TYPES.has(w.type)) continue;
     add(w.message, (['critical', 'important', 'info'].includes(w.severity) ? w.severity : 'info') as SafetyItem['severity']);
   }
+  // Строка дня о вулкане/дороге, место которой уже названо в сводке плана, —
+  // второй раз в блоке не пишется (22.11); на самом дне она стоит.
+  const planText = warnings.map((w) => w.message).join(' ').toLowerCase().replace(/ё/g, 'е');
+  const saidInPlan = (text: string): boolean => {
+    const m = /о вулкане ([^:]+):/.exec(text) ?? /вулкан (.+?) назван/.exec(text) ?? /проезд — ([^(.;—]+)/.exec(text);
+    const place = m?.[1]?.trim().toLowerCase().replace(/ё/g, 'е');
+    return Boolean(place) && planText.includes(place!);
+  };
   for (const d of days) {
-    for (const w of d.dayWarnings ?? []) add(w, 'important', d.day);
-    const kit = kitAdvice(d.weatherKit);
-    if (kit) add(`Одежда по прогнозу: ${kit.replace(/^Возьмите /, 'возьмите ')}`, 'info', d.day);
+    for (const w of d.dayWarnings ?? []) if (!saidInPlan(w)) add(w, 'important', d.day);
   }
+  const clothing = clothingAdvice(days);
+  if (clothing) items.set('__clothing', { text: clothing.text, days: clothing.days, severity: 'info' });
   const rank = { critical: 0, important: 1, info: 2 } as const;
   return [...items.values()].sort((a, b) => rank[a.severity] - rank[b.severity]);
 }

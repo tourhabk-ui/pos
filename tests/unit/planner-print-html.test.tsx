@@ -79,11 +79,11 @@ describe('сборка документа экранирует каждое зн
   });
 
   it('погода — короткой строкой дня, совет по одежде — один раз в «Безопасность и разрешения» (макет 21.11)', () => {
-    const kit = 'Прогноз для зоны дня: Дождь, +1…+7 °C, осадки 6 мм, ветер до 15 м/с. Возьмите дождевик <b>.';
+    const kit = 'Прогноз для зоны дня: Дождь, +1…+7 °C, осадки 6 мм, ветер до 15 м/с. Возьмите дождевик и непромокаемую обувь, ветрозащитную куртку.';
     const day = { num: 1, confirmed: false, title: 'Авачинский', badge: null, priceLine: '', description: '', meta: 'Авачинская зона', warnings: [] };
     const html = buildPlanPrintHtml({ ...base, days: [{ ...day, weatherKit: kit }, { ...day, num: 2, weatherKit: kit }] });
     expect(html).toContain('<div class="day-meta">Авачинская зона · 1…7 °C, дождь</div>');
-    expect(html.match(/Одежда по прогнозу: возьмите дождевик &lt;b&gt;\. \(дни 1–2\)/g)).toHaveLength(1);
+    expect(html.match(/Одежда по прогнозу: возьмите дождевик и непромокаемую обувь, ветрозащитную куртку\. \(дни 1–2\)/g)).toHaveLength(1);
     expect(html).not.toContain('Прогноз для зоны дня');
     expect(buildPlanPrintHtml({ ...base, days: [day] })).not.toContain('°C');
   });
