@@ -2140,9 +2140,9 @@ async function generateDayPlans(
           childFriendly: childOk, minChildAge: c.minChildAge,
           dayWarnings: continuedWarnings,
           activityMode: activityMode({ realTour, route }),
-          ...(realTour && realTour.coordsKnown === false ? { pointUnknown: true } : {}),
           // Тот же тур — значит и ночь его, и смета её не считает отдельно.
           realTour: realTourData,
+          ...(realTour && realTour.coordsKnown === false ? { pointUnknown: true } : {}),
         });
       }
 
