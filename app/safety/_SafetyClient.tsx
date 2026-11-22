@@ -6,8 +6,6 @@ import { useRouter } from 'next/navigation';
 import { Activity, Flame, Thermometer, RefreshCw, ChevronDown, ChevronUp, Phone, ShieldCheck, BookOpen, CheckCircle2 } from 'lucide-react';
 import { EMERGENCY_NUMBERS } from '@/lib/safety/emergency-numbers';
 import BottomNav from '@/components/shared/BottomNav';
-import { Header } from '@/components/layout/Header';
-import { SectionSwipeBar, SAFETY_SECTION_ITEMS } from '@/components/layout/SectionSwipeBar';
 import { zoneName } from '@/lib/safety/zone-names';
 import { ZONE_RISK_LABELS } from '@/lib/safety/severity-words';
 import { actionLabel } from '@/lib/safety/action-label';
@@ -658,23 +656,12 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
       : `Опасность: ${RISK_LABELS[banner.level ?? 'low']}${banner.scope ? ` — ${banner.scope}` : ''}`;
 
   return (
-    // paddingBottom — под фиксированный таб-бар: без него последняя карточка
-    // (контакты) пряталась за панелью. Сам таб-бар — ЕДИНЫЙ BottomNav
-    // платформы: с /safety не было пути домой (полевой скриншот 01.08).
+    // H1, шапка и прямой ответ — в серверном HTML страницы, выше этого
+    // блока (Сыщик, 22.11). Здесь остаётся живая обстановка. paddingBottom
+    // страницы — под фиксированный таб-бар: без него последняя карточка
+    // пряталась за панелью. Сам таб-бар — ЕДИНЫЙ BottomNav платформы.
     <>
-    {/* Общая шапка платформы: логотип, тема, ЛК и SOS (EmergencyAction
-        внутри Header, сторож sos-always-reachable). До 03.10 /safety рисовала
-        свою SOS-пилюлю рядом с заголовком, а шапки не было вовсе: сверху
-        оставались пустые 64px отступа под хедер без логотипа (скрин владельца). */}
-    <Header />
-    <div className="ds-page px-4" style={{ maxWidth: 680, margin: '0 auto', paddingBottom: 96 }}>
-      <SectionSwipeBar items={SAFETY_SECTION_ITEMS} label="Разделы безопасности" className="-mx-4" />
-      {/* Заголовок. На телефоне — 1.6rem: в 2.25rem он занимал три строки и
-          треть первого экрана, выталкивая радар вниз (скрин владельца 03.10). */}
-      <div style={{ marginBottom: 16 }}>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 4 }}>Камчатка · обновляется автоматически</p>
-        <h1 className="ds-h1 !text-[1.6rem] sm:!text-[2.25rem]" style={{ marginBottom: 4 }}>Безопасно ли сейчас на Камчатке</h1>
-      </div>
+      <p style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 16 }}>Камчатка · обстановка обновляется автоматически</p>
 
       {/* Промпт подписки на push. Прежде кнопка жила только в
           /hub/tourist/notifications (за логином, глубоко в кабинете) — и
@@ -685,10 +672,10 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
       <PushSafetyOffer className="mb-6" />
 
       {/* Живая обстановка (P0-3b): радар + лента + пульс переехали с главной.
-          id="radar" — цель плитки-ссылки /safety#radar. live=null (сбой
-          сервера) — секции честно нет, остальная страница работает. */}
+          Якорь /safety#radar стоит на серверном H2 над этим блоком.
+          live=null (сбой сервера) — секции честно нет, остальная страница работает. */}
       {live && (
-        <section id="radar" className="kh-live" style={{ marginBottom: 24 }}>
+        <section className="kh-live" style={{ marginBottom: 24 }}>
           <style dangerouslySetInnerHTML={{ __html: LIVE_STATUS_CSS }} />
           <RadarScope
             hazards={live.radar.hazards}
@@ -1050,7 +1037,6 @@ export default function SafetyClient({ live }: { live: SafetyLiveData | null }) 
       <RescueChat style={{ marginBottom: 32 }} />
 
       <BottomNav activePath="/safety" />
-    </div>
     </>
   );
 }

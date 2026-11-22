@@ -1,21 +1,58 @@
 import type { Metadata } from 'next';
-import SafetyClient from './_SafetyClient';
+import { Suspense } from 'react';
+import { Header } from '@/components/layout/Header';
+import { SectionSwipeBar, SAFETY_SECTION_ITEMS } from '@/components/layout/SectionSwipeBar';
+import { JsonLd } from '@/components/seo/JsonLd';
+import { defaultOgImages } from '@/lib/seo/og-image';
 import { getSafetyLiveData } from '@/app/_home/data';
+import {
+  SAFETY_PAGE_DESCRIPTION,
+  SAFETY_PAGE_TITLE,
+  safetyArticleJsonLd,
+} from '@/lib/seo/safety-page';
+import SafetyAbout, { SafetyIntro, SafetyLiveIntro } from './SafetyAbout';
+import SafetyClient from './_SafetyClient';
 
-// Живая обстановка меняется каждые минуты — не кэшировать статикой.
 export const dynamic = 'force-dynamic';
 
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
+
 export const metadata: Metadata = {
-  // Вопрос человека — «безопасно ли сейчас ехать»; страница на него отвечает
-  // живыми данными, поэтому и заголовок собран вокруг него (срез 02.10).
-  title: 'Безопасно ли сейчас на Камчатке: вулканы и землетрясения',
-  description: 'Обстановка на Камчатке сегодня: землетрясения, активность вулканов, зоны риска и погода — обновляется автоматически. Спасатель и SOS для туристов.',
+  title: SAFETY_PAGE_TITLE,
+  description: SAFETY_PAGE_DESCRIPTION,
   alternates: { canonical: '/safety' },
+  openGraph: {
+    images: defaultOgImages(),
+    title: SAFETY_PAGE_TITLE,
+    description: SAFETY_PAGE_DESCRIPTION,
+    url: `${SITE}/safety`,
+    siteName: 'Ведар',
+    locale: 'ru_RU',
+    type: 'article',
+  },
 };
 
-export default async function SafetyPage() {
-  // P0-3b: радар/лента/пульс живут здесь; данные — тем же серверным
-  // построителем, что кормил главную (один источник, ноль дублей).
+async function SafetyLive() {
   const live = await getSafetyLiveData().catch(() => null);
   return <SafetyClient live={live} />;
+}
+
+export default function SafetyPage() {
+  return (
+    <>
+      <Header />
+      <JsonLd data={safetyArticleJsonLd(SITE)} />
+      {/* Статья и FAQ — в серверном HTML до живой карты, чтобы бот без JS
+          прочитал прямой ответ. Карта и радар — ниже текста. */}
+      <div className="ds-page px-4" style={{ maxWidth: 680, margin: '0 auto', paddingBottom: 96 }}>
+        <SectionSwipeBar items={SAFETY_SECTION_ITEMS} label="Разделы безопасности" className="-mx-4" />
+        <SafetyIntro />
+        <SafetyAbout />
+        <SafetyLiveIntro />
+        <Suspense fallback={<p role="status" className="text-sm" style={{ color: 'var(--text-muted)' }}>Загрузка обстановки…</p>}>
+          <SafetyLive />
+        </Suspense>
+      </div>
+    </>
+  );
 }
