@@ -13,12 +13,12 @@ import { pageContainer } from '@/lib/layout/page-width';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { BookOpen, ArrowRight } from 'lucide-react';
+import { KamchatkaGuide } from '@/components/landings/KamchatkaGuide';
 import { Header } from '@/components/layout/Header';
 import { listArticles, listArticleLinks, groupByTopic, type Article } from '@/lib/articles/queries';
 import { parseArticleMarkdown, shortAnswer } from '@/lib/articles/markdown';
 import { articlesHubIndexable, isArticleIndexable, NOINDEX_FOLLOW } from '@/lib/articles/noindex';
 import { defaultOgImages } from '@/lib/seo/og-image';
-import { KamchatkaGuide } from '@/components/landings/KamchatkaGuide';
 
 export const dynamic = 'force-dynamic';
 
@@ -148,11 +148,11 @@ export default async function ArticlesIndexPage() {
           </div>
         )}
 
-        <div className="mt-14">
-          <KamchatkaGuide variant="full" />
-        </div>
       </div>
       </main>
+      <div className="ds-page px-4 pb-16">
+        <KamchatkaGuide variant="index" />
+      </div>
     </>
   );
 }

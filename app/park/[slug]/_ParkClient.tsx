@@ -232,7 +232,7 @@ export default function ParkClient({ park, chronicle = [] }: { park: ParkPageDat
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
                     <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{route.title}</span>
                     {route.mchs_registration_required && (
-                      <span style={{ fontSize: 10, padding: '2px 6px', background: 'color-mix(in srgb, var(--danger) 12%, transparent)', color: 'var(--danger)', borderRadius: 6, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                      <span style={{ fontSize: 12, padding: '2px 6px', background: 'color-mix(in srgb, var(--danger) 12%, transparent)', color: 'var(--danger)', borderRadius: 6, whiteSpace: 'nowrap', flexShrink: 0 }}>
                         МЧС обязательно
                       </span>
                     )}
@@ -262,7 +262,7 @@ export default function ParkClient({ park, chronicle = [] }: { park: ParkPageDat
                   {route.hazards && route.hazards.length > 0 && (
                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 8 }}>
                       {route.hazards.slice(0, 3).map(h => (
-                        <span key={h} style={{ fontSize: 10, padding: '2px 6px', background: 'var(--bg-hover)', color: 'var(--text-muted)', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <span key={h} style={{ fontSize: 12, padding: '2px 6px', background: 'var(--bg-hover)', color: 'var(--text-muted)', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 3 }}>
                           <AlertTriangle size={9} />{h}
                         </span>
                       ))}

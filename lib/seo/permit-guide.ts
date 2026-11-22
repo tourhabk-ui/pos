@@ -23,6 +23,11 @@ import {
   VOLCANOES_DECREE_DOC,
   PERMIT_NOT_MCHS_RU,
 } from '@/lib/safety/park-permit';
+import { recordDateIso } from '@/lib/seo/record-modified';
+import { DEFAULT_OG_IMAGE } from '@/lib/seo/og-image';
+import { PERMIT_GUIDE_PATH } from '@/lib/seo/permit-guide-path';
+
+export { PERMIT_GUIDE_PATH };
 
 /**
  * Реестр официальных паспортов маршрутов края — портал Минтуризма Камчатки.
@@ -32,8 +37,6 @@ export const ROUTE_PASSPORTS_REGISTRY = {
   title: 'реестр паспортов туристских маршрутов Камчатского края',
   url: 'https://visitkamchatka.ru/route-passports/',
 } as const;
-
-export { PERMIT_GUIDE_PATH } from '@/lib/seo/permit-guide-path';
 
 export interface PermitFaq { q: string; a: string }
 
@@ -93,3 +96,62 @@ export {
   FEDERALIZED_PARKS, FEDERAL_PERMIT_UNKNOWN_RU, FREE_VISIT_AREAS, GREEN_BUTTON, KRONOKI_ORDER_RU, KRONOKI_REQUESTS,
   KRONOKI_TERRITORIES, NO_PERMIT_TERRITORIES, PARK_PERMIT_CHANNELS, PARK_PERMIT_SOURCE, VOLCANOES_DECREE_DOC, PERMIT_NOT_MCHS_RU,
 };
+
+
+/** Заголовок страницы без шаблона бренда; в metadata layout добавит «| Ведар». */
+export const PERMIT_GUIDE_TITLE = 'Нужно ли разрешение на посещение мест Камчатки';
+export const PERMIT_GUIDE_H1 = PERMIT_GUIDE_TITLE;
+export const PERMIT_GUIDE_AUTHOR = 'Редакция Vedar';
+/**
+ * Дата ревизии текста справки: справочник собран в страницу 21.11.2026
+ * (#3566 п.5, заголовок этого модуля). Не «сегодня»: факты меняются —
+ * сдвигаем дату вместе с правкой.
+ */
+export const PERMIT_GUIDE_DATE = '2026-11-21';
+
+export const PERMIT_GUIDE_DESCRIPTION =
+  'Кто и как выдаёт разрешение в парки «Вулканы Камчатки», Долину гейзеров и на Курильское озеро — по официальным страницам. Разрешение — не регистрация в МЧС.';
+
+export function permitArticleJsonLd(site: string): Record<string, unknown> {
+  const url = `${site}${PERMIT_GUIDE_PATH}`;
+  const published = recordDateIso(PERMIT_GUIDE_DATE);
+  const org = { '@type': 'Organization', '@id': `${site}/#organization`, name: 'Ведар Камчатка', url: site };
+  const faq = permitFaq();
+  const article: Record<string, unknown> = {
+    '@type': 'Article',
+    '@id': `${url}#article`,
+    headline: PERMIT_GUIDE_H1,
+    description: PERMIT_GUIDE_DESCRIPTION,
+    inLanguage: 'ru',
+    mainEntityOfPage: { '@type': 'WebPage', '@id': url },
+    url,
+    image: `${site}${DEFAULT_OG_IMAGE}`,
+    author: { '@type': 'Organization', name: PERMIT_GUIDE_AUTHOR, url: site },
+    publisher: org,
+    ...(published ? { datePublished: published, dateModified: published } : {}),
+  };
+  const graph: Record<string, unknown>[] = [article];
+  if (faq.length > 0) {
+    graph.push({
+      '@type': 'FAQPage',
+      '@id': `${url}#faq`,
+      mainEntity: faq.map((f) => ({
+        '@type': 'Question',
+        name: f.q,
+        acceptedAnswer: { '@type': 'Answer', text: f.a },
+      })),
+    });
+  }
+  return { '@context': 'https://schema.org', '@graph': graph };
+}
+
+export function permitBreadcrumbJsonLd(site: string): Record<string, unknown> {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Главная', item: site },
+      { '@type': 'ListItem', position: 2, name: PERMIT_GUIDE_H1, item: `${site}${PERMIT_GUIDE_PATH}` },
+    ],
+  };
+}

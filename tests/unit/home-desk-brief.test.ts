@@ -45,7 +45,7 @@ describe('порядок доски', () => {
   });
 
   it('футер скрыт на телефонных ширинах, BottomNav — в обоих деревьях (#43, #1839)', () => {
-    expect(DESKTOP).toMatch(/<div className="hidden md:block">\s*<Footer \/>\s*<\/div>/);
+    expect(DESKTOP).toMatch(/<div className="hidden md:block">\s*<Footer(?: showGuide=\{false\})? \/>\s*<\/div>/);
     expect(DESKTOP).toContain('<BottomNav activePath="/" />');
   });
 });

@@ -12,7 +12,9 @@ import { Footer } from '@/components/layout/Footer';
 import { KamchatkaGuide, RelatedLandings } from '@/components/landings/KamchatkaGuide';
 import { LandingContent } from '@/components/landings/LandingContent';
 import {
+  FEATURED_GUIDE_PATHS,
   LANDINGS,
+  featuredGuideLandings,
   guideAnchor,
   guideLandings,
   landingBySlug,
@@ -60,28 +62,54 @@ describe('гид по Камчатке — реестр', () => {
 });
 
 describe('гид по Камчатке — блок', () => {
-  it('в полном и компактном блоке есть все шесть сирот', () => {
+  it('полный и компактный блок — 15–20 главных ссылок, указатель на хабах держит сирот', () => {
+    const featured = featuredGuideLandings();
+    expect(featured.length).toBeGreaterThanOrEqual(15);
+    expect(featured.length).toBeLessThanOrEqual(20);
+    expect(featured.length).toBe(FEATURED_GUIDE_PATHS.length);
+    expect(featured.map((l) => l.path)).toEqual([...FEATURED_GUIDE_PATHS]);
+
     const full = renderToStaticMarkup(<KamchatkaGuide variant="full" />);
     const compact = renderToStaticMarkup(<KamchatkaGuide variant="compact" />);
+    const index = renderToStaticMarkup(<KamchatkaGuide variant="index" />);
     const footer = renderToStaticMarkup(<Footer />);
     expect(full).toContain('data-kamchatka-guide="full"');
     expect(compact).toContain('data-kamchatka-guide="compact"');
+    expect(index).toContain('data-kamchatka-guide="index"');
     expect(footer).toContain('data-kamchatka-guide="compact"');
     expect(full).toContain('Гид по Камчатке');
     expect(footer).toContain('Гид по Камчатке');
+    const featuredHref = (slug: string) => featured.some((l) => l.slug === slug);
     for (const slug of ORPHANS) {
       const href = `href="${landingBySlug(slug).path}"`;
-      expect(full, slug).toContain(href);
-      expect(compact, slug).toContain(href);
-      expect(footer, slug).toContain(href);
+      expect(index, slug).toContain(href);
+      if (featuredHref(slug)) {
+        expect(full, slug).toContain(href);
+        expect(compact, slug).toContain(href);
+        expect(footer, slug).toContain(href);
+      } else {
+        expect(full, slug).not.toContain(href);
+        expect(footer, slug).not.toContain(href);
+      }
     }
+    expect(renderToStaticMarkup(<Footer showGuide={false} />)).not.toContain('data-kamchatka-guide');
   });
 
-  it('главная, /articles и подвал берут блок из одного компонента', () => {
+  it('главная и подвал берут короткий блок, хабы — полный указатель', () => {
     const imp = "from '@/components/landings/KamchatkaGuide'";
-    expect(readFileSync(join(ROOT, 'app/page.tsx'), 'utf-8')).toContain(imp);
-    expect(readFileSync(join(ROOT, 'app/articles/page.tsx'), 'utf-8')).toContain(imp);
-    expect(readFileSync(join(ROOT, 'components/layout/Footer.tsx'), 'utf-8')).toContain(imp);
+    const home = readFileSync(join(ROOT, 'app/page.tsx'), 'utf-8');
+    const articles = readFileSync(join(ROOT, 'app/articles/page.tsx'), 'utf-8');
+    const when = readFileSync(join(ROOT, 'app/kogda-ehat-na-kamchatku/page.tsx'), 'utf-8');
+    const footer = readFileSync(join(ROOT, 'components/layout/Footer.tsx'), 'utf-8');
+    expect(home).toContain(imp);
+    expect(home).toContain('variant="full"');
+    expect(home).toMatch(/<\/main>[\s\S]*<KamchatkaGuide variant="full"/);
+    expect(home).toContain('showGuide={false}');
+    expect(articles).toContain(imp);
+    expect(articles).toContain('variant="index"');
+    expect(when).toContain(imp);
+    expect(when).toContain('variant="index"');
+    expect(footer).toContain(imp);
   });
 });
 
