@@ -49,7 +49,7 @@ import { returnLegMissingMessage } from '@/lib/planner/plan-edit-warnings';
 import { calculatePriceBreakdown, type PriceBreakdown } from '@/lib/planner/estimate';
 import { tourPlanSpan, tourRoom } from '@/lib/planner/tour-span';
 import {
-  ROAD_CHECK_MIN_KM, tooFarForDayTrip, farDayTourLine, farSelfRouteLine, roadToTourText, roadBackText, farBundleLine, farBundleNoRoomLine, farNoNightLine, farDayTourReason, noRoadLine, roadUnreadLine,
+  ROAD_CHECK_MIN_KM, tooFarForDayTrip, farDayTourLine, farSelfRouteLine, roadToTourText, roadBackText, farBundleLine, farBundleNoRoomLine, farBundleNoDateLine, farNoNightLine, farDayTourReason, noRoadLine, roadUnreadLine,
   pointUnknownLine, adjacentToursLine, isAirTour, roadDayLine, type RoadEstimate,
 } from '@/lib/planner/road-reach';
 import { roadEstimate } from '@/lib/planner/road-hours';
@@ -1441,9 +1441,13 @@ async function generateDayPlans(
     for (const w of waitingTours) {
       if (at > lastTail) break;
       if (placedTours.has(w.tour.tourId) || lined.has(w.tour.tourId) || w.zone !== prevZone) continue;
-      const need = tourPlanSpan(w.tour.durationHours, w.tour.multiDayCount) ?? 1;
+      // Связка далёкого тура (Bugbot #3722): день дороги, тур, день обратно —
+      // три дня, а выезд — во второй из них.
+      const isBundle = farBundle.has(w.tour.tourId);
+      const need = (tourPlanSpan(w.tour.durationHours, w.tour.multiDayCount) ?? 1) + (isBundle ? 2 : 0);
+      const tourOffset = isBundle ? 1 : 0;
       let start = at;
-      while (start + need - 1 <= lastTail && !fitsOn(w.tour, planDateOf(start))) start++;
+      while (start + need - 1 <= lastTail && !fitsOn(w.tour, planDateOf(start + tourOffset))) start++;
       if (start + need - 1 > lastTail) continue;
       out.push({ zone: prevZone, interests: [w.interest], activeDays: need, tail: true, onlyTour: w.tour, startDay: start });
       lined.add(w.tour.tourId);
@@ -1551,7 +1555,9 @@ async function generateDayPlans(
                 continue;
               }
               const near = await lodgingNearPoint(t.lat, t.lng);
-              farTourLines.set(t.tourId, near === null ? farDayTourLine(t.title, road) : farNoNightLine(t.title, road, near));
+              // Состав пуст — «не указано», а не «нет» (Bugbot #3722).
+              const compositionKnown = lodgingIncluded(t.included) === false;
+              farTourLines.set(t.tourId, near === null ? farDayTourLine(t.title, road) : farNoNightLine(t.title, road, near, compositionKnown));
               missFor(interest, farDayTourReason(t.title, road));
             }
             continue;
@@ -2454,12 +2460,14 @@ async function generateDayPlans(
     // снятые (farTours): снятый тур строкой «нет дороги» не дублируется.
     roadNotes: {
       farTours: [
-        ...farTourLines.values(),
+        // «Не поместился» не стоит рядом с «стоит связкой»: тур, что встал
+        // позже (хвост), строки отказа не несёт (Bugbot #3722).
+        ...[...farTourLines].filter(([id]) => !placedTours.has(id)).map(([, l]) => l),
         ...bundledLines.values(),
         // Связка была возможна, но тур так и не встал (нет выезда в нужный
-        // день и т.п.) — молчать нельзя: тур далеко, одним днём не успеть.
+        // день) — молчать нельзя; причина — даты, а не «одним днём».
         ...[...farBundle].filter(([id]) => !placedTours.has(id) && !farTourLines.has(id))
-          .map(([id, e]) => farDayTourLine(titleOfFar.get(id) ?? id, e)),
+          .map(([id, e]) => farBundleNoDateLine(titleOfFar.get(id) ?? id, e)),
       ],
       noRoad: [...noRoadTours].filter(([id]) => placedTours.has(id)).map(([, t]) => t),
       unread: [...roadUnreadTours].filter(([id]) => placedTours.has(id)
@@ -2672,21 +2680,21 @@ export interface RecommendTripOptions {
  */
 async function lodgingNearPoint(lat: number, lng: number): Promise<Array<{ name: string; km: number }> | null> {
   try {
-    const { rows } = await pool.query<{ name: string; km: string }>(
-      `SELECT name, km FROM (
+    const { rows } = await pool.query<{ name: string; dist_km: string }>(
+      `SELECT x.name, x.dist_km FROM (
          SELECT a.name,
                 6371 * 2 * asin(sqrt(
                   power(sin(radians(((a.coordinates->>'lat')::float8 - $1) / 2)), 2)
                   + cos(radians($1)) * cos(radians((a.coordinates->>'lat')::float8))
-                  * power(sin(radians(((a.coordinates->>'lng')::float8 - $2) / 2)), 2))) AS km
+                  * power(sin(radians(((a.coordinates->>'lng')::float8 - $2) / 2)), 2))) AS dist_km
            FROM accommodations a
           WHERE ${publicAccommodationSql('a')}
             AND (a.coordinates->>'lat') ~ '^-?[0-9]+(\\.[0-9]+)?$'
             AND (a.coordinates->>'lng') ~ '^-?[0-9]+(\\.[0-9]+)?$'
-       ) x WHERE km <= 30 ORDER BY km LIMIT 2`,
+       ) x WHERE x.dist_km <= 30 ORDER BY x.dist_km LIMIT 2`,
       [lat, lng],
     );
-    return rows.map((r) => ({ name: r.name, km: Number(r.km) }));
+    return rows.map((r) => ({ name: r.name, km: Number(r.dist_km) }));
   } catch (err) {
     console.error('[planner] жильё у места тура не прочиталось:', err instanceof Error ? err.message : String(err));
     return null;

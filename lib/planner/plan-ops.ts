@@ -26,6 +26,16 @@ interface DayLike {
   type: string;
   title?: string;
   realTour?: { tourId: string } | null;
+  /** День дороги к далёкому туру или обратно (связка, этап 3 аудита дорог 22.11). */
+  roadLeg?: { tourId: string } | null;
+}
+
+const ROAD_LEG_WORD = 'день дороги к далёкому туру (убирается только вместе с туром)';
+
+/** Каркас дня словами: дорога связки — не «переезд между зонами». */
+export function frameWordOf(day: Pick<DayLike, 'type' | 'roadLeg'>): string {
+  if (day.roadLeg) return ROAD_LEG_WORD;
+  return FRAME_WORD[day.type] ?? 'каркас поездки';
 }
 
 /** Дни, которые правка двигает, убирает и заменяет. */
@@ -40,16 +50,20 @@ export const FRAME_WORD: Readonly<Record<string, string>> = {
  * Почему день нельзя убрать, переставить или заменить. null — можно.
  * Прилёт, отъезд и переезд держат поездку: без них она не сходится.
  */
-export function frameReason(day: Pick<DayLike, 'type'>): string | null {
+export function frameReason(day: Pick<DayLike, 'type' | 'roadLeg'>): string | null {
   if (MOVABLE_TYPES.has(day.type)) return null;
-  return FRAME_WORD[day.type] ?? 'каркас поездки';
+  return frameWordOf(day);
 }
 
-/** Дни одного многодневного тура: убираются и двигаются только вместе. */
-export function tourGroup<T extends Pick<DayLike, 'realTour'>>(days: readonly T[], day: T): T[] {
-  const id = day.realTour?.tourId;
+/**
+ * Дни одного многодневного тура: убираются и двигаются только вместе. Дни
+ * дороги связки (roadLeg) — часть группы своего тура (Bugbot #3722): иначе
+ * тур убирался бы один, а дни дороги оставались.
+ */
+export function tourGroup<T extends Pick<DayLike, 'realTour' | 'roadLeg'>>(days: readonly T[], day: T): T[] {
+  const id = day.realTour?.tourId ?? day.roadLeg?.tourId;
   if (!id) return [day];
-  return days.filter((d) => d.realTour?.tourId === id);
+  return days.filter((d) => d.realTour?.tourId === id || d.roadLeg?.tourId === id);
 }
 
 /**
@@ -81,7 +95,7 @@ export function replaceRefusalShort<T extends Pick<DayLike, 'type' | 'realTour'>
 
 type ReplaceBlock = { kind: 'frame'; frame: string } | { kind: 'tour' };
 
-function replaceBlock<T extends Pick<DayLike, 'type' | 'realTour'>>(days: readonly T[], day: T): ReplaceBlock | null {
+function replaceBlock<T extends Pick<DayLike, 'type' | 'realTour' | 'roadLeg'>>(days: readonly T[], day: T): ReplaceBlock | null {
   const frame = frameReason(day);
   if (frame) return { kind: 'frame', frame };
   if (tourGroup(days, day).length > 1) return { kind: 'tour' };

@@ -229,3 +229,28 @@ describe('аудит дорог 22.11: однодневный тур дальш�
     expect(rec.days.some((d) => d.title === NO_SELF_ROUTE_DAY_TITLE)).toBe(true);
   });
 });
+
+describe('связка в правках плана (Bugbot #3722)', () => {
+  it('дни дороги — в группе своего тура; каркас назван «день дороги», не «переезд между зонами»', async () => {
+    const { tourGroup, frameWordOf } = await import('@/lib/planner/plan-ops');
+    const days = [
+      { day: 2, type: 'travel', roadLeg: { tourId: 'T36' } },
+      { day: 3, type: 'activity', realTour: { tourId: 'T36' } },
+      { day: 4, type: 'travel', roadLeg: { tourId: 'T36' } },
+      { day: 5, type: 'activity' },
+    ];
+    expect(tourGroup(days, days[1]).map((d) => d.day)).toEqual([2, 3, 4]);
+    expect(tourGroup(days, days[0]).map((d) => d.day)).toEqual([2, 3, 4]);
+    expect(tourGroup(days, days[3]).map((d) => d.day)).toEqual([5]);
+    expect(frameWordOf(days[0])).toContain('день дороги');
+    expect(frameWordOf({ type: 'travel' })).toBe('переезд между зонами');
+  });
+
+  it('состав тура не указан — строка говорит «не указал», а не «нет»', async () => {
+    const { farNoNightLine, farBundleNoDateLine } = await import('@/lib/planner/road-reach');
+    const e = { km: 411, hours: 6.3 };
+    expect(farNoNightLine('Рыбалка', e, [], false)).toContain('оператор не указал');
+    expect(farNoNightLine('Рыбалка', e, [])).toContain('ночлега у места в составе тура нет');
+    expect(farBundleNoDateLine('Рыбалка', e)).toContain('нет его выезда');
+  });
+});
