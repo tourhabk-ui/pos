@@ -1,4 +1,4 @@
--- 1511: скидки и наценки тура — с отметкой проверки.
+-- 1512: скидки и наценки тура — с отметкой проверки.
 -- Created: 2026-11-23
 --
 -- ── Повод ─────────────────────────────────────────────────────────────────
@@ -60,9 +60,9 @@ CREATE INDEX IF NOT EXISTS tour_pricing_rules_review_queue
   WHERE is_active = TRUE AND (moderation_status = 'pending' OR removal_requested_at IS NOT NULL);
 
 COMMENT ON COLUMN tour_pricing_rules.moderation_status IS
-  'Проверка правила (1511): pending — цену не меняет, approved — действует, rejected — отклонено';
+  'Проверка правила (1512): pending — цену не меняет, approved — действует, rejected — отклонено';
 COMMENT ON COLUMN tour_pricing_rules.removal_requested_at IS
-  'Владелец попросил снять действующее правило (1511); до решения администратора правило действует';
+  'Владелец попросил снять действующее правило (1512); до решения администратора правило действует';
 
 COMMIT;
 
