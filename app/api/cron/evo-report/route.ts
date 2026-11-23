@@ -181,18 +181,25 @@ export async function GET(req: NextRequest) {
   // модели (growth-agent, intel) не публиковалась, кроме одного пробника
   // в сутки, хотя реальных промахов было ровно 6. Тот же баг, что уже
   // почистили в loadRejectedSignatures() — просто в другом месте.
-  const { rows: pr } = await pool.query<{ accepted: string; rejected: string }>(`
+  // Код и разведка считаются отдельно. До этого одна цифра мешала «не будем
+  // делать» по идее продукта (intel, not_planned, модель не записана) с
+  // промахом код-находки. Разведка занимала единственный пробник, и код до
+  // человека не доходил. Порог 50% тот же у обоих. Окно — по дате вердикта
+  // (PRECISION_WINDOW_DAYS, решение владельца 25.09).
+  const { rows: pr } = await pool.query<{
+    code_accepted: string; code_rejected: string; intel_accepted: string; intel_rejected: string;
+  }>(`
     SELECT
-      COUNT(*) FILTER (WHERE status = 'accepted')::text                AS accepted,
-      COUNT(*) FILTER (WHERE status = 'rejected')::text                AS rejected
+      COUNT(*) FILTER (WHERE category <> 'intel' AND status = 'accepted')::text AS code_accepted,
+      COUNT(*) FILTER (WHERE category <> 'intel' AND status = 'rejected')::text AS code_rejected,
+      COUNT(*) FILTER (WHERE category = 'intel' AND status = 'accepted')::text  AS intel_accepted,
+      COUNT(*) FILTER (WHERE category = 'intel' AND status = 'rejected')::text  AS intel_rejected
     FROM evo_growth_issues
     WHERE github_issue_url IS NOT NULL
       AND (
         fault_side = 'model'
         OR (fault_side IS NULL AND category NOT IN ('ux', 'security', 'tech_debt'))
       )
-      -- Окно по дате вердикта (PRECISION_WINDOW_DAYS, решение владельца
-      -- 25.09): за всю историю старые отказы держали тормоз вечно.
       AND COALESCE(resolved_at, created_at) >= NOW() - INTERVAL '1 day' * $1
   `, [PRECISION_WINDOW_DAYS]);
 
@@ -227,8 +234,12 @@ export async function GET(req: NextRequest) {
     };
   });
   const decision = decidePublish({
-    accepted: Number(pr[0]?.accepted ?? 0),
-    rejected: Number(pr[0]?.rejected ?? 0),
+    accepted: Number(pr[0]?.code_accepted ?? 0),
+    rejected: Number(pr[0]?.code_rejected ?? 0),
+  });
+  const intelDecision = decidePublish({
+    accepted: Number(pr[0]?.intel_accepted ?? 0),
+    rejected: Number(pr[0]?.intel_rejected ?? 0),
   });
 
   // Сторож самого тормоза: сколько прогонов ПОДРЯД точность держит
@@ -355,7 +366,7 @@ export async function GET(req: NextRequest) {
   // (static-checks, мок-детектор) идут всегда — они не гадают. Одна догадка
   // проходит и под запретом (пробник): вердикт человека можно получить только
   // по опубликованному, иначе точность по догадкам не восстановится никогда.
-  const publishable = applyPublishDecision(verified, decision);
+  const publishable = applyPublishDecision(verified, decision, intelDecision);
   const guessesHeld = verified.length - publishable.length;
   const fallbackSkipped = verified.filter((f) => isFallbackRungGuess(f)).length;
 
@@ -395,9 +406,16 @@ export async function GET(req: NextRequest) {
     synced_rejected: synced.rejected,
     precision: decision.precision,
     guesses_allowed: decision.allowGuesses,
-    // Сколько прогонов ПОДРЯД тормоз держит запрет — раннер краснеет, когда
-    // это число переваливает порог, вместо того чтобы печатать в лог, который
-    // никто не читает (см. комментарий у вычисления выше).
+    // Разведка — свой тормоз. В общую цифру и в стрик она не входит: отказ
+    // владельца от идеи продукта не гасит код-находки.
+    intel_precision: intelDecision.precision,
+    intel_guesses_allowed: intelDecision.allowGuesses,
+    intel_precision_note: intelDecision.reason,
+    intel_probe_slots: intelDecision.allowGuesses ? 0 : intelDecision.probeSlots,
+    // Сколько прогонов подряд тормоз КОДА держит запрет. Раннер пишет
+    // предупреждение и всё равно выносит то, что тормоз пускает. Красным
+    // из-за одного стрика job больше не становится: иначе сломанная рука
+    // не отличима от штатного тормоза.
     publish_gate_blocked_streak: publishGateBlockedStreak,
     // Сколько догадок придержано тормозом и сколько пропущено пробником —
     // иначе «0 находок» и «догадки заглушены» снаружи неразличимы.
@@ -406,7 +424,7 @@ export async function GET(req: NextRequest) {
     // решение владельца 02.10; остальные придержаны тормозом точности.
     fallback_rung_guesses_skipped: fallbackSkipped,
     probe_slots: decision.allowGuesses ? 0 : decision.probeSlots,
-    precision_note: decision.reason,
+    precision_note: `код: ${decision.reason}; разведка: ${intelDecision.reason}`,
     precision_window_days: PRECISION_WINDOW_DAYS,
     // Кто именно врёт: точность в разрезе моделей-авторов находок.
     precision_by_model: precisionByModel,
