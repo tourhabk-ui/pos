@@ -16,19 +16,19 @@
  *   музей, этно, природа. Чего в каталоге нет — в план не дописывается.
  */
 
-import { ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES } from '@/lib/planner/constants';
-
-const ALIAS: Record<string, string> = { thermal: 'hot_spring' };
+import { ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, normalizeActivity } from '@/lib/planner/constants';
 
 const MUSEUM = new Set(['museum', 'historical']);
 const ETHNO = new Set(['ethnic']);
 const OCEAN = new Set(['bay', 'cape']);
 const NATURE = new Set(['viewpoint', 'park', 'beach', 'waterfall', 'settlement', 'lake']);
 
-/** Ключ категории дня. Источники — один ключ на оба слова оператора. */
+/**
+ * Ключ категории дня. Слово оператора переводится в ключ движка тем же
+ * словарём, что и отбор туров: `thermal` — источники, `rafting` — сплав.
+ */
 export function varietyKey(type: string | null | undefined): string {
-  const t = (type ?? '').trim();
-  return ALIAS[t] ?? t;
+  return normalizeActivity((type ?? '').trim());
 }
 
 /**
@@ -43,9 +43,11 @@ export function textSaysSprings(parts: readonly (string | null | undefined)[]): 
 }
 
 /**
- * Свой вид тура, который описание не переписывает. Вертолёт, вулкан, джип
- * остаются собой, даже если в тексте есть «термальные поля» или «купание».
- * `excursion` и пустой тип — не свой вид: их как раз читаем по описанию.
+ * Свой вид тура, который описание не переписывает. Сюда приходит уже ключ
+ * движка (`varietyKey`): `rafting` к этому моменту стал `river`. Вертолёт,
+ * вулкан, сплав и джип остаются собой, даже если в тексте есть «термальные
+ * поля» или «купание». `excursion` и пустой тип — не свой вид: их читаем
+ * по описанию.
  */
 function textMustNotOverride(key: string): boolean {
   if (!key || key === 'hot_spring') return false;

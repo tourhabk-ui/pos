@@ -184,6 +184,8 @@ describe('правило разнообразия', () => {
     expect(outingVarietyKey({ activityType: 'helicopter', title: 'Долина гейзеров', description: 'высадка у термальных полей, купание' })).toBe('helicopter');
     expect(outingVarietyKey({ activityType: 'volcano', description: 'термальные поля Мутновского' })).toBe('volcano');
     expect(outingVarietyKey({ activityType: 'jeep', description: 'купание в горячих источниках' })).toBe('jeep');
+    expect(varietyKey('rafting')).toBe('river');
+    expect(outingVarietyKey({ activityType: 'rafting', title: 'Сплав по Быстрой', description: 'купание у берега' })).toBe('river');
     expect(capSkippedLine('hot_spring')).toMatch(/Ещё полный день на источниках не ставили/);
   });
 
