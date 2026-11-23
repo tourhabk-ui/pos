@@ -517,6 +517,11 @@ INSERT в транзакции с откатом в `finally` — строка �
 - `import pool from` — только `import { pool } from '@/lib/db-pool'`
 - `FROM bookings` — только `FROM operator_bookings` (колонка `booking_status`, не `status`)
 - `FROM tours` — только `FROM operator_tours` (или `v_kamchatka_routes_api` для публичных маршрутов)
+- Несколько запросов разом на одном соединении — `Promise.all` на клиенте открытой транзакции. Соединение их
+  параллельно не исполняет: драйвер ставит лишние в свою очередь и в `pg@9` такой вызов уберёт. Запросы на клиенте
+  транзакции идут по одному (слово владельца 23.11 — нашлось в расчёте цены брони, `lib/tours/honest-price`).
+  Сторожа: `tests/unit/honest-price.test.ts`, блок «цена брони читается по одному запросу» в
+  `tests/integration/booking-writers.pg.test.ts`
 - `callDeepSeek()` / `callOpenrouter()` напрямую, с `await` и без — только через `callAIWaterfall()` или `callAIFast()`; прямые вызовы — только в `lib/ai/providers.ts` и пробах провайдеров. Список проб с причинами (`PROBES`) и сторож в CI — `tests/unit/ai-direct-calls.test.ts` (#2451); хук `pre-commit` лишь предупреждает раньше. `callMiMo` удалена переписью блока D
 
 **Структура файлов:**
