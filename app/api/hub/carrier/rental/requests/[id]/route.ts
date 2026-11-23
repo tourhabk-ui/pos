@@ -19,7 +19,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const carrier = await requireCarrier(request);
+  const carrier = await requireCarrier(request, { rental: true });
   if (carrier instanceof NextResponse) return carrier;
 
   const { id } = await params;

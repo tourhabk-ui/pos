@@ -72,12 +72,12 @@ export default function UsersManagement() {
     const labels: Record<string, string> = {
       user: 'Пользователь', tourist: 'Турист', operator: 'Оператор', guide: 'Гид',
       transfer: 'Трансфер', agent: 'Агент', stay: 'Проживание', gear: 'Снаряжение',
-      admin: 'Админ'
+      cars: 'Прокат авто', admin: 'Админ'
     };
     return labels[role] || role;
   };
 
-  const ROLE_OPTIONS = ['user', 'tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear', 'admin'];
+  const ROLE_OPTIONS = ['user', 'tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear', 'cars', 'admin'];
 
   const saveRole = async (user: AdminUser) => {
     const newRole = roleDrafts[user.id] ?? user.role;

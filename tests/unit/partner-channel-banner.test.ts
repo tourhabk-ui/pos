@@ -144,7 +144,7 @@ describe('Telegram из кабинета — в карточку партнёр�
     expect(hook).toMatch(/const PARTNER_CHAT_ROLES: ReadonlySet<string> = new Set\(\[\.\.\.PARTNER_ROLES, 'transfer_operator'\]\)/);
     expect(hook).toMatch(/if \(PARTNER_CHAT_ROLES\.has\(role\)\) \{\s*await query\(\s*`UPDATE partners SET telegram_chat_id = \$1 WHERE user_id = \$2`/);
     expect(hook).not.toMatch(/role === 'operator' \|\| role === 'guide'/);
-    expect(PARTNER_ROLES.length).toBe(6);
+    expect(PARTNER_ROLES.length).toBe(7);
   });
 
   it('отказ записи не глушится', () => {

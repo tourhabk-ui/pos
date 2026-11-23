@@ -55,7 +55,7 @@ export async function PATCH(
     const { id } = await params;
     // 'user' — legacy-значение роли туриста, встречается в старых записях
     const PatchSchema = z.object({
-      role: z.enum(['user', 'tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear', 'admin']).optional(),
+      role: z.enum(['user', 'tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear', 'cars', 'admin']).optional(),
       name: z.string().min(1).max(255).optional(),
     }).refine(d => d.role !== undefined || d.name !== undefined, {
       message: 'Нет данных для обновления',

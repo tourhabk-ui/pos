@@ -16,6 +16,7 @@ export type AuthRole =
   | 'agent'
   | 'stay'
   | 'gear'
+  | 'cars'
   | 'admin';
 
 export interface VerifiedAuth {
@@ -48,6 +49,9 @@ const BASE_ROLES = new Set<AuthRole>([
   // tests/unit/users-role-check-covers-code.test.ts.
   'stay',
   'gear',
+  // Прокат автомобилей (23.11, миграция 1506): роль разрешена в users.role —
+  // значит, её обязан знать и этот список, иначе вошедший был бы анонимом.
+  'cars',
   'admin',
 ]);
 

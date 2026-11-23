@@ -40,7 +40,7 @@ export const LIVE_BATCH_MAX = 10;
 
 const ItemSchema = z.object({
   user_id: z.string().uuid(),
-  role: z.enum(['operator', 'guide', 'transfer', 'agent', 'stay', 'gear']),
+  role: z.enum(['operator', 'guide', 'transfer', 'agent', 'stay', 'gear', 'cars']),
 });
 
 const BodySchema = z.object({

@@ -19,9 +19,11 @@ describe('ownedRoles', () => {
 
 describe('availableForSwitch', () => {
   it('admin видит все роли (god-mode)', () => {
-    expect(availableForSwitch('admin', ['admin']).length).toBe(8);
+    // Девять с 23.11: добавлен прокат автомобилей (роль cars, миграция 1506).
+    expect(availableForSwitch('admin', ['admin']).length).toBe(9);
     expect(availableForSwitch('admin', ['admin'])).toContain('tourist');
     expect(availableForSwitch('admin', ['admin'])).toContain('gear');
+    expect(availableForSwitch('admin', ['admin'])).toContain('cars');
   });
 
   it('обычный пользователь — только свои', () => {

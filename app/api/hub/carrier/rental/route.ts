@@ -15,7 +15,7 @@ import { loadRentalActor } from '@/lib/rental/web-cabinet';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const carrier = await requireCarrier(request);
+  const carrier = await requireCarrier(request, { rental: true });
   if (carrier instanceof NextResponse) return carrier;
 
   const actor = await loadRentalActor(carrier.partnerId);

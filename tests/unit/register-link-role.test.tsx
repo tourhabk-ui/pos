@@ -42,6 +42,7 @@ const open = (url: string) => {
 const pressed = () => screen.queryAllByRole('button', { pressed: true }).map((b) => b.textContent ?? '');
 const LABEL: Record<string, string> = {
   operator: 'Туроператор', guide: 'Гид', transfer: 'Трансфер', stay: 'Владелец жилья', gear: 'Прокат снаряжения',
+  cars: 'Прокат автомобилей',
 };
 
 describe('registerRoleFromSearch', () => {

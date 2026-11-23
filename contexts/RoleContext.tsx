@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useMemo, useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 
-export type AppRole = 'tourist' | 'operator' | 'guide' | 'transfer' | 'agent' | 'admin' | 'stay' | 'gear';
+export type AppRole = 'tourist' | 'operator' | 'guide' | 'transfer' | 'agent' | 'admin' | 'stay' | 'gear' | 'cars';
 
 interface RoleState {
   roles: AppRole[];

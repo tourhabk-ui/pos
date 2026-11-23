@@ -42,7 +42,7 @@ const DIFFICULTY_LABELS: Record<string, string> = {
 };
 
 /** Все роли аккаунта: страница /wishlist открыта любой вошедшей роли (09.10). */
-const ANY_ROLE = ['tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear', 'admin'];
+const ANY_ROLE = ['tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear', 'cars', 'admin'];
 
 export default function WishlistClient({ anyRole = false }: { anyRole?: boolean } = {}) {
   const { data, loading, error, setData } = useApiFetch<WishlistItem[], WishlistItem[]>(

@@ -5,7 +5,7 @@
  * До этого дня понятный вход был только у туроператора (`/operators/join`).
  * Гид, хозяин жилья и перевозчик попадали на общую форму, где тип «Партнёр» и
  * своё направление надо было найти самому, — а адреса `/guides/join`,
- * `/stays/join`, `/transfers/join` отвечали 404. Теперь страница роли ведёт
+ * `/stays/join`, `/transfers/join`, `/car-rental/join` отвечали 404. Теперь страница роли ведёт
  * на ту же форму и ту же дверь `/api/auth/register`, но с выбранной ролью:
  * второго пути регистрации нет.
  *
@@ -14,7 +14,7 @@
  * Агента в списке нет намеренно: роль заморожена (lib/auth/agent-role).
  */
 
-export const REGISTER_LINK_ROLES = ['operator', 'guide', 'transfer', 'stay', 'gear'] as const;
+export const REGISTER_LINK_ROLES = ['operator', 'guide', 'transfer', 'cars', 'stay', 'gear'] as const;
 export type RegisterLinkRole = (typeof REGISTER_LINK_ROLES)[number];
 
 export function isRegisterLinkRole(v: unknown): v is RegisterLinkRole {

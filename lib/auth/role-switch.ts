@@ -11,7 +11,7 @@
 
 /** Канонический список переключаемых ролей (совпадает с ключами ROLE_HUB без алиасов). */
 export const SWITCHABLE_ROLES = [
-  'tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear', 'admin',
+  'tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear', 'cars', 'admin',
 ] as const;
 
 export type SwitchableRole = (typeof SWITCHABLE_ROLES)[number];
@@ -25,6 +25,7 @@ export const ROLE_LABELS: Record<string, string> = {
   agent: 'Агент',
   stay: 'Жильё',
   gear: 'Прокат',
+  cars: 'Прокат авто',
   admin: 'Админ',
 };
 

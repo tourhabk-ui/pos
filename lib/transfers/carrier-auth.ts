@@ -15,22 +15,50 @@ import { requireRole } from '@/lib/auth/middleware';
 import type { JWTPayload } from '@/lib/auth/jwt';
 import { ensurePartnerForRole } from '@/lib/auth/partner-profile';
 
-export const CARRIER_ROLES = ['transfer', 'transfer_operator'] as const;
+export const CARRIER_ROLES = ['transfer', 'transfer_operator', 'cars'] as const;
+
+/** Роль проката автомобилей: в кабинете перевозчика ей открыт только раздел «Прокат». */
+export const RENTAL_ROLE = 'cars';
+
+/** Отказ прокатчику в разделах перевозчика — словами, что ему открыто. */
+export const RENTAL_ONLY_TEXT =
+  'Этот раздел — для перевозчиков (машина с водителем). В вашем кабинете — раздел «Прокат».';
 
 export interface Carrier {
   user: JWTPayload;
   partnerId: string;
+  /** Категория карточки, с которой открыт кабинет. */
+  category: 'transfer' | 'cars';
 }
 
-export async function requireCarrier(request: NextRequest): Promise<Carrier | NextResponse> {
+/**
+ * Кабинет перевозчика и проката. `rental: true` ставят только роуты раздела
+ * «Прокат»: прокатчику автомобилей (роль `cars`, 23.11) открыты они одни.
+ *
+ * Разделы перевозчика — парк, прайс «под заказ», заявки на машину с
+ * водителем — ему закрыты отказом 403, а не скрыты одной вёрсткой: страница
+ * перевозчика `/transfers/[slug]` есть только у категории `transfer`, и
+ * строка прайса «под заказ» у карточки проката вела бы со списка перевозчиков
+ * на 404.
+ */
+export async function requireCarrier(
+  request: NextRequest,
+  opts: { rental?: boolean } = {},
+): Promise<Carrier | NextResponse> {
   const auth = await requireRole(request, [...CARRIER_ROLES]);
   if (auth instanceof NextResponse) return auth;
 
+  const category = auth.role === RENTAL_ROLE ? 'cars' : 'transfer';
+  if (category === 'cars' && !opts.rental) {
+    return NextResponse.json({ success: false, error: RENTAL_ONLY_TEXT }, { status: 403 });
+  }
+
   let partnerId: string | null;
   try {
-    // Категория профиля — всегда 'transfer': устаревшая роль transfer_operator
-    // в PARTNER_ROLES не значится, и профиль под ней не заведётся никогда.
-    partnerId = await ensurePartnerForRole(auth.userId, 'transfer');
+    // Категория профиля — по роли: у проката 'cars', у перевозчика 'transfer'
+    // (устаревшая роль transfer_operator в PARTNER_ROLES не значится, и
+    // профиль под ней не заведётся никогда).
+    partnerId = await ensurePartnerForRole(auth.userId, category);
   } catch (err) {
     console.error('[carrier-auth] ensurePartnerForRole:', err instanceof Error ? err.message : err);
     return NextResponse.json(
@@ -44,7 +72,7 @@ export async function requireCarrier(request: NextRequest): Promise<Carrier | Ne
       { status: 404 },
     );
   }
-  return { user: auth, partnerId };
+  return { user: auth, partnerId, category };
 }
 
 /** Единый перевод исхода сервиса в HTTP-статус: имя исхода — в ответе. */

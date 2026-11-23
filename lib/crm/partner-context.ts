@@ -33,6 +33,7 @@ export const ROLE_TO_CATEGORY: Readonly<Record<string, PartnerCategory>> = {
   agent: 'agent',
   stay: 'stay',
   gear: 'gear',
+  cars: 'cars',
 };
 
 /**
