@@ -413,4 +413,127 @@ withPg('автомат предлагает правку тура', () => {
       expect(real.body.plan[0].before).toBe(SHORT);
     });
   });
+
+  describe('кроны снимков и точки сбора пишут только дверью', () => {
+    const photosOf = async (id: string) => (await pool.query<{ photos: string[] | null; meeting_point: string | null }>(
+      `SELECT photos, meeting_point FROM operator_tours WHERE id = $1::bigint`, [id],
+    )).rows[0];
+    const addPhotos = async (id: string, add: string[], dryRun = false) => {
+      const { proposeTourPhotos } = await import('@/lib/tours/photos-door');
+      return proposeTourPhotos(id, add, { dryRun });
+    };
+    const setPickup = async (id: string, pickup: string, dryRun = false) => {
+      const { proposeTourPickup } = await import('@/lib/tours/photos-door');
+      return proposeTourPickup(id, pickup, { dryRun });
+    };
+    const A = '/images/tours/a.jpg';
+    const B = '/images/tours/b.jpg';
+    const C = '/images/tours/c.jpg';
+
+    it('снимки туру на сайте — на проверку; второй прогон дописывает к первым, а не теряет их', async () => {
+      const tour = await addTour('Снимки: тур на сайте', { published: true });
+      // Сухой прогон говорит, что случилось бы, и ничего не пишет.
+      const dry = await addPhotos(tour, [B], true);
+      expect(dry).toMatchObject({ status: 'would_stage', was: [A], now: [A, B], added: 1, alreadyPresent: 0 });
+      expect(await draftOf(tour)).toBeNull();
+
+      const first = await addPhotos(tour, [A, B, B]);
+      expect(first).toMatchObject({ status: 'staged', title: 'Снимки: тур на сайте', was: [A], now: [A, B], added: 1, alreadyPresent: 2 });
+      expect((await photosOf(tour)).photos).toEqual([A]);
+      expect((await draftOf(tour)).proposed_by).toEqual({ photos: 'tour-photos' });
+      // «Что уже есть» — витрина плюс правка на проверке: B второй раз не добавится, C встанет после него.
+      expect((await addPhotos(tour, [B])).status).toBe('nothing_new');
+      const second = await addPhotos(tour, [B, C]);
+      expect(second).toMatchObject({ status: 'staged', was: [A, B], now: [A, B, C], added: 1, alreadyPresent: 1 });
+      expect((await draftOf(tour)).patch).toEqual({ photos: [A, B, C] });
+      expect((await photosOf(tour)).photos).toEqual([A]);
+
+      // Администратор видит, кто предложил; после одобрения снимки на сайте.
+      const card = (await adminGet()).data.edits.find((e) => e.tourId === tour)!;
+      expect(card.changes.map((c) => [c.field, c.proposedBy])).toEqual([['photos', 'добавление снимков к туру']]);
+      const ok = await adminPost(card.id, { action: 'approve', seen: card.seen });
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      expect((await photosOf(tour)).photos).toEqual([A, B, C]);
+    });
+
+    it('снимки: владелец уже отправил свою галерею на проверку — крон её не трогает; тур не на сайте — в строку', async () => {
+      const waiting = await addTour('Снимки: правка владельца', { published: true });
+      await ownerSaves(waiting, { photos: [A, C] });
+      const kept = await addPhotos(waiting, [B]);
+      expect(kept).toMatchObject({ status: 'skipped_owner_pending', was: [A, C], now: [A, C], added: 0 });
+      expect((await draftOf(waiting)).patch).toEqual({ photos: [A, C] });
+
+      const draft = await addTour('Снимки: черновик');
+      expect((await addPhotos(draft, [B], true)).status).toBe('would_write');
+      expect((await photosOf(draft)).photos).toEqual([A]);
+      expect((await addPhotos(draft, [B])).status).toBe('written');
+      expect((await photosOf(draft)).photos).toEqual([A, B]);
+      expect(await draftOf(draft)).toBeNull();
+      expect((await addPhotos('999999997', [B])).status).toBe('not_found');
+    });
+
+    it('точка сбора туру на сайте — на проверку под своим именем; то же значение — «нечего менять»', async () => {
+      const tour = await addTour('Сбор: тур на сайте', { published: true });
+      const dry = await setPickup(tour, 'Забираем от гостиницы в 7:00', true);
+      expect(dry).toMatchObject({ status: 'would_stage', was: null, now: 'Забираем от гостиницы в 7:00' });
+      expect(await draftOf(tour)).toBeNull();
+
+      const r = await setPickup(tour, 'Забираем от гостиницы в 7:00');
+      expect(r).toMatchObject({ status: 'staged', title: 'Сбор: тур на сайте', was: null });
+      expect((await photosOf(tour)).meeting_point).toBeNull();
+      expect((await draftOf(tour)).proposed_by).toEqual({ meeting_point: 'tour-pickup' });
+      expect((await setPickup(tour, 'Забираем от гостиницы в 7:00')).status).toBe('nothing_new');
+      // Прежнее значение для отката — то, что ждёт проверки, а не пустая витрина.
+      expect((await setPickup(tour, 'Забираем от гостиницы в 8:00')).was).toBe('Забираем от гостиницы в 7:00');
+
+      const card = (await adminGet()).data.edits.find((e) => e.tourId === tour)!;
+      expect(card.changes.map((c) => [c.field, c.proposedBy])).toEqual([['meeting_point', 'запись точки сбора']]);
+      const ok = await adminPost(card.id, { action: 'approve', seen: card.seen });
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      expect((await photosOf(tour)).meeting_point).toBe('Забираем от гостиницы в 8:00');
+
+      const draft = await addTour('Сбор: черновик');
+      expect((await setPickup(draft, 'Встреча у автовокзала')).status).toBe('written');
+      expect((await photosOf(draft)).meeting_point).toBe('Встреча у автовокзала');
+      expect((await setPickup('999999996', 'Встреча у автовокзала')).status).toBe('not_found');
+    });
+
+    it('роуты: сухой прогон по умолчанию не пишет; боевой называет исход', async () => {
+      process.env.CRON_SECRET = 'test-cron-secret';
+      const call = async (path: 'tour-photos' | 'tour-pickup', body: unknown) => {
+        const mod = path === 'tour-photos'
+          ? await import('@/app/api/cron/tour-photos/route')
+          : await import('@/app/api/cron/tour-pickup/route');
+        const res = await mod.POST(new NextRequest(`http://localhost/api/cron/${path}`, {
+          method: 'POST', headers: { authorization: 'Bearer test-cron-secret' }, body: JSON.stringify(body),
+        }));
+        return { status: res.status, body: await res.json() };
+      };
+      const tour = await addTour('Роуты кронов', { published: true });
+      const id = Number(tour);
+
+      const dryPhotos = await call('tour-photos', { source: 'тест', why: 'проверка сухого прогона', tour_id: id, add: [B] });
+      expect(dryPhotos.status, JSON.stringify(dryPhotos.body)).toBe(200);
+      expect(dryPhotos.body).toMatchObject({ probe: 'tour_photos_v2', dry_run: true, status: 'would_stage', added: 1, staged_for_review: 0, written_not_on_site: 0 });
+      expect(await draftOf(tour)).toBeNull();
+      const realPhotos = await call('tour-photos', { source: 'тест', why: 'боевой прогон', dry_run: false, tour_id: id, add: [B] });
+      expect(realPhotos.body).toMatchObject({ status: 'staged', was: [A], now: [A, B], staged_for_review: 1, written_not_on_site: 0 });
+      expect((await photosOf(tour)).photos).toEqual([A]);
+      // Чужой хост и выход из каталога ручка не принимает вовсе.
+      expect((await call('tour-photos', { source: 'тест', why: 'чужой хост', dry_run: false, tour_id: id, add: ['https://example.test/a.jpg'] })).status).toBe(400);
+      expect((await call('tour-photos', { source: 'тест', why: 'нет тура', dry_run: false, tour_id: 999999995, add: [B] })).status).toBe(404);
+
+      const dryPickup = await call('tour-pickup', { source: 'тест', items: [{ id, pickup: 'Забираем от гостиницы', why: 'проверка' }] });
+      expect(dryPickup.status, JSON.stringify(dryPickup.body)).toBe(200);
+      expect(dryPickup.body).toMatchObject({ probe: 'tour_pickup_v2', dry_run: true, staged_for_review: 0 });
+      expect(dryPickup.body.results[0]).toMatchObject({ id, status: 'would_stage', was: null, now: 'Забираем от гостиницы' });
+      const realPickup = await call('tour-pickup', {
+        source: 'тест', dry_run: false,
+        items: [{ id, pickup: 'Забираем от гостиницы', why: 'проверка' }, { id: 999999994, pickup: 'Забираем от гостиницы', why: 'нет тура' }],
+      });
+      expect(realPickup.body).toMatchObject({ staged_for_review: 1, written_not_on_site: 0, not_found: 1, meaningful: true });
+      expect((await photosOf(tour)).meeting_point).toBeNull();
+      expect((await draftOf(tour)).proposed_by).toEqual({ photos: 'tour-photos', meeting_point: 'tour-pickup' });
+    });
+  });
 });

@@ -24,6 +24,8 @@ import { MODERATED_TOUR_COLUMNS, isModeratedTourColumn, sameTourValue, type Mode
  */
 export const TOUR_AUTOMATA = {
   'tour-describe': 'сборка описания из данных тура',
+  'tour-photos': 'добавление снимков к туру',
+  'tour-pickup': 'запись точки сбора',
 } as const;
 
 export type TourAutomaton = keyof typeof TOUR_AUTOMATA;

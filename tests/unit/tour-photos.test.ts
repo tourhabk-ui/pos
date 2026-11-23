@@ -56,11 +56,15 @@ describe('правила ручки', () => {
   });
 
   it('прежний массив возвращается — это откат', () => {
-    expect(SRC).toContain('was,');
+    expect(SRC).toContain('was: r.was');
   });
 
-  it('дубли не добавляются: повтор прогона не размножает фото', () => {
-    expect(SRC).toContain('!was.includes(p)');
+  it('своей записи в тур у ручки нет: снимки уходят дверью правки', () => {
+    // С 23.11 (слово владельца: автоматы — только через очередь проверки).
+    // Что дубли не добавляются и повтор прогона ничего не меняет, судит дверь
+    // на настоящем PostgreSQL — tests/integration/tour-automaton.pg.test.ts.
+    expect(SRC, 'крон снимков снова пишет тур своим запросом').not.toMatch(/UPDATE\s+operator_tours/i);
+    expect(SRC).toMatch(/proposeTourPhotos\(/);
     expect(SRC).toContain('already_present');
   });
 

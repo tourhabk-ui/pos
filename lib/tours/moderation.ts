@@ -31,6 +31,9 @@ export const MODERATED_TOUR_COLUMNS = [
   'title', 'short_description', 'description', 'program',
   'included', 'not_included', 'what_to_bring', 'safety_notes',
   'cancellation_policy', 'pickup_type', 'pickup_details',
+  // Прежнее поле точки сбора: карточка тура читает его, когда способ встречи
+  // не записан. Владелец его не правит — пишет только ручной крон, дверью.
+  'meeting_point',
   'base_price', 'price_old', 'price_unit',
   'photos', 'tour_image', 'video_clips',
   // Слово владельца 23.11: сложность, длительность, место и сезон.
@@ -66,6 +69,7 @@ export const TOUR_FIELD_LABELS: Record<ModeratedTourColumn, string> = {
   cancellation_policy: 'Условия отмены',
   pickup_type: 'Как встречаются',
   pickup_details: 'Точка сбора',
+  meeting_point: 'Точка сбора (прежнее поле)',
   base_price: 'Цена',
   price_old: 'Старая цена',
   price_unit: 'Единица цены',

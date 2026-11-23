@@ -207,6 +207,8 @@ export interface AutomatonTourView {
   /** Карточка тура (`partners.id`): с ней автомат идёт в `saveTourChange`. */
   operatorId: string;
   published: boolean;
+  /** У тура уже есть правка на проверке (в том числе одна просьба о публикации). */
+  hasDraft: boolean;
   /** Что на витрине сейчас. */
   live: Record<string, unknown>;
   /** Витрина плюс правка на проверке: то, что выйдет после одобрения. */
@@ -237,6 +239,7 @@ export async function readTourForAutomaton(
   return {
     operatorId: live.operator_id,
     published: live.is_published === true,
+    hasDraft: pending !== null,
     live,
     effective: effectiveContent(live, patch),
     ownerPending: splitByAuthor(fieldsOf(patch), cleanProposedBy(pending?.proposed_by)).owner,
