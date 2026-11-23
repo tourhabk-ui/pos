@@ -30,6 +30,12 @@ export async function tgSend(
   scope: string,
   text: string,
   opts?: { chatId: string | null; button?: { label: string; url: string } },
+  /**
+   * `plain` — без разметки. Запасная попытка для тревоги, которую Telegram
+   * отверг как HTML (23.11: один знак «<» в тексте ошибки блокировал всё
+   * сообщение сторожа вместе с SOS). Простой текст Telegram не разбирает.
+   */
+  mode: 'html' | 'plain' = 'html',
 ): Promise<TgSendOutcome> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = opts ? opts.chatId : process.env.TELEGRAM_CHAT_ID;
@@ -51,7 +57,7 @@ export async function tgSend(
         body: JSON.stringify({
           chat_id: chatId,
           text,
-          parse_mode: 'HTML',
+          ...(mode === 'html' ? { parse_mode: 'HTML' } : {}),
           disable_web_page_preview: true,
           ...(opts?.button ? { reply_markup: { inline_keyboard: [[{ text: opts.button.label, url: opts.button.url }]] } } : {}),
         }),

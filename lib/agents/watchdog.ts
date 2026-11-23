@@ -41,6 +41,7 @@ import { detectRegistrationSpike } from '@/lib/agents/agencies/operator-agency';
 import { computeLiveness, livenessWatch } from '@/lib/agents/cron-liveness';
 import { blameSilentCrons, describeBlame, type CronWitness, type CronBlame, witnessEligibleAgentIds } from '@/lib/agents/cron-blame';
 import { tgSend as tgSendShared, type TgSendOutcome } from '@/lib/notifications/tg-send';
+import { buildWatchdogMessage, rejectedAsBadMessage } from '@/lib/agents/watchdog-message';
 import { sendPartnerNotice, type NoticeChannel, type NoticeTarget } from '@/lib/partners/notice';
 import { nudgePartnerOncePerDay, nudgeSummary, type NudgeOutcome } from '@/lib/partners/daily-nudge';
 import { ownerBookingsListUrl } from '@/lib/partners/cabinet-links';
@@ -131,7 +132,8 @@ function isCheckFailure(v: CheckResult): v is CheckFailure {
  */
 export type WatchdogDelivery =
   | { status: 'nothing_to_send' }
-  | { status: 'delivered' }
+  /** `note` — тревога дошла, но не как задумано (ушла простым текстом). */
+  | { status: 'delivered'; note?: string }
   | { status: 'failed'; reason: string }
   /**
    * Нарушения ЕСТЬ, но по каждому из них Telegram уже писали в пределах
@@ -193,6 +195,10 @@ async function checkUnconfirmedBookings(): Promise<CheckResult> {
       type: 'unconfirmed_booking',
       count,
       details: `${count} бронирований без подтверждения. Старейшее — ${hours}ч назад.`,
+      // Часы в тексте растут каждый прогон: без своего ключа дебаунс не
+      // срабатывал, и одна забытая бронь давала тревогу каждый час (23.11).
+      // Повторяем раз в окно либо когда меняется число броней.
+      debounceOn: `unconfirmed_booking:${count}`,
     };
   } catch (err) {
     // §4.0: «не смог проверить» — не «всё хорошо». Сторож, чей запрос
@@ -2070,38 +2076,37 @@ export async function runWatchdog(): Promise<WatchdogResult> {
   // так же редко, как лог: при недоступной БД alerts пуст, и без этой ветки
   // Telegram молчал бы ровно как раньше.
   if (due.length > 0 || failed.length > 0) {
-    const lines: string[] = ['<b>Watchdog — требует внимания</b>', ''];
-    for (const a of due) {
-      // push_undelivered из этого списка убран: его уровень решает причина, а
-      // не тип. При нуле подписчиков «турист не получил предупреждение» верно,
-      // но неисправимо этим алертом — и КРИТ висел бы неделю, пока запись не
-      // истечёт. Теперь уровень ставит сама проверка через `critical`.
-      //
-      // safety_cron_dead убран по той же логике раньше: молчание крона бывает
-      // и задержкой расписания GitHub, поэтому решает длительность молчания,
-      // а не сам тип алерта.
-      const prefix = isDisplayedCritical(a) ? 'КРИТ:' : 'ВНИМАНИЕ:';
-      lines.push(`${prefix} ${a.details}`);
-    }
-    if (suppressed.length > 0) {
-      lines.push(`(и ещё ${suppressed.length} без изменений — писали в последние ${WATCHDOG_ALERT_DEBOUNCE_HOURS} ч, не повторяю)`);
-    }
-    // «Не смог проверить» идёт отдельным блоком и НЕ смешивается с
-    // нарушениями: у них разная природа и разное действие. Нарушение чинят
-    // в предметной области, отказ проверки — в самом стороже или в БД.
-    if (failed.length > 0) {
-      lines.push('', `<b>НЕ ПРОВЕРЕНО: ${failed.length} из ${checks.total}</b>`);
-      for (const f of failed.slice(0, 6)) {
-        lines.push(`· ${f.check}: ${f.reason.slice(0, 160)}`);
+    // push_undelivered и safety_cron_dead критичны не по типу, а по причине и
+    // длительности: уровень ставит сама проверка (`isDisplayedCritical`).
+    //
+    // Текст собирает `buildWatchdogMessage`: чужие строки (ошибка базы,
+    // error_msg крона, название тревоги) экранируются, длина укладывается в
+    // предел Telegram. До 23.11 один знак «<» в тексте давал 400 на всё
+    // сообщение, вместе с SOS, и так каждый прогон.
+    const message = buildWatchdogMessage({
+      due: due.map((a) => ({ critical: isDisplayedCritical(a), details: a.details })),
+      suppressedCount: suppressed.length,
+      debounceHours: WATCHDOG_ALERT_DEBOUNCE_HOURS,
+      failed,
+      checksTotal: checks.total,
+      adminUrl: getPublicBaseUrl(),
+    });
+    let sent = await tgSend(message.html);
+    let note: string | undefined;
+    if (!sent.ok && rejectedAsBadMessage(sent.reason)) {
+      // Telegram отверг само сообщение — шлём тот же текст без разметки.
+      // Тревога без жирного шрифта лучше тревоги, которая не дошла.
+      const rejected = sent.reason;
+      const plain = await tgSendShared('watchdog', message.plain, undefined, 'plain');
+      if (plain.ok) {
+        sent = plain;
+        note = `Telegram отверг разметку (${rejected.slice(0, 120)}) — ушло простым текстом`;
+        console.error('[watchdog] тревога ушла простым текстом:', rejected.slice(0, 200));
       }
-      if (failed.length > 6) lines.push(`· и ещё ${failed.length - 6}`);
-      lines.push('Это не «нарушений нет» — по этим проверкам ответа нет вовсе.');
     }
-
-    const adminUrl = getPublicBaseUrl();
-    lines.push('', `<a href="${adminUrl}/hub/admin">Открыть панель</a>`);
-    const sent = await tgSend(lines.join('\n'));
-    delivery = sent.ok ? { status: 'delivered' } : { status: 'failed', reason: sent.reason };
+    delivery = sent.ok
+      ? { status: 'delivered', ...(note ? { note } : {}) }
+      : { status: 'failed', reason: sent.reason };
     // Отмечаем ТОЛЬКО при удачной отправке: если Telegram не принял, владелец
     // ничего не увидел, и следующий прогон обязан повторить попытку, а не
     // молчать «уже писали».
