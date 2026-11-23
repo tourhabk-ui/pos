@@ -83,9 +83,12 @@ describe('молчание крона не выдаётся за отказ аг
  */
 describe('пустой push-канал — не отказ доставки', () => {
   it('push_undelivered больше не КРИТ по типу', () => {
-    const prefixLine = CODE.split('\n').find((l) => l.includes("? 'КРИТ:' : 'ВНИМАНИЕ:'"));
-    expect(prefixLine, 'строка выбора префикса не найдена').toBeTruthy();
-    expect(prefixLine).not.toContain('push_undelivered');
+    // Уровень в тексте тревоги ставит `isDisplayedCritical` (23.11 сборка
+    // текста уехала в watchdog-message). Запрет: тип в этом правиле не назван —
+    // критичность push_undelivered решает сама проверка флагом `critical`.
+    const rule = /function isDisplayedCritical[\s\S]*?\n\}/.exec(SRC)?.[0];
+    expect(rule, 'правило отображаемого КРИТ не найдено').toBeTruthy();
+    expect(rule).not.toContain('push_undelivered');
   });
 
   it('ноль подписчиков — алерта нет вовсе, факт уходит в лог (владелец 05.09)', () => {
