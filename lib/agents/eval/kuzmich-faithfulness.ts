@@ -441,7 +441,10 @@ export async function runKuzmichFaithfulnessEval(opts?: { questions?: EvalQuesti
       console.error('[kuzmich-eval] вопрос не отработал', {
         id: q.id,
         cause,
-        message: err instanceof Error ? err.message : String(err),
+        // Живые вопросы — сообщения туристов, а текст ошибки бывает чужим и
+        // повторяет вход: в лог — после той же маски, что перед моделью
+        // (ревью безопасности #3793; правило lib/observability/swallowed.ts).
+        message: redactPII(err instanceof Error ? err.message : String(err)),
       });
       answer = null;
     }

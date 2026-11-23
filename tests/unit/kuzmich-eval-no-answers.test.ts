@@ -108,6 +108,16 @@ describe('прогонщик называет, почему вопрос ост�
     expect(silent?.text).toMatch(/error — 1, empty — 2/);
   });
 
+  it('текст ошибки уходит в лог без телефона и почты туриста', async () => {
+    await runKuzmichFaithfulnessEval({
+      questions: [Q[0]],
+      deps: { ask: async () => { throw new Error('провайдер вернул вход: +7 914 000-00-00, test@example.com'); }, judge },
+    });
+    const logged = JSON.stringify((console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls);
+    expect(logged).not.toMatch(/914 000-00-00/);
+    expect(logged).not.toMatch(/test@example\.com/);
+  });
+
   it('хоть один ответ — прогон что-то измерил', async () => {
     const report = await runKuzmichFaithfulnessEval({
       questions: Q,
