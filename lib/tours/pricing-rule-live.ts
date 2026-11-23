@@ -11,17 +11,21 @@
  * Правило, которое владелец попросил снять (`removal_requested_at`),
  * действует, пока администратор не решил: иначе снятие скидки подняло бы
  * цену на сайте без проверки.
+ *
+ * Само условие — общий шлюз витрины (`lib/moderation/gate`): у правил цены
+ * те же колонки-шлюзы (`is_active`, `moderation_status`) и тот же смысл, что
+ * у жилья и проката. Своей копии условия здесь нет — только имя для домена.
  */
+import { MODERATION_STATUSES, publicModeratedSql, type ModerationStatus } from '@/lib/moderation/gate';
 
 /** Статусы проверки правила; CHECK миграции 1511 держит то же. */
-export const PRICING_RULE_STATUSES = ['pending', 'approved', 'rejected'] as const;
-export type PricingRuleStatus = (typeof PRICING_RULE_STATUSES)[number];
+export const PRICING_RULE_STATUSES = MODERATION_STATUSES;
+export type PricingRuleStatus = ModerationStatus;
 
 /**
  * Условие «правило действует» для `WHERE` / `ON`. `alias` — псевдоним таблицы
  * правил в запросе; пусто — запрос без псевдонима.
  */
 export function livePricingRuleSql(alias = ''): string {
-  const a = alias ? `${alias}.` : '';
-  return `${a}is_active = TRUE AND ${a}moderation_status = 'approved'`;
+  return publicModeratedSql(alias);
 }

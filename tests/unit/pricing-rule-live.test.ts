@@ -48,9 +48,11 @@ const READERS: Record<string, { kind: Kind; why: string }> = {
 
 describe('условие «правило действует» — одно', () => {
   it('действует включённое и проверенное правило; псевдоним таблицы подставляется', () => {
-    expect(livePricingRuleSql()).toBe("is_active = TRUE AND moderation_status = 'approved'");
-    expect(livePricingRuleSql('pr')).toBe("pr.is_active = TRUE AND pr.moderation_status = 'approved'");
+    expect(livePricingRuleSql()).toBe("(is_active = true AND moderation_status = 'approved')");
+    expect(livePricingRuleSql('pr')).toBe("(pr.is_active = true AND pr.moderation_status = 'approved')");
     expect([...PRICING_RULE_STATUSES]).toEqual(['pending', 'approved', 'rejected']);
+    // Псевдоним задаёт код, но в SQL без проверки не идёт.
+    expect(() => livePricingRuleSql('pr; DROP TABLE x')).toThrow();
   });
 
   it('статусы кода и ограничение миграции 1511 — одни и те же', () => {
