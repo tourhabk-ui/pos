@@ -1465,7 +1465,7 @@ async function generateDayPlans(
   const parkAlertsOfTour = new Map<string, PlanParkAlert[]>();
   const parkClosedOn = (tourId: string, date: string): boolean =>
     (parkAlertsOfTour.get(tourId) ?? []).some((a) => a.alert_type === 'park_closure' && parkNoteForDay(a, date, today) !== null);
-  const gateOf = (t: RealTour, date: string): TourGate | null => {
+  const gateOf = (t: RealTour, date: string | null): TourGate | null => {
     const act = interestOfTour.get(t.tourId) ?? t.activityType;
     const months = ACTIVITY_CONSTRAINTS[act]?.months;
     const m = monthOfIsoDate(date);
@@ -1477,8 +1477,8 @@ async function generateDayPlans(
       activityName: ACTIVITY_NAMES[act] ?? act,
       placeOpenFrom: t.place?.openFrom ?? null,
       placeOpenTo: t.place?.openTo ?? null,
-      offOrientation: Boolean(months && m !== null && !months.includes(m)),
-      parkClosed: parkClosedOn(t.tourId, date),
+      offOrientation: Boolean(date && months && m !== null && !months.includes(m)),
+      parkClosed: date !== null && parkClosedOn(t.tourId, date),
       ageText: [t.shortDescription, ...(t.included ?? [])].filter((x): x is string => typeof x === 'string').join('\n'),
       date,
     });
@@ -1498,12 +1498,12 @@ async function generateDayPlans(
     }
   };
   const fitsOn = (t: RealTour, date: string | null): boolean => {
-    if (date === null) return true;
     const decision = gateOf(t, date);
     if (decision) {
       rememberGate(t, decision);
       return false;
     }
+    if (date === null) return true;
     return tourFitsDate(tourDates.get(t.tourId), date, today);
   };
 

@@ -30,8 +30,8 @@ export interface TourGateInput {
   parkClosed: boolean;
   /** Короткое описание и состав тура — оттуда читается «от N лет». */
   ageText: string;
-  /** Дата дня, YYYY-MM-DD. Для возраста не нужна. */
-  date: string;
+  /** Дата дня, YYYY-MM-DD. Нет даты — закрытие парка и окно места не судятся, возраст судится. */
+  date: string | null;
 }
 
 export interface TourGate {
@@ -42,12 +42,18 @@ export interface TourGate {
 
 const AGE_RE = /(?:^|[^\d])(?:от|с)\s+(\d{1,2})\s+лет/gi;
 
-/** Самый высокий «от N лет» в тексте оператора. Нет фразы — null, возраст не выдумывается. */
+/**
+ * Самый высокий «от N лет» в тексте оператора. Нет фразы — null, возраст не
+ * выдумывается. 18 и 21 — тот же записанный порог, что и детский: в группе
+ * владельца есть ребёнок 17 лет, и «от 18 лет» его не пускает. Выше 21 фраза
+ * в текст тура почти не пишется, а «от 30» в чужом предложении закрыло бы
+ * любую семью.
+ */
 export function recordedMinAge(text: string): number | null {
   let best: number | null = null;
   for (const m of text.matchAll(AGE_RE)) {
     const n = Number(m[1]);
-    if (n >= 1 && n <= 17 && (best === null || n > best)) best = n;
+    if (n >= 1 && n <= 21 && (best === null || n > best)) best = n;
   }
   return best;
 }
@@ -93,6 +99,7 @@ export function tourGate(input: TourGateInput): TourGate | null {
       clause: `в группе ребёнок ${input.youngest} лет, а ${ageBits.join('; ')}`,
     };
   }
+  if (input.date === null) return null;
   if (input.kind !== 'request') return null;
   if (dateOutsideRecordedWindow(input.date, input.placeOpenFrom, input.placeOpenTo)) {
     const w = windowWords(input.placeOpenFrom, input.placeOpenTo);

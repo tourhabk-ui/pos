@@ -236,6 +236,8 @@ describe('PDF: безопасность, допущение о доме, ссы�
   it('«ночуете дома» называет выбор и путь к «Прилетаю»', () => {
     expect(HOME_NIGHTS_ASSUMPTION).toMatch(/Вы выбрали «Живу на Камчатке»/);
     expect(HOME_NIGHTS_ASSUMPTION).toMatch(/выберите «Прилетаю»/);
+    expect(HOME_NIGHTS_ASSUMPTION).toMatch(/его цена войдёт в сумму/);
+    expect(HOME_NIGHTS_ASSUMPTION).not.toMatch(/в сумму они не входят/);
     expect(HOME_NIGHTS_ASSUMPTION).not.toMatch(/ночуете у себя/);
   });
 

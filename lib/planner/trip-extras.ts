@@ -142,7 +142,8 @@ export function lodgingStays(
     if (d.lodgingIncluded === true) { nightsInTours++; current = null; continue; }
 
     // Ночь дня переезда — в зоне, куда приехали (nightZoneOf, E11).
-    // Ночь дома тоже предлагается: смета её не считает, список — да.
+    // Ночь дома тоже в списке. Смета сама её не ставит; выбранный вариант
+    // считает отдельно, и текст у сметы так и говорит.
     const zone = nightZoneOf(d, sorted[i + 1]);
     void origin;
     if (current && current.zone === zone && current.checkOut === night) {

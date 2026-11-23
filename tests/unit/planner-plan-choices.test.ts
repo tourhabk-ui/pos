@@ -161,6 +161,16 @@ describe('смета: выбранное — пунктом плана с цен
     expect(e.total).toEqual([20000, 20000]);
   });
 
+  it('местный: авачинские ночи сами в сумму не входят, выбранный вариант входит', () => {
+    const local: EstimateProfile = { ...PROFILE, tripOrigin: 'local' };
+    const plain = estimateGroup(DAYS, local);
+    expect(plain.lines.filter((l) => l.kind === 'lodging')).toEqual([]);
+    expect(plain.total).toEqual([0, 0]);
+    const chosen = estimateGroup(DAYS, local, choices({ stays: [STAY] }));
+    expect(line(chosen, /Жильё «Гостиница»/)).toMatchObject({ total: [20000, 20000], source: 'offer' });
+    expect(chosen.total).toEqual([20000, 20000]);
+  });
+
   it('стоянка в другой зоне чужих ночей не вынимает; без даты прилёта выбранное не ставится вовсе', () => {
     const western = estimateGroup(DAYS, PROFILE, choices({ stays: [{ ...STAY, zone: 'western' }] }));
     expect(line(western, /Проживание в Авачинской/)?.basis).toBe('3 ночи — цену называет хозяин жилья');

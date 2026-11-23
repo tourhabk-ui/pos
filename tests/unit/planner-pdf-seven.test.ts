@@ -10,6 +10,7 @@ import { AVACHA_ZONE_CENTER, placePoint } from '@/lib/planner/place-point';
 import { assignCatalogFreeDays, publicPlacePath, type SelfPlace } from '@/lib/planner/self-fill';
 import { NO_TOUR_DAY_TITLE } from '@/lib/planner/honest-days';
 import { dateOutsideRecordedWindow, recordedMinAge, tourGate } from '@/lib/planner/tour-gates';
+import { estimateGroup, type EstimateDay, type EstimateProfile } from '@/lib/planner/estimate';
 import { resolvingTourPath } from '@/lib/tours/tour-url';
 import type { DayPlan } from '@/lib/planner/engine';
 
@@ -62,6 +63,7 @@ describe('ворота тура', () => {
 
   it('«от 12 лет» в тексте тура закрывает ребёнка 5 лет и у тура с календарём', () => {
     expect(recordedMinAge('Программа от 12 лет, детям с 5 лет скидка')).toBe(12);
+    expect(recordedMinAge('программа от 18 лет')).toBe(18);
     expect(recordedMinAge('без возраста')).toBeNull();
     const g = tourGate({ ...base, kind: 'dated', ageText: 'Облёт от 12 лет', parkClosed: false, offOrientation: false });
     expect(g?.reason).toBe('age');
@@ -73,6 +75,18 @@ describe('ворота тура', () => {
     const g = tourGate({ ...base, activityMinAge: 14, activityName: 'Снегоход', kind: 'dated' });
     expect(g?.reason).toBe('age');
     expect(g?.clause).toMatch(/с 14 лет/);
+  });
+
+  it('«от 18 лет» не пускает ребёнка 17 лет', () => {
+    const g = tourGate({ ...base, youngest: 17, kind: 'dated', ageText: 'Программа от 18 лет', parkClosed: false, offOrientation: false });
+    expect(g?.reason).toBe('age');
+    expect(g?.clause).toMatch(/от 18 лет/);
+    expect(g?.clause).toMatch(/17 лет/);
+  });
+
+  it('без даты поездки возраст всё равно режет, закрытие парка — нет', () => {
+    expect(tourGate({ ...base, date: null, ageText: 'от 12 лет' })?.reason).toBe('age');
+    expect(tourGate({ ...base, date: null, parkClosed: true })).toBeNull();
   });
 });
 
@@ -126,5 +140,22 @@ describe('пустой день и ссылка', () => {
     expect(resolvingTourPath({ id: 't-1', slug: null })).toBe('/catalog/tours/t-1');
     expect(resolvingTourPath({ id: '98d0607d-8547-40a3-8b71-e981b59a31df', slug: null })).toBeNull();
     expect(resolvingTourPath({ id: '98d0607d-8547-40a3-8b71-e981b59a31df', slug: '98d0607d-8547-40a3-8b71-e981b59a31df' })).toBeNull();
+  });
+
+  it('самостоятельный день музея не обещает цену исполнителя', () => {
+    const profile: EstimateProfile = { adults: 2, children: [5, 11, 17], budgetTier: 'comfort', tripOrigin: 'visitor' };
+    const museumDay: EstimateDay = {
+      day: 1, type: 'activity', zone: 'avachinsky', title: 'Самостоятельно: Краеведческий музей',
+      priceFrom: 0, priceTo: 0, activityMode: 'self',
+    };
+    const openDay: EstimateDay = {
+      day: 2, type: 'activity', zone: 'avachinsky', title: 'Вулканы — Авачинская зона',
+      priceFrom: 0, priceTo: 0, activityMode: 'open',
+    };
+    const leave: EstimateDay = { day: 3, type: 'departure', zone: 'avachinsky', title: 'Вылет', priceFrom: 0, priceTo: 0 };
+    const est = estimateGroup([museumDay, openDay, leave], profile);
+    const activity = est.lines.filter((l) => l.kind === 'activity');
+    expect(activity.map((l) => l.label)).toEqual(['«Вулканы — Авачинская зона», день 2']);
+    expect(activity[0]?.basis).toBe('тур не выбран — цену называет исполнитель');
   });
 });

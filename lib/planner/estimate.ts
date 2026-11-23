@@ -81,6 +81,11 @@ export interface EstimateDay {
     durationDays?: number;
     lodgingIncluded: boolean | null;
   };
+  /**
+   * `self` — место из каталога без гида. Цену исполнителя на нём обещать
+   * некому: это не тур, который ещё не выбрали.
+   */
+  activityMode?: 'operator' | 'self' | 'open';
 }
 
 export interface EstimateProfile {
@@ -148,6 +153,11 @@ export function countsAsActivityCost(type: DayType): boolean {
 /** Дни занятий: без тура на них цену называет исполнитель (строка без суммы). */
 function isActivityDay(type: DayType): boolean {
   return type === 'activity' || type === 'buffer';
+}
+
+/** День, на котором исполнителя нет: самостоятельный выход, не «тур не выбран». */
+function performerWouldPrice(day: EstimateDay): boolean {
+  return isActivityDay(day.type) && day.activityMode !== 'self';
 }
 
 const ZONE_GENITIVE: Record<ZoneId, string> = {
@@ -251,7 +261,7 @@ export function calculatePriceBreakdown(planDays: EstimateDay[]): PriceBreakdown
       continue;
     }
     if (d.realTour) continue;
-    if (isActivityDay(d.type)) activityPricing.open++;
+    if (performerWouldPrice(d)) activityPricing.open++;
   }
   return { tours: [from, to], activityPricing };
 }
@@ -458,7 +468,7 @@ export function estimateGroup(planDays: EstimateDay[], profile: EstimateProfile,
     }
     // Продолжение многодневного тура: цена учтена в первом дне.
     if (d.realTour) continue;
-    if (!isActivityDay(d.type)) continue;
+    if (!performerWouldPrice(d)) continue;
     lines.push({
       kind: 'activity', label: `«${d.title}», день ${d.day}`,
       basis: OPEN_PRICE_WORDS.activity, total: null, source: 'open',
