@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, ArrowRight, CheckCircle2, CircleDashed, Clock, HelpCircle } from 'lucide-react';
 import type { ItemState, PartnerReadiness, ReadinessItem } from '@/lib/partners/readiness';
+import { OfferAcceptCheckbox } from '@/components/legal/OfferAcceptCheckbox';
 
 type Load =
   | { kind: 'loading' }
@@ -50,7 +51,48 @@ const STATE_VIEW: Record<ItemState, { label: string; color: string; Icon: typeof
   unknown: { label: 'Не проверено',  color: 'text-[var(--warning)]',    Icon: HelpCircle },
 };
 
-function Item({ item, urgent }: { item: ReadinessItem; urgent: boolean }) {
+/**
+ * Принять оферту прямо в чек-листе (этап 5 плана готовности, 23.11): отметка
+ * и кнопка. Кнопка без отметки не нажимается — и сказано почему. Сервер
+ * проверяет пришедшее состояние отметки и пишет акцепт в журнал с версией.
+ */
+function AcceptOffer({ onDone }: { onDone: () => void }) {
+  const [checked, setChecked] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const accept = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/hub/partner/offer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ offer_accepted: checked }),
+      });
+      const json = await res.json().catch(() => null) as { success?: boolean; error?: string } | null;
+      if (!res.ok || !json?.success) throw new Error(json?.error ?? 'Отметка не записана — попробуйте позже');
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Отметка не записана — попробуйте позже');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-1" data-testid="accept-offer">
+      <OfferAcceptCheckbox checked={checked} onChange={setChecked} id="readiness-offer-accept" />
+      <button type="button" className="ds-btn ds-btn-primary text-sm disabled:opacity-50" disabled={!checked || busy} onClick={() => void accept()}>
+        Принять оферту
+      </button>
+      {!checked && <p className="mt-1 text-xs text-[var(--text-muted)]">Чтобы принять, поставьте отметку.</p>}
+      {error && <p role="alert" className="mt-1 text-sm text-[var(--danger)]">{error}</p>}
+    </div>
+  );
+}
+
+function Item({ item, urgent, onChanged }: { item: ReadinessItem; urgent: boolean; onChanged: () => void }) {
   const view = STATE_VIEW[item.state];
   // Канал при карточке на витрине — тревога: цвет опасности, не акцента.
   const color = urgent && item.key === 'channel' ? 'text-[var(--danger)]' : view.color;
@@ -64,6 +106,7 @@ function Item({ item, urgent }: { item: ReadinessItem; urgent: boolean }) {
           {!item.required && <span className="ml-2 text-xs font-normal text-[var(--text-muted)]">не обязательно</span>}
         </p>
         <p className="mt-0.5 text-sm text-[var(--text-secondary)] break-words">{item.detail}</p>
+        {item.action === 'accept_offer' && <AcceptOffer onDone={onChanged} />}
       </div>
       {item.href && (item.state === 'todo' || item.key === 'offer') && (
         <Link
@@ -80,6 +123,8 @@ function Item({ item, urgent }: { item: ReadinessItem; urgent: boolean }) {
 
 export function PartnerReadinessCard() {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
+  // Перечитать чек-лист после действия в нём (принята оферта).
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -92,7 +137,7 @@ export function PartnerReadinessCard() {
       })
       .catch(() => { if (!ctrl.signal.aborted) setLoad({ kind: 'failed' }); });
     return () => ctrl.abort();
-  }, []);
+  }, [reloadKey]);
 
   if (load.kind === 'none') return null;
   if (load.kind === 'loading') {
@@ -115,7 +160,9 @@ export function PartnerReadinessCard() {
   const headColor = data.urgent ? 'text-[var(--danger)]' : ready ? 'text-[var(--success)]' : 'text-[var(--text-muted)]';
   const list = (
     <ul className="divide-y divide-[var(--border)]">
-      {data.items.map((item) => <Item key={item.key} item={item} urgent={data.urgent} />)}
+      {data.items.map((item) => (
+        <Item key={item.key} item={item} urgent={data.urgent} onChanged={() => setReloadKey((k) => k + 1)} />
+      ))}
     </ul>
   );
 

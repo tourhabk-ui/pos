@@ -80,7 +80,8 @@ withPg('регистрация на настоящем PostgreSQL', () => {
     ['cars', '/hub/carrier/rental'],
   ])('роль %s: партнёр своей категории, не на витрине, кабинет %s', async (role, hub) => {
     const email = `join.${role}@example.com`;
-    const res = await POST(req({ ...base, name: `Тест ${role}`, email, role, roles: [role] }));
+    // Партнёр — сторона оферты: без отметки он не заводится (этап 5 плана готовности, 23.11).
+    const res = await POST(req({ ...base, name: `Тест ${role}`, email, role, roles: [role], offer_accepted: true }));
     const json = await res.json();
     expect(res.status, JSON.stringify(json)).toBe(201);
     expect(json.user.role).toBe(role);
@@ -104,6 +105,113 @@ withPg('регистрация на настоящем PostgreSQL', () => {
       [email],
     );
     expect(shown.rowCount).toBe(0);
+  });
+
+  describe('оферта для партнёров: отметка и журнал акцепта (1508)', () => {
+    const journal = async (email: string) => (await pool.query<{
+      offer_version: string; source: string; ip: string | null; category: string; has_user: boolean; accepted_at: Date;
+    }>(
+      `SELECT a.offer_version, a.source, a.ip, p.category, a.user_id IS NOT NULL AS has_user, a.accepted_at
+         FROM partner_offer_acceptances a
+         JOIN partners p ON p.id = a.partner_id
+         JOIN users u ON u.id = p.user_id
+        WHERE u.email = $1
+        ORDER BY a.id`, [email],
+    )).rows;
+    const userCount = async (email: string) => Number((await pool.query(`SELECT COUNT(*)::int AS n FROM users WHERE email = $1`, [email])).rows[0].n);
+
+    it.each(['operator', 'guide', 'transfer', 'stay', 'gear', 'cars'])('роль %s без отметки — 400 словами, ни аккаунта, ни карточки', async (role) => {
+      const { OFFER_REQUIRED_TEXT } = await import('@/lib/legal/offer');
+      const email = `offer.none.${role}@example.com`;
+      for (const sent of [undefined, false]) {
+        const res = await POST(req({ ...base, name: 'Тест', email, role, roles: [role], ...(sent === undefined ? {} : { offer_accepted: sent }) }));
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ success: false, error: OFFER_REQUIRED_TEXT, code: 'offer_required' });
+      }
+      expect(await userCount(email)).toBe(0);
+    });
+
+    it('с отметкой — в журнале строка с версией оферты, источником и карточкой', async () => {
+      const { OFFER_VERSION } = await import('@/lib/legal/offer');
+      const email = 'offer.yes.operator@example.com';
+      const res = await POST(req({ ...base, name: 'Тест', email, role: 'operator', roles: ['operator'], offer_accepted: true }));
+      expect(res.status).toBe(201);
+      const rows = await journal(email);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ offer_version: OFFER_VERSION, source: 'registration', category: 'operator', has_user: true });
+      expect(rows[0].offer_version).toBe('2026-10-05');
+      expect(rows[0].ip).toMatch(/^10\.0\.0\.\d+$/);
+    });
+
+    it('несколько ролей — по строке на каждую карточку-сторону оферты', async () => {
+      const email = 'offer.multi@example.com';
+      const res = await POST(req({ ...base, name: 'Тест', email, role: 'gear', roles: ['gear', 'transfer'], offer_accepted: true }));
+      expect(res.status).toBe(201);
+      expect((await journal(email)).map((r) => r.category).sort()).toEqual(['gear', 'transfer']);
+    });
+
+    it('роль аккаунта вне списка ролей отметку не обходит: без неё — 400, с ней — карточка и акцепт', async () => {
+      const { OFFER_REQUIRED_TEXT } = await import('@/lib/legal/offer');
+      const email = 'offer.split.roles@example.com';
+      // Роль аккаунта — партнёрская, а в списке ролей только «турист».
+      const denied = await POST(req({ ...base, name: 'Тест', email, role: 'gear', roles: ['tourist'] }));
+      expect(denied.status).toBe(400);
+      expect(await denied.json()).toEqual({ success: false, error: OFFER_REQUIRED_TEXT, code: 'offer_required' });
+      expect(await userCount(email)).toBe(0);
+
+      const ok = await POST(req({ ...base, name: 'Тест', email, role: 'gear', roles: ['tourist'], offer_accepted: true }));
+      expect(ok.status).toBe(201);
+      const account = await pool.query<{ role: string; roles: string[] }>(
+        `SELECT role, ARRAY(SELECT JSONB_ARRAY_ELEMENTS_TEXT(preferences->'roles')) AS roles FROM users WHERE email = $1`, [email]);
+      // Вход — прокатчик снаряжения, и карточка у него есть сразу, а не «потом из кабинета».
+      expect(account.rows[0]).toEqual({ role: 'gear', roles: ['gear', 'tourist'] });
+      expect((await journal(email)).map((r) => r.category)).toEqual(['gear']);
+    });
+
+    it('туристу отметка не нужна, и акцепта у него нет', async () => {
+      const email = 'offer.tourist@example.com';
+      const res = await POST(req({ ...base, email }));
+      expect(res.status).toBe(201);
+      const n = await pool.query(
+        `SELECT COUNT(*)::int AS n FROM partner_offer_acceptances a JOIN users u ON u.id = a.user_id WHERE u.email = $1`, [email]);
+      expect(n.rows[0].n).toBe(0);
+    });
+
+    it('повторный акцепт из кабинета историю не затирает: строк две, прежняя цела', async () => {
+      const email = 'offer.yes.operator@example.com';
+      const before = await journal(email);
+      const ids = await pool.query<{ partner_id: string; user_id: string }>(
+        `SELECT p.id::text AS partner_id, u.id::text AS user_id FROM partners p JOIN users u ON u.id = p.user_id WHERE u.email = $1`, [email]);
+      const { recordOfferAcceptanceForPartner, readOfferAcceptance } = await import('@/lib/legal/offer-acceptance');
+      expect(await recordOfferAcceptanceForPartner({ partnerId: ids.rows[0].partner_id, userId: ids.rows[0].user_id, ipAddress: '10.9.9.9' })).toBe('recorded');
+      const after = await journal(email);
+      expect(after).toHaveLength(2);
+      expect(after[0]).toEqual(before[0]);
+      expect(after[1]).toMatchObject({ source: 'cabinet', ip: '10.9.9.9' });
+      const last = await readOfferAcceptance(ids.rows[0].partner_id);
+      expect(last).toMatchObject({ version: '2026-10-05', current: true });
+    });
+
+    it('партнёр, заведённый до отметки, читается как «акцепта нет», а не как ошибка', async () => {
+      const old = await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, profile_status, is_public)
+         VALUES ('Старый партнёр', 'operator', '{}'::jsonb, 'approved', TRUE) RETURNING id::text AS id`);
+      const { readOfferAcceptance } = await import('@/lib/legal/offer-acceptance');
+      expect(await readOfferAcceptance(old.rows[0].id)).toBeNull();
+      // Журнал его не блокирует: карточка остаётся на витрине.
+      const still = await pool.query(`SELECT is_public FROM partners WHERE id = $1::uuid`, [old.rows[0].id]);
+      expect(still.rows[0].is_public).toBe(true);
+    });
+
+    it('база не принимает акцепт без версии и с неизвестным источником', async () => {
+      const ids = await pool.query<{ partner_id: string }>(
+        `SELECT p.id::text AS partner_id FROM partners p JOIN users u ON u.id = p.user_id WHERE u.email = 'offer.yes.operator@example.com'`);
+      const code = (sql: string, params: unknown[]) => pool.query(sql, params).then(() => 'ok', (e: { code?: string }) => e.code);
+      const pid = ids.rows[0].partner_id;
+      expect(await code(`INSERT INTO partner_offer_acceptances (partner_id, offer_version, source) VALUES ($1::uuid, '  ', 'cabinet')`, [pid])).toBe('23514');
+      expect(await code(`INSERT INTO partner_offer_acceptances (partner_id, offer_version, source) VALUES ($1::uuid, '2026-10-05', 'телефон')`, [pid])).toBe('23514');
+      expect(await code(`INSERT INTO partner_offer_acceptances (partner_id, source) VALUES ($1::uuid, 'cabinet')`, [pid])).toBe('23502');
+    });
   });
 
   it('повтор того же адреса — 409, а не 500', async () => {

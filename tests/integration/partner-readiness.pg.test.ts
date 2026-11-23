@@ -58,6 +58,9 @@ const CARDS: Card[] = [
   { key: 'carsNew',      category: 'cars', max: 710012 },
   { key: 'carsLive',     category: 'cars', isPublic: true, max: 710013 },
   { key: 'agent',        category: 'agent', profileStatus: 'approved' },
+  // Карточки для двери «принять оферту» (этап 5): дописаны в конец, чтобы id прежних не сдвинулись.
+  { key: 'offerOld',     category: 'gear', max: 710014 },
+  { key: 'offerErase',   category: 'stay', max: 710015 },
 ];
 const idOf = (i: number) => `c3c00000-0000-4000-8000-0000000001${String(i).padStart(2, '0')}`;
 const userOf = (i: number) => `c3c00000-0000-4000-8000-0000000002${String(i).padStart(2, '0')}`;
@@ -160,7 +163,10 @@ withPg('готовность партнёра: факты из базы', () => 
       expect(item(r, 'content')).toMatchObject({ state: 'todo', href: '/hub/operator/tours/new' });
       expect(item(r, 'storefront')?.state).toBe('waiting');
       expect(item(r, 'storefront')?.detail).toContain('Без подключённого MAX или Telegram');
-      expect(item(r, 'offer')).toMatchObject({ state: 'waiting', required: false });
+      // Карточка заведена мимо регистрации с отметкой: акцепта оферты в журнале нет.
+      // Владельцу — шаг «принять», не обязательный (этап 5 плана готовности, 23.11).
+      expect(item(r, 'offer')).toMatchObject({ state: 'todo', required: false, action: 'accept_offer' });
+      expect(item(r, 'data_agreement')).toMatchObject({ state: 'waiting', required: false });
     });
 
     it('на витрине, с каналом и туром — готов; черновик считается, на сайте один', async () => {
@@ -305,6 +311,10 @@ withPg('готовность партнёра: факты из базы', () => 
       const logged = errors.mock.calls.map((c) => c.join(' '));
       expect(logged.some((l) => l.includes('карточка партнёра не прочитана') && l.includes('57014'))).toBe(true);
       expect(logged.some((l) => l.includes('содержимое (operator) не прочитано') && l.includes('57014'))).toBe(true);
+      // Журнал акцепта не прочитан — «не удалось проверить», а не «оферта не принята».
+      expect(item(r, 'offer')).toMatchObject({ state: 'unknown', required: false });
+      expect(item(r, 'offer')?.action).toBeUndefined();
+      expect(logged.some((l) => l.includes('акцепт оферты не прочитан') && l.includes('57014'))).toBe(true);
       errors.mockRestore();
     });
 
@@ -364,6 +374,126 @@ withPg('готовность партнёра: факты из базы', () => 
       expect(text).not.toContain('@');
       expect(text).not.toContain('710001');
       expect(text).not.toContain(USER.opReady);
+    });
+  });
+
+  // Этап 5 плана готовности (23.11): партнёр, заведённый до отметки на
+  // регистрации, принимает оферту из кабинета. Дверь судится целиком на схеме
+  // прода — подменён только разбор JWT.
+  describe('роут POST /api/hub/partner/offer — оферта из кабинета', () => {
+    const accept = async (key: string, body: unknown, role?: string) => {
+      viewer.userId = USER[key];
+      viewer.role = role ?? CATEGORY[key];
+      const { POST } = await import('@/app/api/hub/partner/offer/route');
+      const res = await POST(new NextRequest('http://localhost/api/hub/partner/offer', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': '10.0.0.77' },
+        body: JSON.stringify(body),
+      }));
+      return { status: res.status, body: await res.json() as { success?: boolean; error?: string; data?: { version: string } } };
+    };
+    const journal = async (key: string) => (await pool.query<{
+      offer_version: string; source: string; ip: string | null; user_id: string | null; accepted_at: Date;
+    }>(
+      `SELECT offer_version, source, ip, user_id::text AS user_id, accepted_at
+         FROM partner_offer_acceptances WHERE partner_id = $1 ORDER BY id`, [ID[key]],
+    )).rows;
+
+    it('владелец принимает: строка журнала — своей карточке, с версией; чек-лист говорит «готово»', async () => {
+      const { OFFER_VERSION } = await import('@/lib/legal/offer');
+      expect(item(await read('opPilot'), 'offer')).toMatchObject({ state: 'todo', action: 'accept_offer' });
+      expect(await journal('opPilot')).toHaveLength(0);
+
+      const r = await accept('opPilot', { offer_accepted: true });
+      expect(r).toEqual({ status: 200, body: { success: true, data: { version: OFFER_VERSION } } });
+
+      const rows = await journal('opPilot');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ offer_version: '2026-10-05', source: 'cabinet', user_id: USER.opPilot, ip: '10.0.0.77' });
+
+      const after = item(await read('opPilot'), 'offer');
+      expect(after).toMatchObject({ state: 'done', required: false });
+      expect(after?.action).toBeUndefined();
+      expect(after?.detail).toContain('5 октября 2026 г.');
+      // Готовности акцепт не меняет: пилот без канала как был «не готов», так и остался.
+      expect((await read('opPilot')).verdict).toBe('not_ready');
+      // Чужая карточка от этого акцепта не «приняла»: у соседа пункт прежний.
+      expect(item(await read('opNew'), 'offer')?.state).toBe('todo');
+    });
+
+    it('карточку из запроса дверь не берёт: акцепт пишется своей, чужая пуста', async () => {
+      const foreign = ID.stayPending;
+      const r = await accept('stayNew', { offer_accepted: true, partnerId: foreign, partner_id: foreign, id: foreign });
+      expect(r.status).toBe(200);
+      expect(await journal('stayNew')).toHaveLength(1);
+      expect(await journal('stayPending')).toHaveLength(0);
+    });
+
+    it('без отметки строки нет; агенту оферта не нужна — тоже нет', async () => {
+      const { OFFER_REQUIRED_TEXT } = await import('@/lib/legal/offer');
+      for (const body of [{}, { offer_accepted: false }, { offer_accepted: 'true' }]) {
+        const r = await accept('carDraft', body);
+        expect(r.status).toBe(400);
+        expect(r.body.error).toBe(OFFER_REQUIRED_TEXT);
+      }
+      expect(await journal('carDraft')).toHaveLength(0);
+      const agent = await accept('agent', { offer_accepted: true });
+      expect(agent.status).toBe(400);
+      expect(await journal('agent')).toHaveLength(0);
+    });
+
+    it('в журнале прежняя редакция: чек-лист просит принять действующую; акцепт прежнюю строку не трогает', async () => {
+      await pool.query(
+        `INSERT INTO partner_offer_acceptances (partner_id, user_id, offer_version, accepted_at, source)
+         VALUES ($1, $2, '2025-01-01', NOW() - INTERVAL '300 days', 'registration')`, [ID.offerOld, USER.offerOld],
+      );
+      const before = item(await read('offerOld'), 'offer');
+      expect(before).toMatchObject({ state: 'todo', action: 'accept_offer', required: false });
+      expect(before?.detail).toContain('Вы принимали прежнюю редакцию оферты.');
+      const kept = (await journal('offerOld'))[0];
+
+      expect((await accept('offerOld', { offer_accepted: true })).status).toBe(200);
+      const rows = await journal('offerOld');
+      expect(rows.map((x) => x.offer_version)).toEqual(['2025-01-01', '2026-10-05']);
+      expect(rows[0]).toEqual(kept);
+      expect(item(await read('offerOld'), 'offer')?.state).toBe('done');
+    });
+
+    it('журнал не принимает акцепт без версии и с неизвестным источником', async () => {
+      const insert = (version: string | null, source: string) => pool.query(
+        `INSERT INTO partner_offer_acceptances (partner_id, user_id, offer_version, source) VALUES ($1, $2, $3, $4)`,
+        [ID.carDraft, USER.carDraft, version, source],
+      );
+      await expect(insert(null, 'cabinet')).rejects.toMatchObject({ code: '23502' });
+      await expect(insert('  ', 'cabinet')).rejects.toMatchObject({ code: '23514' });
+      await expect(insert('2026-10-05', 'admin')).rejects.toMatchObject({ code: '23514' });
+      expect(await journal('carDraft')).toHaveLength(0);
+    });
+
+    it('удаление аккаунта: из журнала уходят адрес и ссылка на человека, версия и время акцепта остаются', async () => {
+      expect((await accept('offerErase', { offer_accepted: true })).status).toBe(200);
+      const [before] = await journal('offerErase');
+      expect(before).toMatchObject({ ip: '10.0.0.77', user_id: USER.offerErase });
+
+      const { eraseUser } = await import('@/lib/account/erase');
+      const c = await pool.connect();
+      try {
+        await c.query('BEGIN');
+        const counts = await eraseUser(c as never, USER.offerErase, 'account_deleted');
+        await c.query('COMMIT');
+        expect(counts.partner_offer_acceptances).toBe(1);
+      } catch (err) {
+        await c.query('ROLLBACK');
+        throw err;
+      } finally {
+        c.release();
+      }
+      const rows = await journal('offerErase');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ ip: null, user_id: null, offer_version: '2026-10-05', source: 'cabinet' });
+      expect(rows[0].accepted_at.getTime()).toBe(before.accepted_at.getTime());
+      // Чужие строки журнала стирание не задело.
+      expect((await journal('opPilot'))[0]).toMatchObject({ ip: '10.0.0.77', user_id: USER.opPilot });
     });
   });
 });

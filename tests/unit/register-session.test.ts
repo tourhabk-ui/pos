@@ -47,7 +47,7 @@ function registerReq(body: Record<string, unknown>): NextRequest {
   return new Request('http://localhost/api/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pd_consent: true, ...body }),
+    body: JSON.stringify({ pd_consent: true, offer_accepted: true, ...body }),
   }) as unknown as NextRequest;
 }
 
@@ -62,6 +62,7 @@ beforeEach(() => {
       });
     }
     if (sql.includes('INSERT INTO partners')) return Promise.resolve({ rows: [] });
+    if (sql.includes('INSERT INTO partner_offer_acceptances')) return Promise.resolve({ rows: [], rowCount: 1 });
     if (sql.includes('INSERT INTO user_sessions')) return Promise.resolve({ rows: [] });
     throw new Error('unexpected SQL: ' + sql);
   });

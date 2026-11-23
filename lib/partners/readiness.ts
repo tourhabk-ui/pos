@@ -25,6 +25,7 @@
  * Здесь только правило и слова. База — lib/partners/readiness-store.ts.
  */
 import { REQUEST_RECEIVING_CATEGORIES } from '@/lib/partners/categories';
+import { LEGAL_PENDING, OFFER_EDITION, OFFER_URL } from '@/lib/legal/offer';
 
 export type ReadinessCategory = (typeof REQUEST_RECEIVING_CATEGORIES)[number];
 
@@ -33,7 +34,7 @@ export function isReadinessCategory(v: unknown): v is ReadinessCategory {
 }
 
 export type ItemState = 'done' | 'todo' | 'waiting' | 'unknown';
-export type ItemKey = 'profile' | 'channel' | 'content' | 'storefront' | 'offer';
+export type ItemKey = 'profile' | 'channel' | 'content' | 'storefront' | 'offer' | 'data_agreement';
 
 export interface ReadinessItem {
   key: ItemKey;
@@ -45,6 +46,8 @@ export interface ReadinessItem {
   href?: string;
   /** Без этого пункта заявки не приходят. */
   required: boolean;
+  /** Действие прямо в чек-листе: принять оферту (владелец кабинета). */
+  action?: 'accept_offer';
 }
 
 export type ReadinessVerdict = 'ready' | 'not_ready' | 'unknown';
@@ -92,6 +95,19 @@ export interface ReadinessFacts {
   content: ContentFacts | null;
   /** Прокат: может ли партнёр сам править прайс (участник пилота). */
   canEditRental: boolean;
+  /**
+   * Последний акцепт оферты карточкой (журнал 1508): `null` — акцепта нет
+   * (карточка заведена до отметки или администратором), `'unknown'` — журнал
+   * не прочитан.
+   */
+  offer: OfferFacts | null | 'unknown';
+}
+
+export interface OfferFacts {
+  version: string;
+  /** Принята действующая редакция. */
+  current: boolean;
+  acceptedAt: string;
 }
 
 const NOT_CHECKED = 'Не удалось проверить — обновите страницу позже.';
@@ -265,16 +281,53 @@ function storefrontItem(f: ReadinessFacts): ReadinessItem {
 
 // ─── Оферта ───────────────────────────────────────────────────────────────────
 
+/** Дата акцепта по Камчатке — «23.11.2026». Битая дата — пусто, а не «Invalid Date». */
+function acceptedOn(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('ru-RU', { timeZone: 'Asia/Kamchatka' });
+}
+
 /**
- * Отметки о принятии оферты в кабинете пока нет (этап 5 плана). Пункт
- * называет это прямо и ничего не требует: юридического текста здесь нет и
- * быть не должно — его даёт владелец.
+ * Оферта (план готовности 23.11, этап 5). Пункт читает журнал акцепта и
+ * ничего не блокирует: партнёр, заведённый до отметки, заявки получает как
+ * получал. Юридического текста здесь нет — только что принято и когда.
+ *
+ * Самозанятым пункт говорит прямо, что вопрос не решён: оферта называет
+ * Партнёром юрлицо или ИП. Гид — роль, где это встречается чаще всего.
  */
-function offerItem(): ReadinessItem {
+function offerItem(f: ReadinessFacts): ReadinessItem {
+  const base = { key: 'offer' as const, title: 'Оферта для партнёров', required: false, href: OFFER_URL };
+  const tail = f.category === 'guide' ? ` ${LEGAL_PENDING.selfEmployed}` : '';
+  if (f.offer === 'unknown') return { ...base, state: 'unknown', detail: NOT_CHECKED };
+  if (f.offer?.current) {
+    const on = acceptedOn(f.offer.acceptedAt);
+    return {
+      ...base, state: 'done',
+      detail: `Принята редакция от ${OFFER_EDITION}${on ? `, отметка от ${on}` : ''}.${tail}`,
+    };
+  }
+  const why = f.offer
+    ? `Вы принимали прежнюю редакцию оферты. Действует редакция от ${OFFER_EDITION}.`
+    : 'Отметки о принятии оферты нет: карточка заведена до того, как отметка появилась.';
+  // Принять оферту за компанию может владелец кабинета, не менеджер команды.
+  if (f.viewer !== 'owner') {
+    return { ...base, state: 'waiting', detail: `${why} Заявкам это не мешает. Принять оферту может владелец кабинета.${tail}` };
+  }
   return {
-    key: 'offer', title: 'Оферта для партнёров', required: false, state: 'waiting',
-    detail: 'Отметки о принятии оферты в кабинете пока нет — ждёт решения владельца платформы. От вас сейчас ничего не требуется.',
-    href: '/legal/offer',
+    ...base, state: 'todo', action: 'accept_offer',
+    detail: `${why} Заявкам это не мешает. Прочитайте оферту и примите её здесь.${tail}`,
+  };
+}
+
+/**
+ * Соглашение об обработке данных туристов: оферта его упоминает, а документа
+ * нет. Пункт — только пометка ожидания; условий в нём нет, и галочки на
+ * несуществующий документ тоже.
+ */
+function dataAgreementItem(): ReadinessItem {
+  return {
+    key: 'data_agreement', title: 'Соглашение об обработке данных туристов', required: false, state: 'waiting',
+    detail: LEGAL_PENDING.dataAgreement,
   };
 }
 
@@ -306,7 +359,8 @@ export function buildReadiness(facts: ReadinessFacts): PartnerReadiness {
     channelItem(facts),
     contentItem(facts),
     storefrontItem(facts),
-    offerItem(),
+    offerItem(facts),
+    dataAgreementItem(),
   ].filter((i): i is ReadinessItem => i !== null);
 
   const required = items.filter(i => i.required);

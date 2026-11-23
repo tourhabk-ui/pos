@@ -45,6 +45,7 @@ vi.mock('@/lib/auth/password', async (importOriginal) => ({
 process.env.JWT_SECRET = 'test-secret-partners-register';
 
 import { POST } from '@/app/api/partners/register/route';
+import { OFFER_VERSION } from '@/lib/legal/offer';
 
 const VALID_BODY = {
   businessType: 'ip',
@@ -90,6 +91,7 @@ function mockDb(opts: { userExists?: boolean; partnerExists?: boolean } = {}) {
     if (sql.includes('INSERT INTO partners')) {
       return Promise.resolve({ rows: [{ id: 'partner-1' }] });
     }
+    if (sql.includes('INSERT INTO partner_offer_acceptances')) return Promise.resolve({ rows: [], rowCount: 1 });
     throw new Error('unexpected SQL: ' + sql);
   });
 }
@@ -155,5 +157,47 @@ describe('POST /api/partners/register', () => {
   it('несовпадающие пароли → 400', async () => {
     const res = await POST(registerReq({ ...VALID_BODY, confirmPassword: 'other' }));
     expect(res.status).toBe(400);
+  });
+});
+
+// Этап 5 плана готовности (23.11): согласие с офертой эта дверь требовала и
+// раньше, но жило оно флагом в partners.consents — без версии оферты.
+describe('POST /api/partners/register — акцепт оферты в журнале', () => {
+  const sqls = () => clientQueryMock.mock.calls.map(([sql]) => String(sql));
+  const at = (needle: string) => sqls().findIndex((s) => s.includes(needle));
+  const acceptCalls = () => clientQueryMock.mock.calls.filter(([sql]) => String(sql).includes('INSERT INTO partner_offer_acceptances'));
+
+  it('акцепт — строкой журнала в той же транзакции, после карточки, с версией оферты', async () => {
+    const res = await POST(registerReq(VALID_BODY));
+    expect(res.status).toBe(201);
+    expect(acceptCalls()).toHaveLength(1);
+    const params = acceptCalls()[0][1] as unknown[];
+    expect(params[0]).toBe('user-1');
+    expect(params[1]).toBe(OFFER_VERSION);
+    expect(params[3]).toBe('registration');
+    expect(sqls().indexOf('BEGIN')).toBeLessThan(at('INSERT INTO partners'));
+    expect(at('INSERT INTO partners')).toBeLessThan(at('INSERT INTO partner_offer_acceptances'));
+    expect(at('INSERT INTO partner_offer_acceptances')).toBeLessThan(sqls().indexOf('COMMIT'));
+  });
+
+  it('без согласия с офертой — 400, ни базы, ни журнала', async () => {
+    for (const agreeOffer of [false, undefined]) {
+      const res = await POST(registerReq({ ...VALID_BODY, agreeOffer }));
+      expect(res.status).toBe(400);
+    }
+    expect(clientQueryMock).not.toHaveBeenCalled();
+  });
+
+  it('журнал не записал ни строки — откат, а не партнёр без акцепта', async () => {
+    const base = clientQueryMock.getMockImplementation()!;
+    clientQueryMock.mockImplementation((sql: string, ...rest: unknown[]) => (
+      sql.includes('INSERT INTO partner_offer_acceptances') ? Promise.resolve({ rows: [], rowCount: 0 }) : base(sql, ...rest)
+    ));
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const res = await POST(registerReq(VALID_BODY));
+    errors.mockRestore();
+    expect(res.status).toBe(500);
+    expect(sqls()).toContain('ROLLBACK');
+    expect(sqls()).not.toContain('COMMIT');
   });
 });

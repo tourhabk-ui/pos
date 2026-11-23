@@ -6,6 +6,7 @@
  * профиль с привязкой partners.user_id в одной транзакции; выдаёт JWT-cookie.
  */
 
+import { recordOfferAcceptanceForUser } from '@/lib/legal/offer-acceptance';
 import { NextRequest, NextResponse } from 'next/server';
 import { SignJWT } from 'jose';
 import { z } from 'zod';
@@ -233,6 +234,12 @@ export async function POST(request: NextRequest) {
       ]
     );
     const partnerId = partnerResult.rows[0].id;
+
+    // Акцепт оферты (`agreeOffer` обязателен схемой) — строкой журнала с версией
+    // оферты, в той же транзакции, что и карточка (план готовности 23.11, этап 5).
+    // До этого согласие жило только флагом в partners.consents, без версии.
+    const logged = await recordOfferAcceptanceForUser(client, { userId: user.id as string, ipAddress: ip, source: 'registration' });
+    if (logged === 0) throw new Error('акцепт оферты не записан: карточка партнёра не найдена');
 
     await client.query('COMMIT');
 

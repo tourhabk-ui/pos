@@ -14,12 +14,13 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, waitFor, within } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react';
 import {
   buildReadiness, isReadinessCategory,
   type CardFacts, type ContentFacts, type ItemKey, type PartnerReadiness, type ReadinessCategory, type ReadinessFacts,
 } from '@/lib/partners/readiness';
 import { REQUEST_RECEIVING_CATEGORIES } from '@/lib/partners/categories';
+import { LEGAL_PENDING, OFFER_VERSION } from '@/lib/legal/offer';
 import { PartnerReadinessCard } from '@/components/hub/PartnerReadinessCard';
 
 vi.mock('next/navigation', () => ({
@@ -38,8 +39,15 @@ const CARD_NEW: CardFacts = { profileStatus: 'none', onboardingCompleted: false,
 const CONTENT_OK: ContentFacts = { total: 2, live: 1, pending: 0 };
 const CONTENT_NONE: ContentFacts = { total: 0, live: 0, pending: 0 };
 
+/** Оферта принята в действующей редакции — как у всякого, кто регистрировался с отметкой. */
+const OFFER_OK = { version: OFFER_VERSION, current: true, acceptedAt: '2026-11-23T02:00:00.000Z' };
+const OFFER_OLD = { version: '2025-01-01', current: false, acceptedAt: '2025-02-01T00:00:00.000Z' };
+
 function facts(category: ReadinessCategory, over: Partial<ReadinessFacts> = {}): ReadinessFacts {
-  return { category, viewer: 'owner', card: CARD_OK, channel: 'connected', content: CONTENT_OK, canEditRental: false, ...over };
+  return {
+    category, viewer: 'owner', card: CARD_OK, channel: 'connected', content: CONTENT_OK, canEditRental: false,
+    offer: OFFER_OK, ...over,
+  };
 }
 const item = (r: PartnerReadiness, key: ItemKey) => r.items.find((i) => i.key === key);
 const CATEGORIES = [...REQUEST_RECEIVING_CATEGORIES];
@@ -216,25 +224,78 @@ describe('правило готовности', () => {
       for (const category of CATEGORIES) for (const card of cards) for (const content of contents) {
         for (const channel of ['connected', 'not_connected', 'unknown'] as const) {
           for (const viewer of ['owner', 'manager'] as const) {
-            out.push(buildReadiness({ category, viewer, card, channel, content, canEditRental: false }));
+            for (const offer of [null, OFFER_OK, OFFER_OLD, 'unknown'] as const) {
+              out.push(buildReadiness({ category, viewer, card, channel, content, canEditRental: false, offer }));
+            }
           }
         }
       }
       return out;
     };
 
-    it('оферта: пункт ждёт решения владельца, ничего не требует и готовность не держит', () => {
+    it('оферта: принята — «готово» с редакцией и датой; не принята — шаг владельца, заявкам не мешает', () => {
+      const offer = (over: Partial<ReadinessFacts>) => item(buildReadiness(facts('operator', over)), 'offer');
+      expect(offer({ offer: OFFER_OK })).toEqual({
+        key: 'offer', title: 'Оферта для партнёров', required: false, href: '/legal/offer', state: 'done',
+        // 02:00 UTC — это 14:00 того же дня по Камчатке.
+        detail: 'Принята редакция от 5 октября 2026 г., отметка от 23.11.2026.',
+      });
+      // Карточка заведена до отметки: акцепта в журнале нет.
+      const none = offer({ offer: null });
+      expect(none).toMatchObject({ state: 'todo', required: false, action: 'accept_offer', href: '/legal/offer' });
+      expect(none?.detail).toBe('Отметки о принятии оферты нет: карточка заведена до того, как отметка появилась. '
+        + 'Заявкам это не мешает. Прочитайте оферту и примите её здесь.');
+      // Прежняя редакция — тоже шаг, и сказано, какая действует.
+      expect(offer({ offer: OFFER_OLD })?.detail).toContain('Вы принимали прежнюю редакцию оферты. Действует редакция от 5 октября 2026 г.');
+      expect(offer({ offer: OFFER_OLD })).toMatchObject({ state: 'todo', action: 'accept_offer' });
+      // Менеджер команды оферту за компанию не принимает: кнопки нет.
+      const manager = offer({ offer: null, viewer: 'manager' });
+      expect(manager).toMatchObject({ state: 'waiting', required: false });
+      expect(manager?.action).toBeUndefined();
+      expect(manager?.detail).toContain('Принять оферту может владелец кабинета.');
+      // Журнал не прочитан — «не проверено», а не «не принята».
+      expect(offer({ offer: 'unknown' })).toMatchObject({ state: 'unknown', required: false });
+      expect(offer({ offer: 'unknown' })?.action).toBeUndefined();
+    });
+
+    it('оферта готовность не держит: вердикт и заголовок от неё не зависят', () => {
+      for (const category of CATEGORIES) {
+        const verdicts = ([null, OFFER_OK, OFFER_OLD, 'unknown'] as const).map((offer) => {
+          const r = buildReadiness(facts(category, { offer }));
+          return `${r.verdict}|${r.headline}|${r.urgent}`;
+        });
+        expect(new Set(verdicts).size, category).toBe(1);
+        expect(verdicts[0]).toBe('ready|Готовы принимать заявки|false');
+      }
+      for (const r of everything()) expect(item(r, 'offer')?.required).toBe(false);
+    });
+
+    it('самозанятые и соглашение по данным — только пометка ожидания, без условий', () => {
+      // Гиду (роль, где самозанятые встречаются чаще) сказано прямо, что вопрос не решён.
+      for (const offer of [null, OFFER_OK, OFFER_OLD] as const) {
+        expect(item(buildReadiness(facts('guide', { offer })), 'offer')?.detail).toContain(LEGAL_PENDING.selfEmployed);
+        expect(item(buildReadiness(facts('operator', { offer })), 'offer')?.detail).not.toContain('самозанят');
+      }
       for (const r of everything()) {
-        const offer = item(r, 'offer');
-        expect(offer).toMatchObject({ state: 'waiting', required: false, href: '/legal/offer' });
-        expect(offer?.detail).toContain('ждёт решения владельца платформы');
+        const dpa = item(r, 'data_agreement');
+        expect(dpa).toEqual({
+          key: 'data_agreement', title: 'Соглашение об обработке данных туристов', required: false, state: 'waiting',
+          detail: LEGAL_PENDING.dataAgreement,
+        });
+      }
+      for (const text of Object.values(LEGAL_PENDING)) {
+        expect(text).toContain('ждёт решения владельца платформы и юриста');
+        expect(text).not.toMatch(/обязу|вправе|должен|штраф|ответственн|срок|рубл|процент/i);
       }
     });
 
     it('ни в одном исходе нет обещаний: выплат, сроков, тарифов, комиссии', () => {
       const banned = /выплат|комисси|бесплатн|тариф|месяц|рубл|₽|процент|%|гарант|договор|самозанят/i;
       for (const r of everything()) {
-        const text = [r.headline, ...r.items.flatMap((i) => [i.title, i.detail])].join(' ');
+        // Самозанятые названы в одном месте — в пометке «ждёт решения» (тест выше);
+        // сверх неё этого слова в чек-листе быть не должно.
+        const text = [r.headline, ...r.items.flatMap((i) => [i.title, i.detail])].join(' ')
+          .split(LEGAL_PENDING.selfEmployed).join('');
         expect(text).not.toMatch(banned);
       }
     });
@@ -272,7 +333,7 @@ describe('карточка готовности', () => {
     render(<PartnerReadinessCard />);
     expect(await screen.findByRole('heading', { name: 'До приёма заявок осталось шагов: 3' })).toBeTruthy();
     const rows = screen.getAllByRole('listitem');
-    expect(rows.map((r) => r.getAttribute('data-key'))).toEqual(['profile', 'channel', 'content', 'storefront', 'offer']);
+    expect(rows.map((r) => r.getAttribute('data-key'))).toEqual(['profile', 'channel', 'content', 'storefront', 'offer', 'data_agreement']);
     const profile = rows[0];
     expect(within(profile).getByText('За вами')).toBeTruthy();
     expect(within(profile).getByRole('link', { name: /Перейти/ }).getAttribute('href')).toBe('/hub/operator/onboarding');
@@ -282,7 +343,57 @@ describe('карточка готовности', () => {
     const offer = rows[4];
     expect(within(offer).getByText('не обязательно')).toBeTruthy();
     expect(within(offer).getByRole('link', { name: /Читать/ }).getAttribute('href')).toBe('/legal/offer');
+    // Соглашение по данным — пометка ожидания: ни ссылки, ни кнопки, ни галочки.
+    const dpa = rows[5];
+    expect(within(dpa).getByText('Ждёт не вас')).toBeTruthy();
+    expect(within(dpa).queryByRole('link')).toBeNull();
+    expect(within(dpa).queryByRole('checkbox')).toBeNull();
+    expect(within(dpa).queryByRole('button')).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('оферта не принята: отметка и кнопка в чек-листе; без отметки кнопка не нажимается; принял — чек-лист перечитан', async () => {
+    const notAccepted = buildReadiness(facts('operator', { offer: null }));
+    const posts: unknown[] = [];
+    let reads = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (String(url) === '/api/hub/partner/offer') {
+        posts.push({ method: init?.method, body: JSON.parse(String(init?.body)) });
+        return new Response(JSON.stringify({ success: true, data: { version: OFFER_VERSION } }));
+      }
+      reads += 1;
+      return new Response(JSON.stringify(okBody(reads === 1 ? notAccepted : buildReadiness(facts('operator')))));
+    }));
+    render(<PartnerReadinessCard />);
+    const box = within(await screen.findByTestId('accept-offer'));
+    const button = box.getByRole('button', { name: 'Принять оферту' });
+    expect(button).toHaveProperty('disabled', true);
+    expect(box.getByText('Чтобы принять, поставьте отметку.')).toBeTruthy();
+    // Ссылка на саму оферту — в подписи отметки.
+    expect(box.getByRole('link', { name: 'оферты для партнёров' }).getAttribute('href')).toBe('/legal/offer');
+    fireEvent.click(box.getByRole('checkbox'));
+    expect(button).toHaveProperty('disabled', false);
+    fireEvent.click(button);
+    await waitFor(() => expect(posts).toEqual([{ method: 'POST', body: { offer_accepted: true } }]));
+    // Чек-лист перечитан: пункт стал «готово», кнопки больше нет.
+    await waitFor(() => expect(screen.queryByTestId('accept-offer')).toBeNull());
+    expect(reads).toBe(2);
+    expect(screen.getByText(/Принята редакция от 5 октября 2026 г\./)).toBeTruthy();
+  });
+
+  it('оферта не принята: отказ сервера показан словами, отметка не сброшена', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url) === '/api/hub/partner/offer') {
+        return new Response(JSON.stringify({ success: false, error: 'Принять оферту может владелец кабинета' }), { status: 403 });
+      }
+      return new Response(JSON.stringify(okBody(buildReadiness(facts('operator', { offer: null })))));
+    }));
+    render(<PartnerReadinessCard />);
+    const box = within(await screen.findByTestId('accept-offer'));
+    fireEvent.click(box.getByRole('checkbox'));
+    fireEvent.click(box.getByRole('button', { name: 'Принять оферту' }));
+    expect((await box.findByRole('alert')).textContent).toBe('Принять оферту может владелец кабинета');
+    expect(box.getByRole('checkbox')).toHaveProperty('checked', true);
   });
 
   it('готов: сказано прямо, пункты свёрнуты, но не спрятаны', async () => {
