@@ -6,6 +6,7 @@
  * за «нет»: пункт получает «не удалось проверить», причина — в логе с именем
  * чтения и SQLSTATE (§4.0). ПД в ответе нет по построению: только флаги и числа.
  */
+import { readOfferAcceptance } from '@/lib/legal/offer-acceptance';
 import { pool } from '@/lib/db-pool';
 import { publicPartnerSql } from '@/lib/partners/test-profile';
 import { publicGuideWhere } from '@/lib/guides/visibility';
@@ -145,10 +146,11 @@ export async function readPartnerReadiness(
   ctx: { partnerId: string; category: ReadinessCategory; viewer: 'owner' | 'manager' },
   db: Queryable = pool,
 ): Promise<PartnerReadiness> {
-  const [cardRead, reach, content] = await Promise.all([
+  const [cardRead, reach, content, offer] = await Promise.all([
     readCard(db, ctx.partnerId, ctx.category),
     reachForPartner(ctx.partnerId),
     readContent(db, ctx.partnerId, ctx.category),
+    readOfferAcceptance(ctx.partnerId, db),
   ]);
   return buildReadiness({
     category: ctx.category,
@@ -157,5 +159,6 @@ export async function readPartnerReadiness(
     channel: requestsChannelStatus(reach),
     content,
     canEditRental: isRentalPilotSlug(cardRead?.slug ?? null),
+    offer,
   });
 }

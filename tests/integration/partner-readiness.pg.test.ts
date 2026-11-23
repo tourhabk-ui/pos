@@ -160,7 +160,10 @@ withPg('готовность партнёра: факты из базы', () => 
       expect(item(r, 'content')).toMatchObject({ state: 'todo', href: '/hub/operator/tours/new' });
       expect(item(r, 'storefront')?.state).toBe('waiting');
       expect(item(r, 'storefront')?.detail).toContain('Без подключённого MAX или Telegram');
-      expect(item(r, 'offer')).toMatchObject({ state: 'waiting', required: false });
+      // Карточка заведена мимо регистрации с отметкой: акцепта оферты в журнале нет.
+      // Владельцу — шаг «принять», не обязательный (этап 5 плана готовности, 23.11).
+      expect(item(r, 'offer')).toMatchObject({ state: 'todo', required: false, action: 'accept_offer' });
+      expect(item(r, 'data_agreement')).toMatchObject({ state: 'waiting', required: false });
     });
 
     it('на витрине, с каналом и туром — готов; черновик считается, на сайте один', async () => {
