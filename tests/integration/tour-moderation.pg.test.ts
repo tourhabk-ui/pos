@@ -28,6 +28,21 @@ vi.mock('next/cache', () => ({ unstable_cache: (fn: () => unknown) => fn }));
 vi.mock('@/lib/auth/middleware', async (orig) => ({
   ...(await orig<typeof import('@/lib/auth/middleware')>()),
   requireOperator: vi.fn(async () => ({ userId: 'c4000000-0000-4000-8000-000000000201', role: 'operator' })), // = USER
+  requireAdmin: vi.fn(async () => ({ userId: 'c4000000-0000-4000-8000-0000000002ad', role: 'admin' })), // = ADMIN
+}));
+// Транспорт сообщения владельцу подменён: настоящие чаты из тестов не тревожим.
+const sent = vi.hoisted(() => ({ alerts: [] as Array<{ text: string; stub: string; to: unknown; buttons: Array<{ url: string }> }> }));
+vi.mock('@/lib/notifications/pd-alert', () => ({
+  sendPdAlert: vi.fn(async (a: { text: string; stub: string; to: unknown; buttons: Array<{ url: string }> }) => {
+    sent.alerts.push(a);
+    return { channel: 'max', delivered: true };
+  }),
+}));
+// Поисковикам из теста не пишем; что пинг уходит только после одобрения — считаем вызовы.
+const pings = vi.hoisted(() => ({ tours: [] as string[] }));
+vi.mock('@/lib/seo/indexnow', async (orig) => ({
+  ...(await orig<typeof import('@/lib/seo/indexnow')>()),
+  pingTourChanged: vi.fn((id: string | number | bigint) => { pings.tours.push(String(id)); }),
 }));
 // Крючок перед транзакцией: «кто-то поправил тур, пока инструмент думал».
 const tx = vi.hoisted(() => ({ before: null as null | (() => Promise<void>) }));
@@ -473,6 +488,108 @@ withPg('модерация правок тура', () => {
     });
   });
 
+  describe('дверь администратора: очередь и решение', () => {
+    const adminGet = async () => {
+      const { GET } = await import('@/app/api/admin/moderation/tour-edits/route');
+      const res = await GET(new NextRequest('http://localhost/api/admin/moderation/tour-edits'));
+      return (await res.json()) as { success: boolean; data: { edits: Array<{ id: string; tourId: string; kind: string; seen: string; changes: Array<{ field: string; before: string; after: string }> }> } };
+    };
+    const adminPost = async (id: string, body: unknown) => {
+      const { POST } = await import('@/app/api/admin/moderation/tour-edits/[id]/route');
+      const res = await POST(
+        new NextRequest(`http://localhost/api/admin/moderation/tour-edits/${id}`, { method: 'POST', body: JSON.stringify(body) }),
+        { params: Promise.resolve({ id }) },
+      );
+      return { status: res.status, body: await res.json() };
+    };
+
+    it('одобрение одним действием: правка на витрине, черновик закрыт; канала нет — запрос не падает', async () => {
+      const tour = await addTour(OP, 'Дверь админа: одобрение', { published: true, price: 10000 });
+      await change(tour, OP, { base_price: 12500, photos: ['/x.jpg'] });
+      const card = (await adminGet()).data.edits.find((e) => e.tourId === tour)!;
+      expect(card.kind).toBe('edit');
+      expect(card.changes.map((c) => c.field)).toEqual(['base_price', 'photos']);
+      expect(sp(card.changes[0].before)).toBe('10 000 ₽');
+      expect(sp(card.changes[0].after)).toBe('12 500 ₽');
+      sent.alerts.length = 0;
+      pings.tours.length = 0;
+      const r = await adminPost(card.id, { action: 'approve', seen: card.seen });
+      expect(r.status).toBe(200);
+      expect(r.body.message).toBe('«Дверь админа: одобрение»: правка на сайте');
+      const live = await liveOf(tour);
+      expect(live.base_price).toBe(12500);
+      expect(live.photos).toEqual(['/x.jpg']);
+      expect(live.tour_image).toBe('/x.jpg');
+      const closed = (await pool.query(
+        `SELECT moderation_status, moderated_by::text AS moderated_by, live_before FROM operator_tour_edits WHERE id = $1::uuid`, [card.id],
+      )).rows[0];
+      expect(closed.moderation_status).toBe('approved');
+      expect(closed.moderated_by).toBe(ADMIN);
+      expect(Number(closed.live_before.base_price)).toBe(10000);
+      expect(closed.live_before.photos).toEqual(['/a.jpg']);
+      // У карточки OP нет ни MAX, ни Telegram: сообщение не ушло, решение записано.
+      expect(sent.alerts).toHaveLength(0);
+      expect(pings.tours).toEqual([tour]);
+      // Повторное решение не применяется.
+      expect((await adminPost(card.id, { action: 'approve', seen: card.seen })).status).toBe(409);
+    });
+
+    it('отказ с причиной: витрина прежняя, владельцу — сообщение в его канал без ПД, поисковикам ничего', async () => {
+      const tour = await addTour(OP, 'Дверь админа: отказ', { published: true, price: 10000 });
+      await change(tour, OP, { base_price: 1 });
+      await pool.query(`UPDATE partners SET max_chat_id = 555001 WHERE id = $1`, [OP]);
+      const card = (await adminGet()).data.edits.find((e) => e.tourId === tour)!;
+      sent.alerts.length = 0;
+      pings.tours.length = 0;
+      const r = await adminPost(card.id, { action: 'reject', reason: 'Цена <ниже> себестоимости' });
+      await pool.query(`UPDATE partners SET max_chat_id = NULL WHERE id = $1`, [OP]);
+      expect(r.status).toBe(200);
+      expect(r.body.message).toBe('«Дверь админа: отказ»: правка отклонена, на сайте прежняя версия');
+      expect((await liveOf(tour)).base_price).toBe(10000);
+      expect(pings.tours).toEqual([]);
+      expect(sent.alerts).toHaveLength(1);
+      const alert = sent.alerts[0];
+      // Адресно — в привязанный чат владельца (bigint из базы приходит строкой).
+      expect(alert.to).toEqual({ maxChatId: '555001', telegramChatId: null });
+      expect(alert.text).toBe([
+        '<b>Правка тура отклонена</b>',
+        '«Дверь админа: отказ»: на сайте прежняя версия (цена).',
+        'Причина: Цена &lt;ниже&gt; себестоимости',
+        'Исправить и отправить на проверку ещё раз можно в кабинете на сайте.',
+      ].join('\n'));
+      expect(alert.buttons[0].url).toMatch(/\/hub\/operator\/tours$/);
+      // Владелец видит причину в кабинете.
+      const { loadOwnTourEdits } = await import('@/lib/tours/moderation-store');
+      const own = await loadOwnTourEdits([tour], new Map());
+      expect(own?.get(tour)?.rejected?.reason).toBe('Цена <ниже> себестоимости');
+    });
+
+    it('новый тур: одобрение ставит публикацию, владельцу — «тур одобрен»', async () => {
+      const tour = await addTour(OP, 'Дверь админа: новый тур');
+      await change(tour, OP, { is_published: true });
+      await pool.query(`UPDATE partners SET max_chat_id = 555001 WHERE id = $1`, [OP]);
+      const card = (await adminGet()).data.edits.find((e) => e.tourId === tour)!;
+      expect(card.kind).toBe('publish');
+      sent.alerts.length = 0;
+      const r = await adminPost(card.id, { action: 'approve', seen: card.seen });
+      await pool.query(`UPDATE partners SET max_chat_id = NULL WHERE id = $1`, [OP]);
+      expect(r.body.message).toBe('«Дверь админа: новый тур»: тур опубликован');
+      expect(await onStorefront(tour)).toBe(true);
+      expect(sent.alerts[0].text).toBe('<b>Тур одобрен</b>\n«Дверь админа: новый тур»: проверка пройдена, тур опубликован.');
+    });
+
+    it('владелец дописал правку после показа карточки — 409, витрина прежняя', async () => {
+      const tour = await addTour(OP, 'Дверь админа: устаревшая карточка', { published: true, price: 10000 });
+      await change(tour, OP, { base_price: 11000 });
+      const card = (await adminGet()).data.edits.find((e) => e.tourId === tour)!;
+      await change(tour, OP, { base_price: 99000 });
+      const r = await adminPost(card.id, { action: 'approve', seen: card.seen });
+      expect(r.status).toBe(409);
+      expect(r.body.code).toBe('changed');
+      expect((await liveOf(tour)).base_price).toBe(10000);
+    });
+  });
+
   describe('края', () => {
     it('одобренный тур тестового профиля на витрину не выходит', async () => {
       const tour = await addTour(STAND, 'Тур стенда');
@@ -514,6 +631,17 @@ withPg('модерация правок тура', () => {
       expect(await code(`INSERT INTO operator_tour_edits (tour_id, partner_id, patch) VALUES ($1::bigint, $2::uuid, '[]'::jsonb)`, [tour, OP])).toBe('23514');
       expect(await code(`INSERT INTO operator_tour_edits (tour_id, partner_id, wants_publish) VALUES ($1::bigint, $2::uuid, TRUE)`, [tour, OP])).toBe('ok');
       expect(await code(`INSERT INTO operator_tour_edits (tour_id, partner_id, wants_publish) VALUES ($1::bigint, $2::uuid, TRUE)`, [tour, OP])).toBe('23505');
+    });
+
+    it('чек-лист готовности называет, сколько туров и правок ждёт проверки', async () => {
+      const { readPartnerReadiness } = await import('@/lib/partners/readiness-store');
+      const mine = await readPartnerReadiness({ partnerId: OP, category: 'operator', viewer: 'owner' });
+      const waiting = await pool.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM operator_tour_edits WHERE partner_id = $1::uuid AND moderation_status = 'pending'`, [OP]);
+      expect(waiting.rows[0].n).toBeGreaterThan(0);
+      expect(mine.items.find((i) => i.key === 'content')?.detail).toContain(`на проверке: ${waiting.rows[0].n}`);
+      const other = await readPartnerReadiness({ partnerId: OTHER, category: 'operator', viewer: 'owner' });
+      expect(other.items.find((i) => i.key === 'content')?.detail).not.toContain('на проверке');
     });
 
     it('счёт правок на проверке — для чек-листа готовности', async () => {
