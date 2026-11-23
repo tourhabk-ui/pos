@@ -183,7 +183,7 @@ describe('6. укачивает, тур на катере', () => {
   it('день без тура — честный пустой слот, а не катер и не «идея» (кейс владельца 21.11)', async () => {
     const rec = await plan({ interests: ['boat_trip'], seasickness: true, arrivalDate: `${Y}-07-10`, departureDate: `${Y}-07-13` } as Partial<TripProfile>);
     expect(rec.days.some((d) => d.type === 'activity' && !d.realTour && d.activityMode !== 'self')).toBe(false);
-    expect(rec.days.some((d) => d.title === 'Подходящего тура на эти даты нет')).toBe(true);
+    expect(rec.days.some((d) => d.title === 'День на своё усмотрение')).toBe(true);
   });
 });
 

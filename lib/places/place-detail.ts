@@ -54,6 +54,7 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
       `SELECT
          p.id AS place_pk,
          p.ark_id,
+         p.slug AS place_slug,
          p.name,
          p.description,
          -- Описание-дневник, снятое с карточки (миграция 1247): текст лежит в
@@ -327,6 +328,9 @@ export async function loadPlaceDetail(id: string, opts: { countView: boolean }):
       success: true,
       data: {
         id: r.ark_id as string,
+        // Короткий адрес карточки (/places/<slug>): ссылка в PDF плана не
+        // рвётся UUID-ом посреди строки (PDF владельца 23.11). Нет — null.
+        slug: (r.place_slug as string | null) ?? null,
         name: r.name as string,
         description: (() => {
           const cleaned = stripSourceAttribution(r.description as string | null);

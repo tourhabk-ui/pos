@@ -227,12 +227,23 @@ describe('просьба получает день: рыбалка не тоне
   });
 
   it('дня не хватило — агент видит это в «Важно», а строки о путёвке нет', async () => {
+    // У рыбалки здесь нет выезда ни в один день: день ей не достаётся.
+    SLOTS = {};
     const rec = await recommendTrip({ ...PROOF, departureDate: `${NEXT_JULY}-07-12` });
     expect(activity(rec).some((d) => d.activityType === 'fishing')).toBe(false);
     const lines = planWarningLines(rec);
     // «Интерес … не вошёл» (08.11) или «зона … не вошла» — с причиной.
     expect(lines.some((l) => /рыбалка/i.test(l) && /не вош(?:ла|ёл)/.test(l))).toBe(true);
     expect(rec.warnings.some((w) => w.type === 'license')).toBe(false);
+  });
+
+  it('день без тура вулканов занимает рыбалка с выездом на эту дату (PDF владельца 23.11)', async () => {
+    // Единственный активный день: у вулкана выезда нет, у рыбалки — есть.
+    // До 23.11 день оставался «подходящего тура нет», а тур с выездом — вне плана.
+    const rec = await recommendTrip({ ...PROOF, departureDate: `${NEXT_JULY}-07-12` });
+    const fish = activity(rec).filter((d) => d.activityType === 'fishing');
+    expect(fish.map((d) => [d.realTour?.tourId, d.availability, d.availableDate])).toEqual([['t-fish-ava', 'open', `${NEXT_JULY}-07-11`]]);
+    expect(rec.warnings.some((w) => w.type === 'license')).toBe(true);
   });
 });
 

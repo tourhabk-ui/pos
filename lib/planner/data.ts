@@ -79,6 +79,13 @@ export interface RealTour {
   coordsKnown?: boolean;
   zone: string;
   activityType: string;
+  /**
+   * Главное место тура (`operator_tours.main_place_id` → `places`), как
+   * записано: имя, зона и точка места (PDF владельца 23.11: вертолёт на
+   * Толбачик без маршрута считался «городским» и показывался Авачинской
+   * зоной с авачинской погодой). Нет поля или `null` — место не записано.
+   */
+  place?: { name: string; zone: string | null; lat: number | null; lng: number | null } | null;
 }
 
 export interface SlotInfo {
@@ -193,6 +200,10 @@ export async function fetchRealToursForZone(
         operator_rating: string;
         operator_review_count: string;
         operator_verified: boolean;
+        place_name: string | null;
+        place_zone: string | null;
+        place_lat: number | string | null;
+        place_lng: number | string | null;
       }>(
         `SELECT
           ot.id AS tour_id, ot.title, ot.short_description,
@@ -211,11 +222,13 @@ export async function fetchRealToursForZone(
           COALESCE(p.rating, 0) AS operator_rating,
           COALESCE(p.review_count, 0) AS operator_review_count,
           COALESCE(p.is_verified, false) AS operator_verified,
+          mp.name AS place_name, mp.zone AS place_zone, mp.lat AS place_lat, mp.lng AS place_lng,
           ${inWindow ? nearestFreeDateInWindowSql('ot', '$3', '$4') : nearestFreeDateSql('ot')} AS nearest_free_date,
           ${anyDayOpenSql('ot')} AS any_day_open
         FROM operator_tours ot
         JOIN partners p ON p.id = ot.operator_id
         LEFT JOIN agent_route_knowledge ark ON ark.id = ot.agent_route_id
+        LEFT JOIN places mp ON mp.id = ot.main_place_id AND mp.is_visible = TRUE AND mp.merged_into_id IS NULL
         WHERE ${zoneMatchSql('ark', '$1')}
           AND ot.activity_type = ANY($2)
           AND ${publicTourSql('ot')}
@@ -254,6 +267,12 @@ export async function fetchRealToursForZone(
           && parseFloat(String(r.lat)) !== 0 && parseFloat(String(r.lng)) !== 0,
         zone: r.zone ?? zone,
         activityType: r.activity_type ?? activityType,
+        place: r.place_name ? {
+          name: r.place_name,
+          zone: r.place_zone ?? null,
+          lat: Number.isFinite(parseFloat(String(r.place_lat))) ? parseFloat(String(r.place_lat)) : null,
+          lng: Number.isFinite(parseFloat(String(r.place_lng))) ? parseFloat(String(r.place_lng)) : null,
+        } : null,
       }));
     } catch (err) {
       // Молчать нельзя: имя проверки и причина — в лог (§4.0). Пустой catch

@@ -79,7 +79,9 @@ export function placeCardFromDetail(detail: Record<string, unknown> | null | und
     id,
     title,
     text,
-    href: `/places/${encodeURIComponent(id)}`,
+    // Короткий адрес по slug, если он записан (23.11): страница места
+    // открывается и по slug, и по id (app/places/[id]).
+    href: `/places/${encodeURIComponent(typeof detail.slug === 'string' && /^[a-z0-9][a-z0-9-]{0,80}$/.test(detail.slug) ? detail.slug : id)}`,
     photo: creditedPlacePhoto(detail),
   };
 }
