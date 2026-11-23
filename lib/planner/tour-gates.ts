@@ -183,6 +183,9 @@ export function liveCardCoversDate(todayIso: string, dateIso: string): boolean {
  * Голое «маршруты закрыты» — то же правило, что у карточки места
  * (`seasonalClosureIdsOf`): межсезонное, только если каждый названный парк
  * закрыт межсезонной сводкой в этом же наборе. Само по себе оно красное.
+ * Если оперативного закрытия нет, сводка — сезонная фраза, а не голая
+ * строка: её слова сами по себе межсезоньем не являются, и ворота снова
+ * сняли бы тур по `parkClosed`. Порядок строк на это не влияет.
  */
 export function gateClosureFromAlerts(
   alerts: readonly {
@@ -201,7 +204,8 @@ export function gateClosureFromAlerts(
   }));
   const seasonal = new Set(seasonalClosureIdsOf(rows));
   const operational = rows.filter((r) => !seasonal.has(r.id));
-  const pick = operational[0] ?? rows[0]!;
+  const sentence = rows.find((r) => seasonal.has(r.id) && isSeasonalClosure(`${r.title ?? ''} ${r.description ?? ''}`));
+  const pick = operational[0] ?? sentence ?? rows[0]!;
   const summary = `${pick.title ?? ''} ${pick.description ?? ''}`.trim();
   return { summary: summary || null, operational: operational.length > 0 };
 }

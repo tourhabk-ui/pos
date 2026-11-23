@@ -41,7 +41,7 @@ let TOURS: Record<string, Tour[]> = {};
 let KEEPS: Record<string, boolean | null> = {};
 let SLOTS: Record<string, string[]> = {};
 let PARK_CLOSED = new Set<string>();
-let PARK_EXTRA: Array<{ ref_id: string; title: string; description: string }> = [];
+let PARK_EXTRA: Array<{ ref_id: string; title: string; description: string; affected_parks?: string[] | null }> = [];
 
 const KLYU = 'Ключевской — маршруты закрыты на зимний сезон: Передвижение в районах вулканов крайне опасно';
 const SEASONAL = 'Маршруты природного парка «Налычево» закрыты на период межсезонья';
@@ -102,7 +102,7 @@ vi.mock('@/lib/db-pool', () => ({
         }));
         const extra = PARK_EXTRA.map((row, i) => ({
           ref_kind: 'tour', ref_id: row.ref_id, alert_id: `a-extra-${i}`, alert_type: 'park_closure',
-          title: row.title, description: row.description,
+          title: row.title, description: row.description, affected_parks: row.affected_parks ?? null,
           published_iso: '2026-11-12T00:00:00Z', expires_iso: '2099-01-01T00:00:00Z',
         }));
         return { rows: [...extra, ...closed] };
@@ -227,8 +227,16 @@ describe('красное закрытие парка в плане', () => {
       alert_id: 'bare', affected_parks: ['nalychevo'],
     };
     const seasonRow = { ...seasonal, alert_id: 'season', affected_parks: ['nalychevo'] };
-    expect(gateClosureFromAlerts([seasonRow, bare]).operational).toBe(false);
-    expect(gateClosureFromAlerts([bare, seasonRow]).operational).toBe(false);
+    for (const pair of [[seasonRow, bare], [bare, seasonRow]]) {
+      const covered = gateClosureFromAlerts(pair);
+      expect(covered.operational).toBe(false);
+      expect(covered.summary).toMatch(/межсезонь/);
+      expect(tourGate({
+        kind: 'request', youngest: null, activityMinAge: 0, activityName: 'вертолётные экскурсии',
+        placeOpenFrom: null, placeOpenTo: null, offOrientation: true, parkClosed: true,
+        ageText: '', date: `${Y}-11-24`, parkSummary: covered.summary, operationalClosure: covered.operational,
+      })).toBeNull();
+    }
     expect(gateClosureFromAlerts([bare]).operational).toBe(true);
     expect(gateClosureFromAlerts([{ ...bare, affected_parks: ['klyuchevskoy'] }, seasonRow]).operational).toBe(true);
     const clipped = { title: `${seasonal.title}${' '.repeat(TITLE_CLIP)}`.slice(0, TITLE_CLIP), description: '' };
@@ -254,6 +262,25 @@ describe('красное закрытие парка в плане', () => {
       }, { itinerary: 'plain' });
       expect(tourIds(rec)).not.toContain('t-both');
       expect(warnings(rec)).toMatch(/Налычево без высадки[\s\S]{0,200}парк у места тура закрыт по сводке/);
+    }
+    const bareAlert = {
+      ref_id: 't-both', title: bare.title, description: '', affected_parks: ['nalychevo'] as string[],
+    };
+    const seasonAlert = {
+      ref_id: 't-both', title: seasonRow.title ?? '', description: '', affected_parks: ['nalychevo'] as string[],
+    };
+    for (const alerts of [[bareAlert, seasonAlert], [seasonAlert, bareAlert]]) {
+      PARK_EXTRA = alerts;
+      TOURS = { 'avachinsky:helicopter': [plain] };
+      KEEPS = { 't-both': false };
+      const rec = await recommendTrip({
+        interests: ['helicopter'],
+        arrivalDate: `${Y}-11-24`, departureDate: `${Y}-11-28`,
+        adults: 2, children: [], fitnessLevel: 'moderate', budgetTier: 'comfort', travelStyle: 'mixed',
+        tripOrigin: 'visitor',
+      }, { itinerary: 'plain' });
+      expect(tourIds(rec)).toContain('t-both');
+      expect(warnings(rec)).not.toMatch(/Налычево без высадки[\s\S]{0,120}закрыт по сводке/);
     }
   });
 
