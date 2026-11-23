@@ -13,8 +13,12 @@
  * Механизм не мониторил собственное здоровье, только своё следствие
  * («0 находок», неотличимое от «код чист»). Сторож здесь — тот же приём,
  * что `IDLE_RUNS_THRESHOLD` (lib/agents/cron-idle.ts): не один просевший
- * прогон, а серия — единичный тормоз может быть штатной защитой, три
- * подряд — уже слепое пятно, которое пора увидеть.
+ * прогон, а серия.
+ *
+ * С 23.11 серия не красит job. 39 из 40 прогонов evo-report с 18.10
+ * краснели уже после того, как рука завела issue. Настоящий сбой выноса
+ * в этом шуме не виден. Предупреждение остаётся, вынос того, что тормоз
+ * пускает, идёт дальше. Порог 50% не снижен.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -68,7 +72,7 @@ describe('GET /api/cron/evo-report: стрик читается, пишется 
   });
 });
 
-describe('scripts/evo-report-issues.js: тормоз краснеет джобой, не только логом', () => {
+describe('scripts/evo-report-issues.js: тормоз виден, но job из-за него не краснеет', () => {
   it('порог совпадает с общей константой', () => {
     expect(RUNNER).toMatch(/PUBLISH_GATE_STREAK_THRESHOLD = 3/);
   });
@@ -77,18 +81,19 @@ describe('scripts/evo-report-issues.js: тормоз краснеет джобо
     expect(RUNNER).toMatch(/publishGateBlockedStreak:\s*data\.publish_gate_blocked_streak/);
   });
 
-  it('при достижении порога job красится', () => {
+  it('при длинном тормозе — предупреждение, не красный прогон', () => {
+    // 39 из 40 прогонов с 18.10 краснели уже после успешного выноса issue.
+    // Рука, которая не смогла завести задачу, тонула в этом стрике.
     const idx = RUNNER.indexOf('publishGateBlockedStreak >= PUBLISH_GATE_STREAK_THRESHOLD');
     expect(idx).toBeGreaterThan(-1);
-    const after = RUNNER.slice(idx, idx + 400);
-    expect(after).toMatch(/process\.exitCode = 1/);
+    const block = RUNNER.slice(idx, idx + 700);
+    expect(block).toMatch(/log\('WARN'/);
+    expect(block).not.toMatch(/process\.exitCode = 1/);
+    expect(block).not.toMatch(/process\.exit\(1\)/);
   });
 
-  it('красный exitCode НЕ обрывает создание issues в этом же прогоне (мягкий отказ, не exit)', () => {
-    // process.exitCode, а не process.exit(...) — иначе находки, которые всё
-    // же прошли (пробник/детерминированные), не завелись бы в этом прогоне.
-    const idx = RUNNER.indexOf('publishGateBlockedStreak >= PUBLISH_GATE_STREAK_THRESHOLD');
-    const block = RUNNER.slice(idx, idx + 400);
-    expect(block).not.toMatch(/process\.exit\(1\)/);
+  it('точность разведки печатается отдельно от кода', () => {
+    expect(RUNNER).toMatch(/intelPrecision:\s*data\.intel_precision/);
+    expect(RUNNER).toMatch(/intelGuessesAllowed === false/);
   });
 });

@@ -256,27 +256,44 @@ export function nextPublishGateStreak(allowGuesses: boolean, prevStreak: number)
   return allowGuesses ? 0 : prevStreak + 1;
 }
 
-/**
- * Фильтр находок по решению: при запрете догадок оставляем детерминированные
- * плюс пробник — самую тяжёлую догадку (см. GUESS_PROBE). Порядок исходного
- * массива сохраняется: выбор пробника не должен переставлять остальное.
- */
-export function applyPublishDecision<T extends { category: string; severity?: string; fault_side?: string | null; model?: string | null }>(
-  findings: T[],
+function keepByDecision<T extends { category: string; severity?: string; fault_side?: string | null; model?: string | null }>(
+  eligible: T[],
   decision: PublishDecision,
 ): T[] {
-  // Догадки запасной ступени не публикуются при любой точности: иначе, когда
-  // окно переписи выветрится и точность станет «не измерена», тормоз
-  // отпустится и они хлынули бы в трекер снова. Остальное — по решению.
-  const eligible = findings.filter((f) => !isFallbackRungGuess(f));
   if (decision.allowGuesses) return eligible;
-
   const probes = new Set(
     eligible
       .filter((f) => isModelGuessLocated(f))
       .sort((a, b) => severityRank(a.severity ?? 'medium') - severityRank(b.severity ?? 'medium'))
       .slice(0, Math.max(0, decision.probeSlots)),
   );
-
   return eligible.filter((f) => !isModelGuessLocated(f) || probes.has(f));
+}
+
+/**
+ * Фильтр находок по решению: при запрете догадок оставляем детерминированные
+ * плюс пробник — самую тяжёлую догадку (см. GUESS_PROBE). Порядок исходного
+ * массива сохраняется: выбор пробника не должен переставлять остальное.
+ *
+ * Второй аргумент `intelDecision` — отдельный тормоз разведки. Без него
+ * пробник один на весь список (прежний контракт). С ним у кода и у intel
+ * свой пробник: иначе одна старая разведка занимает единственный слот, и
+ * код-находка до человека не доходит.
+ */
+export function applyPublishDecision<T extends { category: string; severity?: string; fault_side?: string | null; model?: string | null }>(
+  findings: T[],
+  decision: PublishDecision,
+  intelDecision?: PublishDecision,
+): T[] {
+  // Догадки запасной ступени не публикуются при любой точности: иначе, когда
+  // окно переписи выветрится и точность станет «не измерена», тормоз
+  // отпустится и они хлынули бы в трекер снова. Остальное — по решению.
+  const eligible = findings.filter((f) => !isFallbackRungGuess(f));
+  if (!intelDecision) return keepByDecision(eligible, decision);
+
+  const kept = new Set<T>([
+    ...keepByDecision(eligible.filter((f) => f.category !== 'intel'), decision),
+    ...keepByDecision(eligible.filter((f) => f.category === 'intel'), intelDecision),
+  ]);
+  return eligible.filter((f) => kept.has(f));
 }
