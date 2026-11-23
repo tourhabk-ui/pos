@@ -21,8 +21,10 @@
  *   - перепись шла только по `app/` и `lib/`, а серверные компоненты с SQL
  *     лежат и в `components/` — теперь три каталога;
  *   - регулярка знала одно написание (`is_public = TRUE`), а условие пишут и
- *     `COALESCE(is_public, false)`, и голым `WHERE p.is_public` — теперь формы
- *     перечислены и каждая проверена на образце;
+ *     `COALESCE(is_public, false)`, и голым `WHERE p.is_public`, и через
+ *     отрицание (`<> FALSE`, `IS DISTINCT FROM FALSE`) — теперь правило
+ *     перевёрнуто: условием витрины считается любое вхождение флага в
+ *     условие, кроме явно отбирающих НЕ опубликованное;
  *   - «читатель зовёт условие» судилось по файлу: второй запрос к
  *     представлению в том же файле прошёл бы без отсечки — теперь отсечка
  *     стоит в единственной обёртке, а имя представления вне неё — красный.
@@ -97,24 +99,74 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
 const rel = (file: string) => relative(ROOT, file).split('\\').join('/');
 
 /**
- * Условие «флаг витрины стоит», набранное руками, — во всех написаниях,
- * которыми его пишут в SQL. Сравнения с «нет» (`= FALSE`, `IS NOT TRUE`) сюда
- * не входят: ими отбирают НЕ опубликованное, это не витрина.
+ * Условие по флагу витрины, набранное руками.
+ *
+ * Правило перевёрнуто (третья находка ревью #3780): перечислять написания
+ * «опубликовано» бесполезно — `= TRUE`, `IS NOT FALSE`, `<> FALSE`,
+ * `IS DISTINCT FROM FALSE`, `= $1`, двойное отрицание, — каждое следующее
+ * проходило бы молча. Поэтому условием витрины считается ЛЮБОЕ вхождение
+ * флага в условие, кроме тех, что явно отбирают НЕ опубликованное: `= FALSE`,
+ * `IS FALSE`, `IS NOT TRUE`, `<> TRUE`, `IS DISTINCT FROM TRUE`, `NOT флаг`,
+ * проверка на NULL. Новое написание по умолчанию — красное.
  */
-const RAW_PUBLIC_FORMS: ReadonlyArray<RegExp> = [
-  // is_public = TRUE · IS TRUE · IS NOT FALSE · = 'true' · = 't'
-  /\bis_public\s*(?:=|IS)\s*(?:NOT\s+FALSE\b|TRUE\b|'t(?:rue)?')/gi,
-  // TRUE = is_public
-  /(?:\bTRUE|'t(?:rue)?')\s*=\s*(?:[a-z_][a-z0-9_]*\.)?is_public\b/gi,
-  // COALESCE(is_public, …) в условии; `COALESCE(…) AS имя` — колонка выдачи, не условие
-  /\bCOALESCE\(\s*(?:[a-z_][a-z0-9_]*\.)?is_public\b[^()]*\)(?!\s+AS\b)/gi,
-  // голый флаг в условии: WHERE p.is_public · AND is_public · ON p.is_public
-  /\b(?:WHERE|AND|OR|ON|WHEN|NOT)\s+\(?\s*(?:[a-z_][a-z0-9_]*\.)?is_public\b(?!\s*(?:=|<>|!=|IS\b|::|,|\s+AS\b))/gi,
-];
+const FLAG = String.raw`(?:[a-z_][a-z0-9_]*\.)?is_public\b`;
+
+/** Хвост после флага, отбирающий НЕ опубликованное (или не про публикацию вовсе). */
+const NON_PUBLIC_TAIL = /^\s*(?:=\s*(?:FALSE\b|'f(?:alse)?')|IS\s+FALSE\b|IS\s+NOT\s+TRUE\b|(?:<>|!=)\s*(?:TRUE\b|'t(?:rue)?')|IS\s+DISTINCT\s+FROM\s+TRUE\b|IS\s+(?:NOT\s+)?NULL\b)/i;
+/** Хвост — оператор или проверка: флаг не «голый». */
+const HAS_OPERATOR = /^\s*(?:=|<>|!=|<|>|::|IS\b|IN\b|BETWEEN\b|NOT\s+IN\b)/i;
+/** Сравнение из кода, а не из SQL: `===`, `==`, `!==`, стрелка. */
+const JS_TAIL = /^\s*(?:===?|!==|=>)/;
+
+/** 1. Флаг сразу после слова условия: WHERE · AND · OR · ON · WHEN · HAVING · NOT, со скобками или без. */
+const LEADING = new RegExp(String.raw`\b(WHERE|AND|OR|ON|WHEN|HAVING|NOT)\s*\(*\s*${FLAG}([^\n]{0,48})`, 'gi');
+/** 2. Флаг в сравнении где угодно: `(p.is_public = TRUE …`, `p.is_public <> FALSE`. */
+const COMPARED = new RegExp(String.raw`${FLAG}([^\n]{0,48})`, 'gi');
+/** 3. Флаг справа от сравнения: TRUE = is_public, $1 = p.is_public, FALSE <> is_public. */
+const REVERSED = new RegExp(String.raw`(\bTRUE|\bFALSE|'t(?:rue)?'|'f(?:alse)?'|\$\d+)\s*(=|<>|!=|IS\s+(?:NOT\s+)?DISTINCT\s+FROM)\s*${FLAG}`, 'gi');
+/** 4. Флаг внутри функции SQL: COALESCE(is_public, …); `… ) AS имя` — колонка выдачи, не условие. */
+const WRAPPED = new RegExp(String.raw`(?<![.\w])(?:COALESCE|NULLIF|BOOL_OR|BOOL_AND|EVERY|CAST|MAX|MIN|GREATEST|LEAST)\(\s*${FLAG}[^()]*\)(?!\s+AS\b)`, 'gi');
+
+/** Слева от флага — присваивание или список колонок (`SET x =`, `a, b`), а не условие. */
+function assignedOrListed(before: string): boolean {
+  return /(?:\bSET|,)\s*(?:\$\{[^}]*\})?\s*$/i.test(before);
+}
+
+/** Позиции флага, стоящего в условии «опубликовано», набранном руками. */
+function rawPublicHits(src: string): Set<number> {
+  const text = code(src);
+  const hits = new Set<number>();
+  const flagPos = (m: RegExpMatchArray) => (m.index ?? 0) + m[0].toLowerCase().indexOf('is_public');
+
+  for (const m of text.matchAll(LEADING)) {
+    const negated = m[1].toUpperCase() === 'NOT';
+    const tail = m[2];
+    if (JS_TAIL.test(tail)) continue;
+    const nonPublic = NON_PUBLIC_TAIL.test(tail);
+    // NOT флаг — «не опубликовано»; NOT (флаг = FALSE) — двойное отрицание, то есть «опубликовано».
+    if (negated ? (nonPublic || HAS_OPERATOR.test(tail)) : !nonPublic) hits.add(flagPos(m));
+  }
+  for (const m of text.matchAll(COMPARED)) {
+    const tail = m[1];
+    if (!HAS_OPERATOR.test(tail) || NON_PUBLIC_TAIL.test(tail) || JS_TAIL.test(tail)) continue;
+    if (assignedOrListed(text.slice(Math.max(0, (m.index ?? 0) - 80), m.index ?? 0))) continue;
+    hits.add(flagPos(m));
+  }
+  for (const m of text.matchAll(REVERSED)) {
+    const lhs = m[1].toUpperCase();
+    const op = m[2].toUpperCase().replace(/\s+/g, ' ');
+    const lhsTrue = lhs === 'TRUE' || lhs.startsWith("'T");
+    const lhsFalse = lhs === 'FALSE' || lhs.startsWith("'F");
+    const nonPublic = (lhsFalse && (op === '=' || op === 'IS NOT DISTINCT FROM'))
+      || (lhsTrue && (op === '<>' || op === '!=' || op === 'IS DISTINCT FROM'));
+    if (!nonPublic) hits.add(flagPos(m));
+  }
+  for (const m of text.matchAll(WRAPPED)) hits.add(flagPos(m));
+  return hits;
+}
 
 function rawPublicCount(src: string): number {
-  const text = code(src);
-  return RAW_PUBLIC_FORMS.reduce((n, re) => n + (text.match(re) ?? []).length, 0);
+  return rawPublicHits(src).size;
 }
 
 describe('условие по флагу витрины: какие написания видит сторож', () => {
@@ -130,6 +182,22 @@ describe('условие по флагу витрины: какие написа
     ['WHERE p.is_public AND p.slug IS NOT NULL'],
     ['JOIN partners p ON p.id = t.operator_id AND p.is_public'],
     ['WHERE (is_public)'],
+    // третья находка ревью #3780: равнозначные «опубликовано» через отрицание
+    ['WHERE p.is_public <> FALSE'],
+    ['WHERE p.is_public != FALSE'],
+    ['WHERE p.is_public IS DISTINCT FROM FALSE'],
+    ['WHERE NOT (p.is_public = FALSE)'],
+    ['WHERE NOT (p.is_public IS NOT TRUE)'],
+    ['WHERE (p.slug = $1) AND (p.is_public <> FALSE)'],
+    ['WHERE x IN (SELECT id FROM partners WHERE (is_public IS DISTINCT FROM FALSE))'],
+    ['WHERE FALSE <> p.is_public'],
+    // значение приходит параметром — на витрине это тоже «опубликовано»
+    ['WHERE p.is_public = $1'],
+    ['WHERE $2 = p.is_public'],
+    ['WHERE p.is_public IN (TRUE)'],
+    ['WHERE p.is_public::int = 1'],
+    ['HAVING bool_or(p.is_public)'],
+    ['COUNT(*) FILTER (WHERE p.is_public)'],
   ])('ловит: %s', (sql) => {
     expect(rawPublicCount(`const q = \`SELECT 1 FROM partners p ${sql}\`;`)).toBeGreaterThanOrEqual(1);
   });
@@ -139,10 +207,19 @@ describe('условие по флагу витрины: какие написа
     ['SELECT p.is_public AS operator_public FROM partners p'],
     ['SELECT COALESCE(p.is_public, false)   AS is_public FROM partners p'],
     ['UPDATE partners SET is_public = $1 WHERE id = $2'],
+    ['UPDATE partners SET name = $1, is_public = TRUE WHERE id = $2'],
     ['UPDATE partners SET is_public = CASE WHEN $2 THEN FALSE ELSE is_public END'],
-    ['WHERE p.is_public = FALSE'],
-    ['WHERE p.is_public IS NOT TRUE'],
     ['INSERT INTO partners (name, is_public) VALUES ($1, $2)'],
+    // отбирают НЕ опубликованное
+    ['WHERE p.is_public = FALSE'],
+    ['WHERE p.is_public IS FALSE'],
+    ['WHERE p.is_public IS NOT TRUE'],
+    ['WHERE p.is_public <> TRUE'],
+    ['WHERE p.is_public IS DISTINCT FROM TRUE'],
+    ['WHERE NOT p.is_public'],
+    ['WHERE NOT (p.is_public)'],
+    ['WHERE FALSE = p.is_public'],
+    ['WHERE p.is_public IS NULL'],
   ])('не считает условием витрины: %s', (sql) => {
     expect(rawPublicCount(`const q = \`${sql}\`;`)).toBe(0);
   });
@@ -150,6 +227,9 @@ describe('условие по флагу витрины: какие написа
   it('не считает условием код вне SQL и комментарии', () => {
     expect(rawPublicCount('const shown = rows[0]?.is_public === true;')).toBe(0);
     expect(rawPublicCount('if (row.is_public && row.slug) run();')).toBe(0);
+    expect(rawPublicCount('const x = { is_public: true, name };')).toBe(0);
+    expect(rawPublicCount('const [published, setPublished] = useState(trip.is_public === true);')).toBe(0);
+    expect(rawPublicCount('const shown = Boolean(row.is_public) && Math.max(a, b);')).toBe(0);
     expect(rawPublicCount('// WHERE p.is_public = TRUE\n/* AND is_public IS TRUE */')).toBe(0);
   });
 
@@ -170,6 +250,8 @@ const KNOWN_RAW: Record<string, { n: number; why: string }> = {
   'lib/partners/test-profile.ts': { n: 1, why: `${NOT_STOREFRONT}: само условие publicPartnerSql` },
   'app/api/leads/route.ts': { n: 1, why: `${NOT_STOREFRONT}: адресат заявки по слагу — включён виджет или карточка опубликована; заявка идёт партнёру, а не на общую витрину` },
   'lib/account/erase.ts': { n: 1, why: `${NOT_STOREFRONT}: проверка перед удалением аккаунта — есть ли у человека опубликованная карточка` },
+  'app/api/admin/operators/[id]/route.ts': { n: 1, why: `${NOT_STOREFRONT}: дверь одобрения администратора ПИШЕТ флаг (SET в несколько строк), а не отбирает по нему` },
+  'app/api/admin/content/partners/[id]/route.ts': { n: 1, why: `${NOT_STOREFRONT}: дверь правки карточки администратором ПИШЕТ флаг (SET собирается по частям), а не отбирает по нему` },
   'app/api/collections/[slug]/route.ts': { n: 1, why: `${OTHER_TABLE}: collections` },
   'lib/collections/list.ts': { n: 1, why: `${OTHER_TABLE}: collections` },
   'lib/seo/sitemap-entries.ts': { n: 1, why: `${OTHER_TABLE}: collections` },
@@ -177,7 +259,6 @@ const KNOWN_RAW: Record<string, { n: number; why: string }> = {
   'app/api/cron/guide-readiness/route.ts': { n: 1, why: `${OTHER_TABLE}: guide_reviews` },
   'lib/auth/guide-helpers.ts': { n: 2, why: `${OTHER_TABLE}: guide_reviews` },
   'lib/guides/chat-role/store.ts': { n: 2, why: `${OTHER_TABLE}: guide_reviews` },
-  'app/api/trips/[id]/share/route.ts': { n: 1, why: `${OTHER_TABLE}: trips — ссылка на план поездки` },
   'lib/trips/shared-plan.ts': { n: 1, why: `${OTHER_TABLE}: trips — ссылка на план поездки` },
 };
 
