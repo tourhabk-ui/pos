@@ -281,8 +281,9 @@ describe('связка раннер → прод', () => {
   });
 
   it('результат уходит на прод телом POST', () => {
-    expect(WF).toMatch(/-X POST "https:\/\/vedarai\.ru\/api\/cron\/scout-digest"/);
-    expect(WF).toContain('--data-binary @/tmp/digest-body.json');
+    expect(WF).toContain('--method POST');
+    expect(WF).toContain('--url "https://vedarai.ru/api/cron/scout-digest"');
+    expect(WF).toContain('--data /tmp/digest-body.json');
     expect(WF).toContain("body['x_source'] = json.load(open('/tmp/x-source.json'))");
   });
 
