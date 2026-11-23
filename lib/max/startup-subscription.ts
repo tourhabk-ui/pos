@@ -48,10 +48,11 @@
 import { maxFetch } from '@/lib/max/max-fetch';
 import { maxWebhookUrl, redactWebhookUrl } from '@/lib/max/webhook-url';
 import { readMaxAction } from '@/lib/max/subscription-response';
+import { MAX_BOT_UPDATE_TYPES, subscriptionCoversBotChats } from '@/lib/max/update-types';
 import { tgSend, type TgSendOutcome } from '@/lib/notifications/tg-send';
 
 const MAX_API_BASE = 'https://platform-api2.max.ru';
-const UPDATE_TYPES = ['bot_started', 'message_created', 'message_callback'];
+const UPDATE_TYPES = [...MAX_BOT_UPDATE_TYPES];
 
 /**
  * Хосты, на которые подписывается боевой бот. Прежний домен платформы сюда
@@ -118,7 +119,11 @@ export async function ensureMaxSubscriptionOnStart(): Promise<StartupSubscriptio
     const data: unknown = await res.json();
     const raw = Array.isArray(data) ? data : (data as { subscriptions?: unknown } | null)?.subscriptions;
     const list = Array.isArray(raw) ? raw : [];
-    present = list.some((s) => typeof s === 'object' && s !== null && (s as { url?: unknown }).url === url);
+    present = list.some((s) => {
+      if (typeof s !== 'object' || s === null) return false;
+      const row = s as { url?: unknown; update_types?: unknown };
+      return row.url === url && subscriptionCoversBotChats(row.update_types);
+    });
   } catch (err) {
     const reason = reasonOf(err);
     console.error(`[max] подписки при старте не прочитаны: ${reason}; адрес ${shown} не проверен`);
