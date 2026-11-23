@@ -15,6 +15,7 @@ import { safeTeamJoinReturn } from '@/lib/operators/team-join-path';
 import { safePlannerReturn } from '@/lib/planner/login-gate';
 import { validatePassword, PASSWORD_RULE_HINT } from '@/lib/auth/password-rule';
 import { agentRoleOpen } from '@/lib/auth/agent-role';
+import { registerRoleFromSearch } from '@/lib/auth/register-link';
 
 type Mode = 'login' | 'register';
 type UserType = 'tourist' | 'partner';
@@ -36,6 +37,8 @@ export default function AuthPageClient() {
   const { signIn, completeMfaSignIn } = useAuth();
 
   const [mode, setMode] = useState<Mode>('login');
+  const [userType, setUserType] = useState<UserType>('tourist');
+  const [partnerRoles, setPartnerRoles] = useState<string[]>([]);
   // Куда вернуть после входа. Узко: экран согласия OAuth MCP партнёра
   // (подключение Claude к CRM), страница приглашения в команду оператора
   // (CRM 2г) и планер (с 14.11 он открывается только после входа) —
@@ -47,10 +50,17 @@ export default function AuthPageClient() {
   useEffect(() => {
     const search = new URLSearchParams(window.location.search);
     if (search.get('mode') === 'register') setMode('register');
+    // Страница роли (/guides/join, /stays/join, /transfers/join) ведёт сюда
+    // с выбранным направлением: «Партнёр» и роль уже отмечены, человеку не
+    // надо искать свой пункт. Роль — из закрытого списка; проверяет её сервер.
+    const linkRole = registerRoleFromSearch(window.location.search);
+    if (linkRole) {
+      setUserType('partner');
+      setPartnerRoles([linkRole]);
+    }
     const next = search.get('next');
     setReturnTo(safePartnerOAuthReturn(next) ?? safeTeamJoinReturn(next) ?? safePlannerReturn(next));
   }, []);
-  const [userType, setUserType] = useState<UserType>('tourist');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -65,7 +75,6 @@ export default function AuthPageClient() {
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [partnerRoles, setPartnerRoles] = useState<string[]>([]);
   const [pdConsent, setPdConsent] = useState(false);
   // Ошибка регистрации у своего поля + ссылка на блок ошибки у кнопки. Общая
   // плашка сверху формы на телефоне уезжала за экран: «Зарегистрироваться»
@@ -458,6 +467,7 @@ export default function AuthPageClient() {
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
+                aria-pressed={userType === 'tourist'}
                 onClick={() => setUserType('tourist')}
                 className={`flex flex-col items-center gap-2 p-4 rounded-lg border transition-colors ${
                   userType === 'tourist'
@@ -474,6 +484,7 @@ export default function AuthPageClient() {
 
               <button
                 type="button"
+                aria-pressed={userType === 'partner'}
                 onClick={() => setUserType('partner')}
                 className={`flex flex-col items-center gap-2 p-4 rounded-lg border transition-colors ${
                   userType === 'partner'
@@ -502,6 +513,7 @@ export default function AuthPageClient() {
                       <button
                         key={role.id}
                         type="button"
+                        aria-pressed={selected}
                         onClick={() => toggleRole(role.id)}
                         className={`flex items-center gap-2 p-2.5 rounded-md border text-left transition-colors ${
                           selected

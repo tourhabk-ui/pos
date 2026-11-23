@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Mountain, Check, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { validatePassword, PASSWORD_RULE_HINT } from '@/lib/auth/password-rule';
+import { JOIN_PAGES } from '@/lib/partners/join-pages';
 
 /** Цифра маршрутов приходит с сервера из базы; нет её — пункта нет (#1804). */
 const PERKS = [
@@ -141,6 +142,20 @@ export default function JoinClient({ routesLine }: { routesLine?: string | null 
               </li>
             ))}
           </ul>
+
+          {/* Эта форма — для туроператора. Гиду, хозяину жилья и перевозчику —
+              свои страницы: у каждой роли свой кабинет (23.11, этап 3a). */}
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Не туроператор?{' '}
+            {Object.values(JOIN_PAGES).map((page, i) => (
+              <span key={page.path}>
+                {i > 0 && ' · '}
+                <Link href={page.path} className="hover:underline" style={{ color: 'var(--ocean)' }}>
+                  {page.linkLabel}
+                </Link>
+              </span>
+            ))}
+          </p>
 
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
             Уже есть аккаунт?{' '}
