@@ -38,8 +38,10 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { QueryResult, QueryResultRow } from 'pg';
 import {
   composeHonestPrice, priceLabel, changePercentOf, RULE_LABEL,
+  loadPricingContext, honestTourPrice, type PricingExecutor,
 } from '@/lib/tours/honest-price';
 import {
   matchPricingRules, ruleApplies, finalUnitPrice, roundedPrice,
@@ -303,5 +305,96 @@ describe('форма брони показывает цену выбранной
     expect(FORM).toMatch(/new AbortController\(\)/);
     expect(FORM).toMatch(/ctrl\.abort\(\)/);
     expect(FORM).toMatch(/AbortError/);
+  });
+});
+
+/**
+ * ── Слово владельца 23.11 ────────────────────────────────────────────────
+ * «Расчёт цены брони … запросы последовательно или в одной транзакции, без
+ * параллельных запросов на одном соединении. Ждать новой версии `pg` не
+ * будем, потому что это денежный путь.»
+ *
+ * На пути брони исполнитель — клиент открытой транзакции, одно соединение.
+ * Три чтения шли через `Promise.all`: соединение параллельно их не исполняет,
+ * драйвер ставил лишние в свою очередь, предупреждал и в `pg@9` такой вызов
+ * уберёт — бронь перестала бы считать цену вовсе.
+ *
+ * Судится поведение: исполнитель считает запросы «в полёте». Настоящее
+ * соединение и дверь брони целиком — `tests/integration/booking-writers.pg.test.ts`.
+ */
+describe('правила, занятость и ступени читаются по одному запросу на соединении (слово владельца 23.11)', () => {
+  type Kind = 'rules' | 'occupancy' | 'tiers' | 'other';
+  const kindOf = (sql: string): Kind =>
+    /FROM tour_pricing_rules/.test(sql) ? 'rules'
+      : /FROM tour_availability/.test(sql) ? 'occupancy'
+        : /FROM tour_price_tiers/.test(sql) ? 'tiers' : 'other';
+
+  /** Исполнитель «одно соединение»: помнит, сколько запросов шло разом. */
+  function oneConnection(failOn?: Kind) {
+    const seen = { inFlight: 0, maxInFlight: 0, asked: [] as Kind[] };
+    const exec: PricingExecutor = {
+      async query<R extends QueryResultRow>(sql: string): Promise<QueryResult<R>> {
+        const kind = kindOf(sql);
+        seen.inFlight += 1;
+        seen.maxInFlight = Math.max(seen.maxInFlight, seen.inFlight);
+        seen.asked.push(kind);
+        // Запрос «идёт»: за это время параллельный сосед успел бы стартовать.
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        seen.inFlight -= 1;
+        if (kind === failOn) throw new Error(`отказ базы: ${kind}`);
+        const rows: Array<Record<string, unknown>> =
+          kind === 'rules' ? [{ ...rule({ rule_type: 'occupancy_high', occupancy_min: 50, multiplier: '1.1' }) }]
+            : kind === 'occupancy' ? [{ available_slots: 4, occupied: 2 }]
+              : kind === 'tiers' ? [{ min_people: 1, max_people: null, price_per_person: '9000' }]
+                : [];
+        return { rows: rows as unknown as R[], rowCount: rows.length, command: 'SELECT', oid: 0, fields: [] };
+      },
+    };
+    return { exec, seen };
+  }
+
+  it('одновременно идёт не больше одного запроса, и все три чтения выполнены', async () => {
+    const { exec, seen } = oneConnection();
+    const ctx = await loadPricingContext(7, '2027-07-10', exec);
+    expect(seen.maxInFlight, 'запросы ушли на одно соединение разом').toBe(1);
+    expect(seen.asked).toEqual(['rules', 'occupancy', 'tiers']);
+    expect(ctx.rules.map((r) => r.rule_type)).toEqual(['occupancy_high']);
+    expect(ctx.occupancyPct).toBe(50);
+    expect(ctx.tiers).toEqual([{ min_people: 1, max_people: null, price_per_person: 9000 }]);
+  });
+
+  it('цена брони собрана из всех трёх чтений — и тоже по одному запросу', async () => {
+    const { exec, seen } = oneConnection();
+    const price = await honestTourPrice({
+      tourId: 7, tourDate: '2027-07-10', baseUnitPrice: 10000, priceUnit: 'per_person', participants: 2, exec,
+    });
+    expect(seen.maxInFlight).toBe(1);
+    // Ступень даёт базу 9 000, заполненность 50% — надбавку 10%: 9 900 × 2.
+    expect(price.baseTotal).toBe(18000);
+    expect(price.total).toBe(19800);
+    expect(price.appliedRules).toEqual(['occupancy_high']);
+  });
+
+  it('отказ первого чтения: следом в сломанную транзакцию ничего не уходит, отказ не глушится', async () => {
+    const { exec, seen } = oneConnection('rules');
+    await expect(loadPricingContext(7, '2027-07-10', exec)).rejects.toThrow('отказ базы: rules');
+    expect(seen.asked, 'после отказа ушли ещё запросы').toEqual(['rules']);
+  });
+
+  it('отказ чтения ступеней — отказ расчёта, а не «ступеней нет»', async () => {
+    // Тур со ступенями, прочитанный как «без ступеней», получил бы базовую
+    // цену вместо ступенчатой (§4.0).
+    const { exec } = oneConnection('tiers');
+    await expect(honestTourPrice({
+      tourId: 7, tourDate: '2027-07-10', baseUnitPrice: 10000, priceUnit: 'per_person', participants: 2, exec,
+    })).rejects.toThrow('отказ базы: tiers');
+  });
+
+  it('в расчёте цены и в двери брони нет параллельного запуска запросов', () => {
+    // Запрет, а не устройство: `Promise.all` в этих двух файлах — это запросы
+    // разом на соединение транзакции.
+    for (const [name, src] of [['honest-price', HONEST], ['reserve', RESERVE]] as const) {
+      expect(src, `${name}: вернулся параллельный запуск`).not.toMatch(/Promise\.(all|allSettled|race|any)\s*\(/);
+    }
   });
 });
