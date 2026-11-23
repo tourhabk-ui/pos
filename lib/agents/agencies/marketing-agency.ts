@@ -8,6 +8,7 @@
 import { pool } from '@/lib/db-pool';
 import { callAIWithModel, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import type { AgentContext } from '../context-hub';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 export interface AgencyResult {
   response: string;
@@ -119,7 +120,7 @@ export class MarketingAgency {
       `),
       pool.query<{ names: string }>(`
         SELECT STRING_AGG(name, ', ' ORDER BY name) AS names
-        FROM partners WHERE is_public = true
+        FROM partners WHERE ${publicPartnerSql('')}
         LIMIT 5
       `),
     ]);

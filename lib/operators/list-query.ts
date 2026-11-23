@@ -35,6 +35,7 @@ import {
   type ActivityCount,
   type OperatorTourFacts,
 } from '@/lib/operators/tour-facts';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 /** Ключ вида тура: тот же алфавит, что у `operator_tours.activity_type`. */
 export const ACTIVITY_KEY = /^[a-z_]{1,40}$/;
@@ -95,7 +96,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  */
 function listedPartner(alias: string): string[] {
   return [
-    `${alias}.is_public = TRUE`,
+    publicPartnerSql(alias),
     // Тестовый стенд (lib/seat-requests/test-stand): компания «Тестовый
     // оператор Ведар» нужна для прогона запросов мест, а не туристу. В списке
     // она стояла ссылкой на 404 (аудит 20.11). Признак — id из кода стенда.

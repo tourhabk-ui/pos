@@ -14,6 +14,7 @@ import { cache } from 'react';
 import { query } from '@/lib/database';
 import type { OperatorProfileRow, PartnerSiteTourRow } from '@/lib/types/db-rows';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 export interface PartnerSiteData {
   profile: OperatorProfileRow;
@@ -35,7 +36,7 @@ export const loadPartnerSite = cache(async (partnerId: string): Promise<PartnerS
             to_char(registry_checked_at AT TIME ZONE 'Asia/Kamchatka', 'DD.MM.YYYY') AS registry_checked_at,
             created_at::text
        FROM partners
-      WHERE id::text = $1::text AND is_public = TRUE
+      WHERE id::text = $1::text AND ${publicPartnerSql('')}
       LIMIT 1`,
     [partnerId],
   );

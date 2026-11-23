@@ -43,6 +43,7 @@ import {
   type UpcomingBooking, type OfficialAlert,
 } from '@/lib/agents/evo/rescue-judge';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 export interface RescueAlert {
   type: 'weather_threat' | 'official_warning' | 'operator_no_response' | 'zone_danger' | 'check_failed';
@@ -363,7 +364,7 @@ async function checkOperatorResponse(): Promise<CheckResult> {
       LEFT JOIN operator_bookings ob ON ob.operator_tour_id IN (
         SELECT id FROM operator_tours WHERE operator_id = p.id
       )
-      WHERE p.is_public = true
+      WHERE ${publicPartnerSql('p')}
       GROUP BY p.id, p.name
       HAVING MAX(ob.created_at) IS NOT NULL
       ORDER BY days_since DESC

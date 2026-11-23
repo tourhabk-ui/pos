@@ -39,6 +39,7 @@ import { redactPII } from '@/lib/security/pii-redact';
 import { pickNextOperator } from '@/lib/leads/next-operator';
 import { offerOrderDay } from '@/lib/tours/offer-order';
 import { LEAD_CLIENT_CANCELLED } from '@/lib/types/statuses';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 export const dynamic = 'force-dynamic';
 
@@ -134,7 +135,7 @@ export async function GET(request: NextRequest) {
               COUNT(*) FILTER (WHERE p.max_chat_id IS NOT NULL) AS with_max
        FROM partners p
        LEFT JOIN users u_reach ON u_reach.id = p.user_id
-       WHERE p.is_public = TRUE AND p.category = 'operator'`
+       WHERE ${publicPartnerSql('p')} AND p.category = 'operator'`
     );
     const diag = diagRes.rows[0];
 
@@ -192,7 +193,7 @@ export async function GET(request: NextRequest) {
            FROM partners p
            LEFT JOIN users u_reach ON u_reach.id = p.user_id
            WHERE p.category = 'operator'
-             AND p.is_public = TRUE
+             AND ${publicPartnerSql('p')}
              AND (p.max_chat_id IS NOT NULL OR p.telegram_chat_id IS NOT NULL OR u_reach.telegram_id IS NOT NULL)
              AND NOT (p.slug = ANY($2))
              AND EXISTS (
@@ -215,7 +216,7 @@ export async function GET(request: NextRequest) {
            FROM partners p
            LEFT JOIN users u_reach ON u_reach.id = p.user_id
            WHERE p.category = 'operator'
-             AND p.is_public = TRUE
+             AND ${publicPartnerSql('p')}
              AND (p.max_chat_id IS NOT NULL OR p.telegram_chat_id IS NOT NULL OR u_reach.telegram_id IS NOT NULL)
              AND NOT (p.slug = ANY($1))`,
           [alreadyNotified]

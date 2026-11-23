@@ -39,6 +39,7 @@ import {
   type TgDeliveryIds,
   type TgSentMessage,
 } from '@/lib/notifications/tg-sent-messages';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -714,7 +715,7 @@ export async function postOperatorToChannel(slug: string, photoUrl?: string): Pr
   const res = await query<PartnerRow>(
     `SELECT id, name, description, slug, location->>'city' AS location, hero_image
      FROM partners
-     WHERE slug = $1 AND is_public = TRUE`,
+     WHERE slug = $1 AND ${publicPartnerSql('')}`,
     [slug]
   );
   const p = res.rows[0];

@@ -18,6 +18,7 @@ import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy } from '@/lib/tours/offer-order';
 import { zoneMatchSql } from '@/lib/planner/zone-match';
 import type { SelfSafetyRow } from '@/lib/planner/travel-style';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 // ── Cache ────────────────────────────────────────────────────────────────────
 
@@ -280,7 +281,7 @@ export async function fetchRealToursForZone(
         WHERE ${zoneMatchSql('ark', '$1')}
           AND ot.activity_type = ANY($2)
           AND ${publicTourSql('ot')}
-          AND p.is_public = TRUE`,
+          AND ${publicPartnerSql('p')}`,
         inWindow ? [zone, rawTypesFor(activityType), inWindow.from, inWindow.to] : [zone, rawTypesFor(activityType)]
       );
 
@@ -605,7 +606,7 @@ export async function fetchActivitiesBookableInMonth(
            JOIN partners p ON p.id = ot.operator_id
            JOIN tour_availability ta ON ta.operator_tour_id = ot.id
           WHERE ${publicTourSql('ot')}
-            AND p.is_public = TRUE
+            AND ${publicPartnerSql('p')}
             AND ta.available_slots > COALESCE(ta.booked_slots, 0)
             AND ta.date >= CURRENT_DATE
             AND EXTRACT(MONTH FROM ta.date) = $1`,
@@ -650,7 +651,7 @@ export async function fetchActivitiesOnRequest(cache: PlannerCache, month?: numb
            FROM operator_tours ot
            JOIN partners p ON p.id = ot.operator_id
           WHERE ${publicTourSql('ot')}
-            AND p.is_public = TRUE
+            AND ${publicPartnerSql('p')}
             AND ot.activity_type IS NOT NULL
             AND NOT ${keepsScheduleSql('ot.id')}`,
       );

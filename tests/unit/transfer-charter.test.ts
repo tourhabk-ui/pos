@@ -299,7 +299,8 @@ describe('связка: производитель, читатель и экра
 
   it('загрузчик только читает, и только публичное и живое', () => {
     expect(loader).not.toMatch(/\b(INSERT|UPDATE|DELETE)\b/);
-    expect(loader).toMatch(/p\.is_public = TRUE/);
+    // Витрина — одно условие (publicPartnerSql): опубликована и не тестовая.
+    expect(loader).toMatch(/\$\{publicPartnerSql\('p'\)\}/);
     expect(loader).toMatch(/is_active/);
     expect(loader).not.toMatch(/db-pool/);
     // ролик без обложки экран не показывает, даже если база пропустила

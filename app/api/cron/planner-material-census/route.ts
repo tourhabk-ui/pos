@@ -44,6 +44,7 @@ import { publicAccommodationSql } from '@/lib/stay/moderation';
 // список разошёлся бы с тем, по которому движок действительно ищет, и
 // перепись отвечала бы про несуществующую платформу.
 import { ACTIVITY_CONSTRAINTS, ZONE_NAMES, type ZoneId } from '@/lib/planner/constants';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -130,7 +131,7 @@ export async function GET(request: NextRequest) {
          JOIN partners p ON p.id = ot.operator_id
          LEFT JOIN agent_route_knowledge ark ON ark.id = ot.agent_route_id
         WHERE ${publicTourSql('ot')}
-          AND p.is_public = TRUE
+          AND ${publicPartnerSql('p')}
         GROUP BY 1, 2`,
     );
     tourCounts = new Map(rows.map((r) => [`${r.zone}:${r.activity}`, r.n]));

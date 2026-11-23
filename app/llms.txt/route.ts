@@ -30,6 +30,7 @@ import { publicAccommodationSql } from '@/lib/stay/moderation';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
 import { touristAnswersRu } from '@/lib/seo/tourist-answers';
 import { llmsKuzmichConnectBlock } from '@/lib/mcp/llms-connect-block';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 const BASE = 'https://vedarai.ru';
 
@@ -110,7 +111,7 @@ export async function GET(request?: Request) {
     const { rows } = await pool.query<{ slug: string; name: string }>(`
       SELECT p.slug, p.name
       FROM partners p
-      WHERE p.is_public = TRUE
+      WHERE ${publicPartnerSql('p')}
         AND p.slug IS NOT NULL
         AND EXISTS (
           SELECT 1 FROM transfer_charter_prices c WHERE c.partner_id = p.id AND c.is_active

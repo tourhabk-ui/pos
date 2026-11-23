@@ -1305,6 +1305,229 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(urls.some((u) => u.endsWith(`/operators/${STAND.slug}`))).toBe(false);
     });
   });
+
+  /**
+   * 1505 (владелец 23.11: «Скрыть тестовые карточки и карточку Admin в
+   * "/api/partners" и на "/guides"»). На проде в публичной выдаче стояли три
+   * служебные карточки. Сцена повторяет их: те же id и имена, на витрине,
+   * гид одобрен — то есть до миграции /api/partners и /guides их показывают.
+   */
+  describe('1505: служебные карточки — с витрины', () => {
+    const MIG_1505 = readFileSync(join(process.cwd(), 'migrations/1505_service_cards_off_storefront.sql'), 'utf-8');
+    const CARD = {
+      admin:    { id: '1b071e25-c0da-4e3c-965a-74fd1eec6f36', name: 'Admin', category: 'operator' },
+      operator: { id: '0c595568-163b-4870-ab03-edf60d1d939e', name: 'Тестовый оператор Ведар', category: 'operator' },
+      guide:    { id: '11a01651-3840-4669-a6ee-0f66f3fd4256', name: 'Тестовый гид Ведар', category: 'guide' },
+    } as const;
+    const REAL_GUIDE = { id: 'a1505000-0000-4000-8000-000000000001', name: 'Гид Настоящий' };
+    const ids = [...Object.values(CARD).map((c) => c.id), REAL_GUIDE.id];
+
+    const seed = async () => {
+      await pool.query(`DELETE FROM partners WHERE id = ANY($1::uuid[])`, [ids]);
+      for (const c of Object.values(CARD)) {
+        await pool.query(
+          `INSERT INTO partners (id, name, category, contact, is_public, is_verified, status, profile_status)
+           VALUES ($1, $2, $3, '{}'::jsonb, TRUE, TRUE, 'active', 'approved')`,
+          [c.id, c.name, c.category],
+        );
+      }
+      await pool.query(
+        `INSERT INTO partners (id, name, category, contact, is_public, is_verified, status, profile_status)
+         VALUES ($1, $2, 'guide', '{}'::jsonb, TRUE, TRUE, 'active', 'approved')`,
+        [REAL_GUIDE.id, REAL_GUIDE.name],
+      );
+    };
+    const apiNames = async (): Promise<string[]> => {
+      const { GET } = await import('@/app/api/partners/route');
+      const res = await GET(new NextRequest('http://localhost/api/partners?limit=50'));
+      const body = await res.json() as { data: { data: Array<{ name: string }> } };
+      return body.data.data.map((p) => p.name);
+    };
+    const guidesHtml = async (): Promise<string> => {
+      const { default: GuidesPage } = await import('@/app/guides/(list)/page');
+      return renderToStaticMarkup(await GuidesPage());
+    };
+    const state = async () => (await pool.query<{ name: string; is_public: boolean; is_test: boolean; updated_at: Date }>(
+      `SELECT name, is_public, is_test, updated_at FROM partners WHERE id = ANY($1::uuid[]) ORDER BY name COLLATE "C"`, [ids],
+    )).rows;
+
+    beforeAll(seed);
+    afterAll(async () => { await pool.query(`DELETE FROM partners WHERE id = ANY($1::uuid[])`, [ids]); });
+
+    it('до миграции служебные карточки видны и в /api/partners, и на /guides', async () => {
+      const names = await apiNames();
+      for (const c of Object.values(CARD)) expect(names, c.name).toContain(c.name);
+      const html = await guidesHtml();
+      expect(html).toContain(CARD.guide.name);
+      expect(html).toContain(REAL_GUIDE.name);
+    });
+
+    it('после миграции их нет ни в /api/partners, ни на /guides; настоящий гид на месте', async () => {
+      await pool.query(MIG_1505);
+      const names = await apiNames();
+      for (const c of Object.values(CARD)) expect(names, c.name).not.toContain(c.name);
+      expect(names).toContain(REAL_GUIDE.name);
+      const html = await guidesHtml();
+      expect(html).not.toContain(CARD.guide.name);
+      expect(html).not.toContain('Admin');
+      expect(html).toContain(REAL_GUIDE.name);
+    });
+
+    it('тестовые профили отмечены, Admin — только снят с витрины', async () => {
+      const rows = await state();
+      expect(rows.map((r) => [r.name, r.is_public, r.is_test])).toEqual([
+        ['Admin', false, false],
+        [REAL_GUIDE.name, true, false],
+        [CARD.guide.name, false, true],
+        [CARD.operator.name, false, true],
+      ]);
+    });
+
+    it('повтор ничего не меняет — и время правки тоже', async () => {
+      const before = await state();
+      await pool.query(MIG_1505);
+      expect(await state()).toEqual(before);
+    });
+
+    it('тестовую карточку на витрину база не возвращает, пока стоит отметка', async () => {
+      await expect(pool.query(`UPDATE partners SET is_public = TRUE WHERE id = $1`, [CARD.operator.id]))
+        .rejects.toMatchObject({ code: '23514', constraint: 'partners_test_not_public' });
+    });
+
+    it('под тем же id другая карточка — миграция её не трогает', async () => {
+      await seed();
+      await pool.query(`UPDATE partners SET name = name || ' (другая компания)' WHERE id = ANY($1::uuid[])`, [Object.values(CARD).map((c) => c.id)]);
+      await pool.query(MIG_1505);
+      const rows = await state();
+      expect(rows.every((r) => r.is_public === true && r.is_test === false)).toBe(true);
+    });
+  });
+
+  /**
+   * Второй замок (план готовности 23.11, этап 2). Служебные карточки вышли на
+   * витрину, потому что отметки «тестовый профиль» у них не было, а читатели
+   * спрашивали один `is_public`. Теперь читатель спрашивает отметку сам
+   * (`publicPartnerSql`). Чтобы судить сам отбор, а не CHECK базы, сцена
+   * снимает CHECK в своей базе и ставит тестовые карточки на витрину — так
+   * выглядели бы данные, если бы замок базы сняли или обошли. Рядом с каждой
+   * тестовой — обычная карточка того же рода: читатель обязан её показать,
+   * иначе «не видно» было бы фактом о запросе, а не о правиле.
+   */
+  describe('тестовая карточка не видна читателям витрины и без CHECK базы', () => {
+    type Kind = 'operator' | 'guide' | 'carrier' | 'rental';
+    const row = (n: number, kind: Kind, test: boolean) => ({
+      id: `a2505000-0000-4000-8000-0000000000${test ? '1' : '2'}${n}`,
+      name: `${test ? 'Стенд' : 'Живой'} ${kind}`,
+      slug: `gate2-${test ? 'stand' : 'live'}-${kind}`,
+      category: kind === 'carrier' ? 'transfer' : kind === 'rental' ? 'cars' : kind,
+      test,
+    });
+    const KINDS: Kind[] = ['operator', 'guide', 'carrier', 'rental'];
+    const STAND = Object.fromEntries(KINDS.map((k, i) => [k, row(i, k, true)])) as Record<Kind, ReturnType<typeof row>>;
+    const LIVE = Object.fromEntries(KINDS.map((k, i) => [k, row(i, k, false)])) as Record<Kind, ReturnType<typeof row>>;
+    const all = [...Object.values(STAND), ...Object.values(LIVE)];
+    const ids = all.map((r) => r.id);
+
+    beforeAll(async () => {
+      await pool.query(`ALTER TABLE partners DROP CONSTRAINT partners_test_not_public`);
+      for (const r of all) {
+        await pool.query(
+          `INSERT INTO partners (id, name, slug, category, contact, is_public, is_test, is_verified, status, profile_status)
+           VALUES ($1, $2, $3, $4, '{}'::jsonb, TRUE, $5, TRUE, 'active', 'approved')`,
+          [r.id, r.name, r.slug, r.category, r.test],
+        );
+      }
+      for (const r of [STAND.carrier, LIVE.carrier]) {
+        await pool.query(
+          `INSERT INTO transfer_charter_prices (partner_id, vehicle_kind, line_kind, from_text, to_text, price_rub)
+           VALUES ($1, 'vahtovka', 'destination', 'Петропавловск-Камчатский', 'Вулкан Горелый', 75000)`,
+          [r.id],
+        );
+      }
+      for (const r of [STAND.rental, LIVE.rental]) {
+        await pool.query(
+          `INSERT INTO car_rental_offers (partner_id, title, body_kind, seats, price_rub_per_day, driver)
+           VALUES ($1, 'Проба', 'suv', 5, 7000, 'self')`,
+          [r.id],
+        );
+      }
+    });
+
+    afterAll(async () => {
+      await pool.query(`DELETE FROM partners WHERE id = ANY($1::uuid[])`, [ids]);
+      await pool.query(`ALTER TABLE partners ADD CONSTRAINT partners_test_not_public CHECK (NOT (is_test AND is_public IS TRUE))`);
+    });
+
+    /** Имена или слаги сцены в выдаче читателя: только свои, по порядку. */
+    const ours = (values: Array<string | null | undefined>, field: 'name' | 'slug') => {
+      const mine = new Set(all.map((r) => r[field]));
+      return values.filter((v): v is string => typeof v === 'string' && mine.has(v)).sort();
+    };
+
+    it('сцена честная: тестовые карточки и правда стоят на витрине по флагу', async () => {
+      const { rows } = await pool.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM partners WHERE id = ANY($1::uuid[]) AND is_test AND is_public`, [ids]);
+      expect(rows[0].n).toBe(KINDS.length);
+    });
+
+    it('/api/partners: живые карточки есть, тестовых нет', async () => {
+      const { GET } = await import('@/app/api/partners/route');
+      const res = await GET(new NextRequest('http://localhost/api/partners?limit=100'));
+      const body = await res.json() as { data: { data: Array<{ name: string }> } };
+      expect(ours(body.data.data.map((x) => x.name), 'name')).toEqual(Object.values(LIVE).map((r) => r.name).sort());
+    });
+
+    it('реестр гидов и профиль гида', async () => {
+      const { default: GuidesPage } = await import('@/app/guides/(list)/page');
+      const html = renderToStaticMarkup(await GuidesPage());
+      expect(html).toContain(LIVE.guide.name);
+      expect(html).not.toContain(STAND.guide.name);
+      const { publicGuideWhere } = await import('@/lib/guides/visibility');
+      const seen = async (id: string) => (await pool.query(
+        `SELECT 1 FROM partners p WHERE p.id = $1 AND ${publicGuideWhere('p')}`, [id])).rowCount;
+      expect(await seen(LIVE.guide.id)).toBe(1);
+      expect(await seen(STAND.guide.id)).toBe(0);
+    });
+
+    it('список компаний, страница компании и sitemap партнёров', async () => {
+      const { queryOperators } = await import('@/lib/operators/list-query');
+      const { partnerSitemapRows } = await import('@/lib/seo/partner-sitemap');
+      const list = await queryOperators({ search: 'operator', page: 1, limit: 12 });
+      expect(ours(list.items.map((o) => o.slug), 'slug')).toEqual([LIVE.operator.slug]);
+      const { GET } = await import('@/app/api/operators/[slug]/route');
+      const page = (slug: string) => GET(new NextRequest(`http://localhost/api/operators/${slug}`), { params: Promise.resolve({ slug }) });
+      expect((await page(LIVE.operator.slug)).status).toBe(200);
+      expect((await page(STAND.operator.slug)).status).toBe(404);
+      const slugs = (await partnerSitemapRows(pool)).map((r) => r.slug);
+      expect(ours(slugs, 'slug')).toEqual([LIVE.operator.slug]);
+    });
+
+    it('перевозчики: список, страница и отзывы', async () => {
+      const { loadCharterCarriers, loadCarrierBySlug } = await import('@/lib/transfers/charter');
+      const { findPublicCarrier } = await import('@/lib/transfers/carrier-reviews');
+      expect(ours((await loadCharterCarriers()).map((c) => c.slug), 'slug')).toEqual([LIVE.carrier.slug]);
+      expect(await loadCarrierBySlug(LIVE.carrier.slug)).not.toBeNull();
+      expect(await loadCarrierBySlug(STAND.carrier.slug)).toBeNull();
+      expect(await findPublicCarrier(LIVE.carrier.slug)).not.toBeNull();
+      expect(await findPublicCarrier(STAND.carrier.slug)).toBeNull();
+    });
+
+    it('прокат: список и страница', async () => {
+      const { loadRentalCompanies, loadRentalCompanyBySlug } = await import('@/lib/rental/rental');
+      expect(ours((await loadRentalCompanies()).map((c) => c.slug), 'slug')).toEqual([LIVE.rental.slug]);
+      expect(await loadRentalCompanyBySlug(LIVE.rental.slug)).not.toBeNull();
+      expect(await loadRentalCompanyBySlug(STAND.rental.slug)).toBeNull();
+    });
+
+    it('sitemap: адреса живых перевозчика и прокатчика есть, тестовых нет', async () => {
+      const { collectSitemapEntries } = await import('@/lib/seo/sitemap-entries');
+      const urls = (await collectSitemapEntries()).map((e) => e.url);
+      const has = (slug: string) => urls.some((u) => u.endsWith(`/${slug}`));
+      expect(has(LIVE.carrier.slug)).toBe(true);
+      expect(has(LIVE.rental.slug)).toBe(true);
+      for (const r of Object.values(STAND)) expect(has(r.slug), r.slug).toBe(false);
+    });
+  });
 });
 
 /**

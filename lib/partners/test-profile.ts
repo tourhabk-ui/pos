@@ -47,6 +47,33 @@ export function testPartnerTourSql(alias: string): string {
   return `EXISTS (SELECT 1 FROM partners test_gate WHERE test_gate.id = ${col} AND test_gate.is_test IS TRUE)`;
 }
 
+/**
+ * SQL-условие «карточка партнёра на витрине»: опубликована и не тестовая.
+ * Алиас — `partners` в запросе; пустая строка — таблица без алиаса.
+ *
+ * ── Зачем, если есть CHECK ────────────────────────────────────────────────
+ *
+ * 23.11 на витрине нашлись три служебные карточки: «Тестовый оператор Ведар»,
+ * «Тестовый гид Ведар» и «Admin» — в `/api/partners` и в реестре гидов. CHECK
+ * их не остановил: отметки `is_test` у них не было (миграция 1495 ставила её
+ * по почте, а у стенда почта другая). Данные поправила миграция 1505; это
+ * условие — второй замок: читатель витрины спрашивает отметку сам и не
+ * зависит от того, что CHECK в базе стоит и что его не сняли.
+ *
+ * Одно условие на всех читателей, а не `AND is_test IS NOT TRUE` руками в
+ * каждом: копии расходятся. Сторож `tests/unit/public-partner-gate.test.ts`
+ * не пускает в `app/` и `lib/` новое сравнение `is_public` у партнёра мимо
+ * этого условия.
+ *
+ * Кабинет партнёра, админка и стенд запросов мест условие не зовут: им
+ * тестовый профиль виден по делу.
+ */
+export function publicPartnerSql(alias: string): string {
+  checkAlias('publicPartnerSql', alias);
+  const p = alias ? `${alias}.` : '';
+  return `(${p}is_public = TRUE AND ${p}is_test IS NOT TRUE)`;
+}
+
 /** Отказ базы — нарушение именно этого CHECK, а не любой другой. */
 export function isTestProfileNotPublicViolation(err: unknown): boolean {
   if (typeof err !== 'object' || err === null) return false;
