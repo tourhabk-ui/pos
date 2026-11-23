@@ -18,6 +18,26 @@ export function tourPath(t: TourRef): string {
   return `/catalog/tours/${slug || String(t.id)}`;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Путь, который открывает карточку. Числовой id и slug открывают
+ * (`parseTourParam`). UUID в сегменте похож на slug и отвечает 404: такой
+ * ссылки нет, пока у тура не записан адрес.
+ */
+export function resolvingTourPath(t: TourRef): string | null {
+  const slug = (t.slug ?? '').trim();
+  if (slug && !UUID_RE.test(slug)) {
+    const parsed = parseTourParam(slug);
+    if (parsed?.kind === 'slug') return tourPath({ id: t.id, slug });
+  }
+  const id = String(t.id ?? '').trim();
+  // UUID в сегменте адреса карточка читает как slug и отвечает 404.
+  // Число и обычный адрес открываются.
+  if (!id || UUID_RE.test(id) || !parseTourParam(id)) return null;
+  return tourPath({ id });
+}
+
 /**
  * Путь формы заявки на карточке тура с датой и числом людей (подстановка
  * #2907/#2909): человек попадает сразу к форме, дата и люди уже стоят.

@@ -115,8 +115,11 @@ describe('план на 7 дней — 7 дней', () => {
     query.mockResolvedValue({ rows: [{ id: '1', slug: 'muzej', ark_id: null, name: 'Музей', location_type: 'museum', lat: '53.02', lng: '158.65' }] });
     const got = await fetchSelfFillPlaces(1);
     expect(got).toEqual([{ name: 'Музей', href: '/places/muzej', type: 'museum', lat: 53.02, lng: 158.65 }]);
+    query.mockResolvedValue({ rows: [{ id: '98d0607d-8547-40a3-8b71-e981b59a31df', slug: null, ark_id: '98d0607d-8547-40a3-8b71-e981b59a31df', name: 'Без адреса', location_type: 'museum', lat: '53.02', lng: '158.65' }] });
+    expect(await fetchSelfFillPlaces(1)).toEqual([]);
     const sql = String(query.mock.calls[0][0]);
     expect(sql).toMatch(/registration_required/);
+    expect(sql).toMatch(/p\.slug ~/);
     expect(sql).toMatch(/sat_communicator_required/);
     expect(query.mock.calls[0][1][0]).not.toContain('volcano');
   });

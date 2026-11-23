@@ -89,7 +89,7 @@ describe('цена стоянки на группу — правилом бро�
   });
 });
 
-describe('ночь дома у местного — жильё не подбирается (то же правило, что у сметы)', () => {
+describe('ночь дома у местного — жильё предлагается, смета его не считает', () => {
   // День в Восточной зоне — ночь вне дома. Не день переезда: его ночь с
   // 07.11 считается в зоне следующего дня (nightZoneOf, E11).
   const plan: ExtrasDay[] = [
@@ -99,11 +99,10 @@ describe('ночь дома у местного — жильё не подбир
     { day: 4, type: 'departure', zone: 'avachinsky' },
   ];
 
-  it('приезжему — все ночи; местному — только вне дома', () => {
-    expect(lodgingStays(plan, '2030-08-03', '2030-08-06').stays.map((s) => s.zone)).toEqual(['avachinsky', 'eastern', 'avachinsky']);
-    expect(lodgingStays(plan, '2030-08-03', '2030-08-06', 'local').stays).toEqual([
-      { zone: 'eastern', checkIn: '2030-08-04', checkOut: '2030-08-05', nights: 1 },
-    ]);
+  it('приезжему и местному — все ночи поездки, включая Авачинскую зону', () => {
+    const zones = ['avachinsky', 'eastern', 'avachinsky'];
+    expect(lodgingStays(plan, '2030-08-03', '2030-08-06').stays.map((s) => s.zone)).toEqual(zones);
+    expect(lodgingStays(plan, '2030-08-03', '2030-08-06', 'local').stays.map((s) => s.zone)).toEqual(zones);
   });
 
   it('роут передаёт «откуда едут» и состав группы', async () => {
@@ -123,7 +122,7 @@ describe('ночь дома у местного — жильё не подбир
       return (await res.json() as { data: { lodging: { stays: unknown[] } } }).data.lodging.stays.length;
     };
     expect(await call()).toBe(3);
-    expect(await call('local')).toBe(1);
+    expect(await call('local')).toBe(3);
   });
 });
 

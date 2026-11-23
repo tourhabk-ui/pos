@@ -10,7 +10,7 @@
  */
 
 import { tourRequestHref } from '@/lib/booking/request-prefill';
-import { tourPath, type TourRef } from '@/lib/tours/tour-url';
+import { resolvingTourPath, type TourRef } from '@/lib/tours/tour-url';
 
 /** Дата дня плана: прилёт + номер дня (0 — день прилёта). Прилёт не задан — пусто. */
 export function planDayDate(arrival: string, idx: number): string {
@@ -20,10 +20,15 @@ export function planDayDate(arrival: string, idx: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Форма тура с датой этого дня и всей группой; чего не знаем — не подставляем. */
-export function planDayTourHref(tour: TourRef, arrival: string, idx: number, groupSize: number): string {
+/**
+ * Форма тура с датой этого дня и всей группой; чего не знаем — не подставляем.
+ * UUID без адреса карточки не открывает тур — ссылки нет (`null`).
+ */
+export function planDayTourHref(tour: TourRef, arrival: string, idx: number, groupSize: number): string | null {
+  const path = resolvingTourPath(tour);
+  if (!path) return null;
   const date = planDayDate(arrival, idx);
-  return tourRequestHref(tourPath(tour), {
+  return tourRequestHref(path, {
     date: date || undefined,
     guests: Number.isInteger(groupSize) && groupSize >= 1 ? groupSize : undefined,
   });

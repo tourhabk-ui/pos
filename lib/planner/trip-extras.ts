@@ -25,9 +25,11 @@
  * считается как «нужно жильё»: лишний вариант дешевле ночи без крыши.
  * Соседние ночи одной зоны сливаются в одну стоянку — её и бронируют.
  *
- * Местный ночует дома (nightIsAtHome — то же правило, что у сметы): до
- * 09.10 смета ночь в Авачинской зоне ему не считала, а здесь на ту же ночь
- * подбиралось жильё — два ответа на один вопрос в соседних блоках экрана.
+ * Ночи в Авачинской зоне у того, кто выбрал «Живу на Камчатке», в смете не
+ * стоят (nightIsAtHome). В списке жилья они есть: PDF 23.11 оставлял дни
+ * 6–11 без варианта ночёвки. Выбрал вариант — он в сумму не входит, пока
+ * выбран пункт «живу здесь»; приезжий («Прилетаю») получает те же ночи и в
+ * списке, и в смете.
  *
  * ── Цена стоянки на группу (#2304, шаг 3) ────────────────────────────────
  *
@@ -40,7 +42,7 @@
  */
 
 import { nightZoneOf, type ZoneId } from '@/lib/planner/constants';
-import { nightIsAtHome, type TripOrigin } from '@/lib/planner/trip-origin';
+import type { TripOrigin } from '@/lib/planner/trip-origin';
 import { dateOfTripDay } from '@/lib/planner/flow-balance';
 
 export const TRIP_NEEDS = ['lodging', 'transfer', 'car'] as const;
@@ -140,8 +142,9 @@ export function lodgingStays(
     if (d.lodgingIncluded === true) { nightsInTours++; current = null; continue; }
 
     // Ночь дня переезда — в зоне, куда приехали (nightZoneOf, E11).
+    // Ночь дома тоже предлагается: смета её не считает, список — да.
     const zone = nightZoneOf(d, sorted[i + 1]);
-    if (nightIsAtHome(origin, zone)) { current = null; continue; }
+    void origin;
     if (current && current.zone === zone && current.checkOut === night) {
       current.checkOut = addDays(night, 1);
       current.nights++;

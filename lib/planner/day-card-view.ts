@@ -37,6 +37,9 @@ export const DAY_WARNING_MAX = 140;
 
 const norm = (s: string) => s.toLowerCase().replace(/ё/g, 'е');
 
+/** Ключ блока безопасности: пунктуация и лишние пробелы не делают вторую строку. */
+const safetyKey = (s: string) => norm(s).replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim();
+
 /** Слова-места (с заглавной, от 4 букв) — без служебных: кто сообщил и т. п. */
 const NOT_PLACES = new Set([
   'мчс', 'турпортал', 'сводка', 'сводки', 'источник', 'камчатка', 'камчатки', 'края', 'кбгс', 'ран',
@@ -166,12 +169,15 @@ const DAY_LEAD = /^(?:День|Дни)\s+(\d+(?:\s*(?:,|и|–|-)\s*\d+)*)\s*:\s
 
 export function safetyBlock(days: readonly ViewDay[], warnings: readonly PlanWarningLike[]): SafetyItem[] {
   const items = new Map<string, SafetyItem>();
+  const rank = { critical: 0, important: 1, info: 2 } as const;
   const add = (text: string, severity: SafetyItem['severity'], day?: number) => {
-    const k = norm(text.trim());
+    const k = safetyKey(text);
     if (!k) return;
-    const it = items.get(k) ?? { text: text.trim(), days: [], severity };
+    const prev = items.get(k);
+    const trimmed = text.trim();
+    const it = prev ?? { text: trimmed, days: [], severity };
+    if (prev && trimmed.length > prev.text.length) it.text = trimmed;
     if (day != null && !it.days.includes(day)) it.days.push(day);
-    const rank = { critical: 0, important: 1, info: 2 } as const;
     if (rank[severity] < rank[it.severity]) it.severity = severity;
     items.set(k, it);
   };
@@ -199,9 +205,27 @@ export function safetyBlock(days: readonly ViewDay[], warnings: readonly PlanWar
   for (const d of days) {
     for (const w of d.dayWarnings ?? []) if (!saidInPlan(w)) add(w, 'important', d.day);
   }
+  // Длинная строка, внутри которой уже есть другая (от 40 знаков) — одна запись.
+  // Короткие общие слова («парк», «ветер») не склеиваются.
+  const keys = [...items.keys()];
+  const drop = new Set<string>();
+  for (const k of keys) {
+    if (drop.has(k) || k.length < 40) continue;
+    for (const k2 of keys) {
+      if (k === k2 || drop.has(k2) || k2.length < 40) continue;
+      if (k.includes(k2)) {
+        const host = items.get(k)!;
+        const guest = items.get(k2)!;
+        for (const d of guest.days) if (!host.days.includes(d)) host.days.push(d);
+        if (rank[guest.severity] < rank[host.severity]) host.severity = guest.severity;
+        if (guest.text.length > host.text.length) host.text = guest.text;
+        drop.add(k2);
+      }
+    }
+  }
+  for (const k of drop) items.delete(k);
   const clothing = clothingAdvice(days);
   if (clothing) items.set('__clothing', { text: clothing.text, days: clothing.days, severity: 'info' });
-  const rank = { critical: 0, important: 1, info: 2 } as const;
   return [...items.values()].sort((a, b) => rank[a.severity] - rank[b.severity]);
 }
 
