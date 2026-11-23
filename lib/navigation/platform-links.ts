@@ -48,8 +48,9 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       { label: 'Связь на маршруте',   href: '/safety/communication', icon: Radio },
       { label: 'Инциденты и алерты',  href: '/safety/incidents',     icon: Siren },
       { label: 'Офлайн-инструкции',   href: '/safety/offline',       icon: WifiOff },
-      // Статический спасшлюз /emergency (23.11): в sitemap, поэтому и в реестре —
-      // иначе дорога только через «Связь на маршруте» (третье касание).
+      // Статический спасшлюз /emergency (без React, офлайн): в реестре, чтобы
+      // дорога не была только через «Связь на маршруте» (третье касание).
+      // В sitemap не входит — канон у /sos (аудит 24.11).
       { label: 'Экстренные номера',   href: '/emergency',            icon: Phone },
       { label: 'Регистрация в МЧС',   href: '/register',             icon: ClipboardCheck },
       { label: 'Экотуризм',           href: '/eco',                  icon: Leaf },

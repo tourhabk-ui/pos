@@ -359,6 +359,10 @@ const nextConfig = {
       { source: '/vulkan-mutnovskij-zakryt', destination: '/places/vulkan-mutnovskij', permanent: true },
       // Та же выгрузка: /places/vulkan-avachinskiy — 404, канон с «j» на конце.
       { source: '/places/vulkan-avachinskiy', destination: '/places/vulkan-avachinskij', permanent: true },
+      // Угаданные адреса июня и сентября (аудит 24.11) отдавали 404. Живые
+      // страницы — /plans/…; остальные месяцы уже лежат в корне (/kamchatka-v-oktyabre и т.д.).
+      { source: '/kamchatka-v-iyune', destination: '/plans/kamchatka-v-iyune', permanent: true },
+      { source: '/kamchatka-v-sentyabre', destination: '/plans/kamchatka-v-sentyabre', permanent: true },
       // Листинг операторов канонический на /operators: после SSR (шаг 3, #460)
       // дубли отдавали идентичный контент и каннибалили бы друг друга в индексе.
       // marketplace-вариант — до общего :path*-правила, чтобы редирект был одним хопом.
