@@ -1034,8 +1034,8 @@ withPg('общая вставка и гейт брони на настоящем
         [tid],
       );
       await pool.query(
-        `INSERT INTO tour_pricing_rules (operator_tour_id, rule_type, occupancy_min, multiplier, is_active)
-         VALUES ($1, 'occupancy_high', 50, 1.1, TRUE)`,
+        `INSERT INTO tour_pricing_rules (operator_tour_id, rule_type, occupancy_min, multiplier, is_active, moderation_status)
+         VALUES ($1, 'occupancy_high', 50, 1.1, TRUE, 'approved')`,
         [tid],
       );
       await pool.query(

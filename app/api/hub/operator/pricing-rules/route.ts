@@ -151,8 +151,9 @@ export async function POST(request: NextRequest) {
          RETURNING id
        )
        INSERT INTO tour_pricing_rules
-         (operator_tour_id, rule_type, multiplier, days_before_min, days_before_max, guests_min, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE)
+         (operator_tour_id, rule_type, multiplier, days_before_min, days_before_max, guests_min, is_active,
+          moderation_status)
+       VALUES ($1, $2, $3, $4, $5, $6, TRUE, 'approved')
        RETURNING id::text AS id`,
       [
         d.tourId,

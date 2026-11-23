@@ -35,6 +35,7 @@
 import { pool } from '@/lib/db-pool';
 import type { QueryResult, QueryResultRow } from 'pg';
 import { bookingTotal, type BookingTotalInput } from '@/lib/tours/booking-total';
+import { livePricingRuleSql } from '@/lib/tours/pricing-rule-live';
 import { pickPriceTier, PriceTierMissError, type PriceTier } from '@/lib/tours/price-tiers';
 import {
   matchPricingRules, finalUnitPrice, type PricingRule, type RuleContext,
@@ -218,7 +219,7 @@ export async function loadPricingContext(
     `SELECT rule_type, date_from, date_to, days_before_min, days_before_max,
             occupancy_min, guests_min, multiplier
        FROM tour_pricing_rules
-      WHERE operator_tour_id = $1 AND is_active = TRUE`,
+      WHERE operator_tour_id = $1 AND ${livePricingRuleSql()}`,
     [tourId],
   );
   const slotRes = await exec.query<{ available_slots: number | null; occupied: number }>(
