@@ -11,7 +11,7 @@
  * Сторож держит связку: страницы берут текст только из lib/help/content.ts,
  * а в тексте нет прежних выдумок и есть то, на чём держится доверие.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { HELP_ARTICLES, TOURISTS, OPERATORS, GUIDES, SUPPORT } from '@/lib/help/content';
@@ -81,6 +81,69 @@ describe('оператору и гиду', () => {
 
   it('гиду: начисления на платформе не обещаны', () => {
     expect(allText(GUIDES)).toMatch(/Начисления гидам на платформе пока не ведутся/);
+  });
+});
+
+/**
+ * Деньги оператора — по выключателю оплаты, в обе стороны (план готовности
+ * 23.11, этап 1). Блок «Деньги» говорил «платежи не принимаем», а вопрос
+ * строкой ниже обещал выплату через 36 часов: выключатель стоял у одного из
+ * двух. Справка собирается при импорте модуля, поэтому каждое положение
+ * выключателя — свой импорт.
+ */
+describe('оператору: деньги по выключателю оплаты', () => {
+  afterEach(() => {
+    vi.doUnmock('@/lib/payments/accepting');
+    vi.resetModules();
+  });
+
+  const operatorsWith = async (accepts: boolean) => {
+    vi.resetModules();
+    vi.doMock('@/lib/payments/accepting', () => ({
+      PLATFORM_ACCEPTS_PAYMENTS: accepts,
+      platformAcceptsPayments: () => accepts,
+    }));
+    const { OPERATORS: article } = await import('@/lib/help/content');
+    return { article, text: JSON.stringify(article) };
+  };
+  const moneyAnswer = (article: typeof OPERATORS) => article.faq.find((f) => f.q === 'Когда я получу деньги?')?.a;
+
+  it('оплата выключена: ни блок, ни вопрос не обещают выплату — турист платит напрямую', async () => {
+    const { article, text } = await operatorsWith(false);
+    for (const promise of [/формирует выплату/, /36 час/, /из раздела «Финансы»/, /к выплате/, /удерживаются/]) {
+      expect(text, String(promise)).not.toMatch(promise);
+    }
+    expect(text).toMatch(/платежи туристов платформа не принимает/);
+    const answer = moneyAnswer(article);
+    expect(answer, 'вопрос о деньгах остаётся, с честным ответом').toBeDefined();
+    expect(answer).toMatch(/платит вам напрямую/);
+    expect(answer).toMatch(/выплат от платформы нет/);
+  });
+
+  it('оплата включена: ветка выплаты не удалена — блок и вопрос говорят одно', async () => {
+    const { article, text } = await operatorsWith(true);
+    expect(moneyAnswer(article)).toMatch(/36 часов администрация формирует выплату/);
+    expect(text).toMatch(/удерживаются до окончания тура \+ 36 часов/);
+    expect(text).not.toMatch(/выплат от платформы нет/);
+  });
+
+  it('на деле сейчас: справка совпадает с положением выключателя в коде', () => {
+    const answer = moneyAnswer(OPERATORS) ?? '';
+    if (PLATFORM_ACCEPTS_PAYMENTS) expect(answer).toMatch(/формирует выплату/);
+    else expect(answer).toMatch(/платит вам напрямую/);
+  });
+});
+
+describe('оператору: MAX подключается из кабинета, не по почте', () => {
+  const text = allText(OPERATORS);
+
+  it('команды «партнер» + email нет; есть кабинет, «Подключить MAX» и «Старт»', () => {
+    expect(text).not.toMatch(/напишите боту[^.]*партн[её]р/i);
+    expect(text).not.toMatch(/email из профиля/i);
+    for (const word of ['вверху кабинета', '«Подключить MAX»', '«Подключить Telegram»', '«Старт»']) {
+      expect(text, word).toContain(word);
+    }
+    expect(text).toContain('По почте чат не подключается');
   });
 });
 

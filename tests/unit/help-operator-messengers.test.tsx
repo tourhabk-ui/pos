@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Справка оператора: привязка мессенджеров и вопрос о выплатах (владелец 23.11).
+ * Справка оператора: привязка мессенджеров (владелец 23.11).
  *
  * Справка звала подключить MAX командой «партнер + email». Боты эту команду
  * не принимают с 09.10: по почте чат подключил бы любой, кто знает адрес, и
@@ -8,8 +8,7 @@
  * Теперь справка называет два настоящих пути — и называет их теми же словами,
  * что кабинет и бот: сторож рендерит блок профиля и читает ответ бота.
  *
- * Вопрос «Когда я получу деньги?» обещал выплату от администрации, которой
- * нет: платформа платежи не принимает.
+ * Вопрос о деньгах в той же справке держит tests/unit/help-content-honest.test.ts.
  */
 import React from 'react';
 import { describe, it, expect, afterEach } from 'vitest';
@@ -17,7 +16,6 @@ import { render, cleanup } from '@testing-library/react';
 import { OPERATORS } from '@/lib/help/content';
 import { PARTNER_EMAIL_BIND_CLOSED } from '@/lib/kuzmich/operator-chat';
 import { MessengerConnectCard } from '@/components/operator/MessengerConnectCard';
-import { PLATFORM_ACCEPTS_PAYMENTS } from '@/lib/payments/accepting';
 
 afterEach(() => cleanup());
 
@@ -55,17 +53,5 @@ describe('справка оператора: как подключить MAX и 
     expect(text).not.toContain('Уведомления о бронях в Telegram');
     expect(render(<MessengerConnectCard status="connected" panel={null} onIssue={() => {}} />).container.textContent).toContain('Подключены');
     expect(OPERATORS.faq.find((f) => f.q === 'Не приходят заявки')?.a).toContain('должно быть «Подключены»');
-  });
-});
-
-describe('справка оператора: выплат от платформы не обещает', () => {
-  it('вопроса о выплате в справке нет', () => {
-    expect(OPERATORS.faq.map((f) => f.q)).not.toContain('Когда я получу деньги?');
-    expect(OPERATORS.faq.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it.skipIf(PLATFORM_ACCEPTS_PAYMENTS)('пока платформа платежи не принимает — слов о выплате на реквизиты нет', () => {
-    expect(text).not.toMatch(/формирует выплату/);
-    expect(text).not.toMatch(/36 час/);
   });
 });
