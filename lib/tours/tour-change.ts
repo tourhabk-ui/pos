@@ -100,13 +100,13 @@ export async function saveTourChange(
   // Что ещё нужно проверить: содержание опубликованного или замершего тура
   // и сама просьба о публикации.
   const toStage = direct ? {} : content;
-  const hasContentChange = Object.keys(contentDiff(live, toStage)).length > 0;
-  if (direct && !asksPublish) {
-    return row ? { outcome: 'written', row, pending: null } : { outcome: 'empty' };
-  }
-  if (!hasContentChange && !asksPublish && pendingBefore === null) {
-    return row ? { outcome: 'written', row, pending: null } : { outcome: 'empty' };
-  }
+  const written: TourChange = row ? { outcome: 'written', row, pending: null } : { outcome: 'empty' };
+  // В этой правке нет ни содержания, ни просьбы: черновик, если он есть,
+  // не трогается. Скрыть тур или поменять даты — не правка на проверку.
+  if (Object.keys(toStage).length === 0 && !asksPublish) return written;
+  // Содержание прислано, но оно равно витрине, и черновика нет (форма шлёт
+  // себя целиком при каждом сохранении): проверять нечего.
+  if (pendingBefore === null && !asksPublish && Object.keys(contentDiff(live, toStage)).length === 0) return written;
 
   // Просьба о публикации вместе с прямой правкой: администратор должен
   // увидеть уже записанное содержание — сверяем с ним, а не со старой строкой.
@@ -120,9 +120,7 @@ export async function saveTourChange(
     wantsPublish: asksPublish,
     pending: pendingBefore,
   });
-  if (staged.outcome === 'none') {
-    return row ? { outcome: 'written', row, pending: null } : { outcome: 'empty' };
-  }
+  if (staged.outcome === 'none') return written;
   return {
     outcome: 'pending',
     row,
