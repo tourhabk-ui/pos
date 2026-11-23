@@ -31,6 +31,14 @@ import { asPlanForLead, planLeadLines } from '@/lib/planner/plan-for-lead';
 import { tripFactsOf, tripPartyWords, wishesWords, PLAN_UNREADABLE } from '@/lib/planner/trip-request-lines';
 import { redactPII } from '@/lib/security/pii-redact';
 import { leadOrigin, ORIGIN_NOT_RECORDED } from '@/lib/leads/origin';
+import { recordOwnChannelPosts } from '@/lib/notifications/own-channel-posts';
+import {
+  noTgIds,
+  sentMessagesFromTelegramBody,
+  tgDeliveryIds,
+  type TgDeliveryIds,
+  type TgSentMessage,
+} from '@/lib/notifications/tg-sent-messages';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -45,11 +53,31 @@ function esc(s: string): string {
  * HTTP-ответ Telegram (даже с ошибкой типа "chat not found") НЕ повторяем —
  * это не сетевая проблема, ретрай не поможет.
  */
+interface TgApiBody {
+  ok: boolean;
+  description?: string;
+  sent: TgSentMessage[];
+}
+
+/** Ответ Bot API: ok/description как раньше, плюс сообщения с chat.id и message_id. */
+function readTgApiBody(body: unknown): TgApiBody {
+  const obj = body !== null && typeof body === 'object'
+    ? body as { ok?: unknown; description?: unknown }
+    : {};
+  const ok = obj.ok === true;
+  const description = typeof obj.description === 'string' ? obj.description : undefined;
+  return {
+    ok,
+    ...(description !== undefined ? { description } : {}),
+    sent: ok ? sentMessagesFromTelegramBody(body) : [],
+  };
+}
+
 async function tgFetchWithRetry(
   url: string,
   body: Record<string, unknown>,
   maxAttempts = 3,
-): Promise<{ ok: boolean; description?: string }> {
+): Promise<TgApiBody> {
   let lastErr = 'fetch error';
   for (let i = 0; i < maxAttempts; i++) {
     try {
@@ -60,7 +88,7 @@ async function tgFetchWithRetry(
         signal: AbortSignal.timeout(12000),
       });
       // Получили HTTP-ответ — возвращаем как есть, не ретраим логические ошибки
-      return await res.json() as { ok: boolean; description?: string };
+      return readTgApiBody(await res.json());
     } catch (e) {
       lastErr = e instanceof Error ? e.message : 'fetch error';
       if (i < maxAttempts - 1) {
@@ -68,17 +96,22 @@ async function tgFetchWithRetry(
       }
     }
   }
-  return { ok: false, description: `${lastErr} (после ${maxAttempts} попыток)` };
+  return { ok: false, description: `${lastErr} (после ${maxAttempts} попыток)`, sent: [] };
 }
 
-async function tgPost(chatId: string, text: string, botToken?: string): Promise<{ ok: boolean; error?: string }> {
+interface TgPostDelivery extends TgDeliveryIds {
+  ok: boolean;
+  error?: string;
+}
+
+async function tgPost(chatId: string, text: string, botToken?: string): Promise<TgPostDelivery> {
   const token = botToken ?? process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || !chatId) return { ok: false, error: 'not configured' };
+  if (!token || !chatId) return { ok: false, error: 'not configured', ...noTgIds() };
   const data = await tgFetchWithRetry(
     `${process.env.TELEGRAM_API_BASE||'https://api.telegram.org'}/bot${token}/sendMessage`,
     { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: false },
   );
-  return { ok: data.ok, error: data.description };
+  return { ok: data.ok, error: data.description, ...tgDeliveryIds(data.sent) };
 }
 
 const tgApiBase = () => process.env.TELEGRAM_API_BASE || 'https://api.telegram.org';
@@ -91,16 +124,16 @@ const tgApiBase = () => process.env.TELEGRAM_API_BASE || 'https://api.telegram.o
  * URL content» и «WEBPAGE_CURL_FAILED» при живых снимках (перепись с прода:
  * 200, image/jpeg, 68–214 КБ). Байты убирают это условие целиком.
  */
-async function tgSendMultipart(method: string, token: string, form: FormData): Promise<{ ok: boolean; description?: string }> {
+async function tgSendMultipart(method: string, token: string, form: FormData): Promise<TgApiBody> {
   try {
     const res = await fetch(`${tgApiBase()}/bot${token}/${method}`, {
       method: 'POST',
       body: form,
       signal: AbortSignal.timeout(30000),
     });
-    return await res.json() as { ok: boolean; description?: string };
+    return readTgApiBody(await res.json());
   } catch (err) {
-    return { ok: false, description: err instanceof Error ? err.message : String(err) };
+    return { ok: false, description: err instanceof Error ? err.message : String(err), sent: [] };
   }
 }
 
@@ -114,7 +147,7 @@ async function tgSendMultipart(method: string, token: string, form: FormData): P
  * и «Telegram не смог скачать» — разные беды, и вторая ссылкой ещё может
  * решиться.
  */
-async function tgSendPhotoOnce(chatId: string, photoUrl: string, caption: string, token: string): Promise<{ ok: boolean; error?: string }> {
+async function tgSendPhotoOnce(chatId: string, photoUrl: string, caption: string, token: string): Promise<TgPostDelivery> {
   const safeCaption = repairTelegramHtml(caption, TELEGRAM_CAPTION_LIMIT);
   const fetched = await fetchPhotoForUpload(photoUrl);
 
@@ -125,8 +158,8 @@ async function tgSendPhotoOnce(chatId: string, photoUrl: string, caption: string
     form.append('parse_mode', 'HTML');
     form.append('photo', fetched.blob, fetched.filename);
     const data = await tgSendMultipart('sendPhoto', token, form);
-    if (data.ok) return { ok: true };
-    return { ok: false, error: `загрузкой: ${data.description ?? 'unknown'}` };
+    if (data.ok) return { ok: true, ...tgDeliveryIds(data.sent) };
+    return { ok: false, error: `загрузкой: ${data.description ?? 'unknown'}`, ...noTgIds() };
   }
 
   console.error('[tgSendPhotoOnce] свой снимок не скачался, пробуем ссылкой:', fetched.error, '| photo:', photoUrl);
@@ -134,7 +167,7 @@ async function tgSendPhotoOnce(chatId: string, photoUrl: string, caption: string
     `${tgApiBase()}/bot${token}/sendPhoto`,
     { chat_id: chatId, photo: photoUrl, caption: safeCaption, parse_mode: 'HTML' },
   );
-  return { ok: data.ok, error: data.description };
+  return { ok: data.ok, error: data.description, ...tgDeliveryIds(data.sent) };
 }
 
 /** Фиксирует пропажу картинки у поста — раньше фолбэк был молчаливым, и посты
@@ -164,10 +197,10 @@ export async function tgPostMediaGroup(
   photoUrls: string[],
   caption: string,
   botToken?: string,
-): Promise<{ ok: boolean; error?: string; sent: number; fellBackToSingle?: boolean }> {
+): Promise<{ ok: boolean; error?: string; sent: number; fellBackToSingle?: boolean } & TgDeliveryIds> {
   const token = botToken ?? process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || !chatId) return { ok: false, error: 'not configured', sent: 0 };
-  if (photoUrls.length === 0) return { ok: false, error: 'нет фотографий', sent: 0 };
+  if (!token || !chatId) return { ok: false, error: 'not configured', sent: 0, ...noTgIds() };
+  if (photoUrls.length === 0) return { ok: false, error: 'нет фотографий', sent: 0, ...noTgIds() };
 
   const photos = photoUrls.slice(0, 10);
   if (photos.length > 1) {
@@ -188,7 +221,7 @@ export async function tgPostMediaGroup(
       ))));
       files.forEach((f, i) => form.append(`p${i}`, f.blob, f.filename));
       const uploaded = await tgSendMultipart('sendMediaGroup', token, form);
-      if (uploaded.ok) return { ok: true, sent: files.length };
+      if (uploaded.ok) return { ok: true, sent: files.length, ...tgDeliveryIds(uploaded.sent) };
       console.error('[tgPostMediaGroup] альбом загрузкой не ушёл:', uploaded.description ?? 'unknown');
     } else {
       // Скачать свои же снимки не вышло — это НАША беда, и она называется
@@ -206,7 +239,7 @@ export async function tgPostMediaGroup(
       `${tgApiBase()}/bot${token}/sendMediaGroup`,
       { chat_id: chatId, media },
     );
-    if (data.ok) return { ok: true, sent: photos.length };
+    if (data.ok) return { ok: true, sent: photos.length, ...tgDeliveryIds(data.sent) };
     console.error('[tgPostMediaGroup] альбом не ушёл:', data.description ?? 'unknown');
     query(
       `INSERT INTO ai_actions_log (action_type, metadata) VALUES ($1, $2)`,
@@ -229,17 +262,17 @@ export async function tgPostPhoto(
   caption: string,
   botToken?: string,
   fallbackPhotoUrl?: string | null,
-): Promise<{ ok: boolean; error?: string; fellBackToText?: boolean }> {
+): Promise<{ ok: boolean; error?: string; fellBackToText?: boolean } & TgDeliveryIds> {
   const token = botToken ?? process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || !chatId) return { ok: false, error: 'not configured' };
+  if (!token || !chatId) return { ok: false, error: 'not configured', ...noTgIds() };
 
   const first = await tgSendPhotoOnce(chatId, photoUrl, caption, token);
-  if (first.ok) return { ok: true };
+  if (first.ok) return { ok: true, ...tgDeliveryIds(first.messages) };
 
   if (fallbackPhotoUrl && fallbackPhotoUrl !== photoUrl) {
     logPhotoFallback(photoUrl, first.error, 'fallback_photo');
     const second = await tgSendPhotoOnce(chatId, fallbackPhotoUrl, caption, token);
-    if (second.ok) return { ok: true };
+    if (second.ok) return { ok: true, ...tgDeliveryIds(second.messages) };
     logPhotoFallback(fallbackPhotoUrl, second.error, 'text_only');
   } else {
     logPhotoFallback(photoUrl, first.error, 'text_only');
@@ -259,9 +292,9 @@ export async function tgPostVideo(
   videoUrl: string,
   caption: string,
   botToken?: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<TgPostDelivery> {
   const token = botToken ?? process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || !chatId) return { ok: false, error: 'not configured' };
+  if (!token || !chatId) return { ok: false, error: 'not configured', ...noTgIds() };
   const safeCaption = repairTelegramHtml(caption, TELEGRAM_CAPTION_LIMIT);
   // Загрузкой (multipart, до 50 МБ): хостинги вроде GitHub Releases отдают
   // application/octet-stream, а sendVideo ссылкой требует video/mp4.
@@ -278,7 +311,7 @@ export async function tgPostVideo(
         const name = videoUrl.split('/').pop()?.split('?')[0] || 'video.mp4';
         form.append('video', new Blob([buf], { type: 'video/mp4' }), name);
         const up = await tgSendMultipart('sendVideo', token, form);
-        if (up.ok) return { ok: true };
+        if (up.ok) return { ok: true, ...tgDeliveryIds(up.sent) };
         console.error('[tgPostVideo] загрузка отклонена:', up.description);
       }
     }
@@ -289,7 +322,7 @@ export async function tgPostVideo(
     `${tgApiBase()}/bot${token}/sendVideo`,
     { chat_id: chatId, video: videoUrl, caption: safeCaption, parse_mode: 'HTML', supports_streaming: true },
   );
-  return { ok: data.ok, error: data.description };
+  return { ok: data.ok, error: data.description, ...tgDeliveryIds(data.sent) };
 }
 
 /** Отправка в MAX канал через MAX Platform API.
@@ -463,7 +496,7 @@ export function crossLinkedTexts(text: string): { telegram: string; max: string 
   };
 }
 
-async function postToAllChannels(post: ChannelPost): Promise<ChannelPostResult> {
+export async function postToAllChannels(post: ChannelPost): Promise<ChannelPostResult> {
   const { channelId: mainChannelId, postType, text, photoUrl, fallbackPhotoUrl, photoUrls, awaitMax } = post;
   const issue = blockingTextIssue(text);
   if (issue) {
@@ -497,6 +530,20 @@ async function postToAllChannels(post: ChannelPost): Promise<ChannelPostResult> 
     : photoUrl
       ? await tgPostPhoto(mainChannelId, photoUrl, tgText, undefined, fallbackPhotoUrl)
       : await tgPost(mainChannelId, tgText);
+
+  // Свой пост уже уходит в MAX отсюда. Репостер получит channel_post сразу
+  // после ответа Telegram: пары (chat.id, message_id) пишем до MAX, иначе
+  // вебхук успеет переслать то же сообщение вторым постом. У альбома — все id.
+  if (mainResult.ok) {
+    if (mainResult.messages.length > 0) {
+      await recordOwnChannelPosts(mainResult.messages);
+    } else {
+      console.error(
+        '[postToAllChannels] Telegram не вернул message_id — репостер может отправить пост в MAX второй раз',
+        { postType },
+      );
+    }
+  }
 
   // 2. MAX канал; альбом MAX не умеет — уходит первый кадр. Автоматические
   // публикаторы ответа не ждут; пост администратора (awaitMax) ждёт, чтобы

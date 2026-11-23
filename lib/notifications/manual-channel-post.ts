@@ -16,6 +16,8 @@ import { query } from '@/lib/database';
 import { hashStr } from '@/lib/notifications/post-image';
 import { resolveCoverImage } from '@/lib/notifications/cover-image';
 import { tgPostPhoto, tgPostMediaGroup, tgPostVideo, maxChannelPost } from '@/lib/notifications/telegram-channel';
+import { recordOwnChannelPosts } from '@/lib/notifications/own-channel-posts';
+import type { TgSentMessage } from '@/lib/notifications/tg-sent-messages';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru';
 
@@ -140,7 +142,7 @@ export async function publishManualChannelPost(
 
   // Настоящие фото заданы — альбом, и никакой AI-обложки: пост про реальный
   // тур показывает реальные кадры. Иначе прежний путь с генерируемой обложкой.
-  let result: { ok: boolean; error?: string };
+  let result: { ok: boolean; error?: string; messages: TgSentMessage[] };
   let coverUrl: string;
   let imageSource: string;
 
@@ -169,7 +171,14 @@ export async function publishManualChannelPost(
   // MAX — после успешного TG-поста, fire-and-forget (как у автоматических
   // публикаторов): сбой MAX не должен ронять доставку и логирование TG.
   // Успех фиксируется отдельной записью — дедуп по каналам раздельный.
+  // Пары пишем до MAX и только при toMax: без toMax пост должен переслать
+  // репостер, а записанный id он пропустит.
   if (result.ok && post.toMax && !post.video) {
+    if (result.messages.length > 0) {
+      await recordOwnChannelPosts(result.messages);
+    } else {
+      console.error('[manual-channel-post] Telegram не вернул message_id — репостер может отправить пост в MAX второй раз');
+    }
     maxChannelPost(post.text, coverUrl).then(async r => {
       if (!r.ok) { console.error('[manual-channel-post] MAX error:', r.error); return; }
       try {
