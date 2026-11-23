@@ -673,7 +673,7 @@ export default function AuthPageClient() {
 
               {/* Оферта — партнёру, чьи услуги платформа размещает (этап 5 плана готовности) */}
               {userType === 'partner' && offerRequiredFor(partnerRoles) && (
-                <OfferAcceptCheckbox checked={offerAccepted} onChange={setOfferAccepted} id="register-offer-accept" />
+                <OfferAcceptCheckbox checked={offerAccepted} onChange={setOfferAccepted} id="register-offer-accept" required />
               )}
 
               {error && (

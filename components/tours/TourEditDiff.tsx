@@ -26,11 +26,13 @@ export function TourEditPhotos({ urls, label }: { urls: string[]; label: string 
           <li key={`${url}-${i}`}>
             <a href={address} target="_blank" rel="noopener noreferrer" className="block">
               {/* Снимок партнёра по адресу из его правки: превью без оптимизатора, как в редакторе тура. */}
+              {/* Адрес страницы проверки чужому серверу не сообщаем: rel на ссылке запрос картинки не покрывает. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={address}
                 alt={`${label}, снимок ${i + 1}`}
                 loading="lazy"
+                referrerPolicy="no-referrer"
                 className="h-20 w-28 rounded-lg border border-[var(--border)] object-cover"
               />
             </a>

@@ -268,7 +268,7 @@ export default function JoinClient({ routesLine }: { routesLine?: string | null 
               </span>
             </label>
 
-            <OfferAcceptCheckbox checked={form.offer_accepted} onChange={(v) => set('offer_accepted', v)} id="join-offer-accept" />
+            <OfferAcceptCheckbox checked={form.offer_accepted} onChange={(v) => set('offer_accepted', v)} id="join-offer-accept" required />
 
             {error && (
               <p className="text-sm px-3 py-2 rounded-md" style={{ background: 'var(--danger)/10', color: 'var(--danger)' }}>

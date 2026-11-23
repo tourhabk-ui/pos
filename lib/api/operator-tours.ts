@@ -5,7 +5,7 @@
 
 import { TOUR_DESCRIPTION_MAX } from '@/lib/tours/text-limits';
 import { z } from 'zod';
-import { PHOTO_ADDRESS_TEXT, photoAddressHasForeignScheme } from '@/lib/tours/photo-address';
+import { PHOTO_ADDRESS_TEXT, openablePhotoAddress, photoAddressHasForeignScheme } from '@/lib/tours/photo-address';
 import { SCHEDULE_KINDS } from '@/lib/tours/schedule-kind';
 import { query, transaction } from '@/lib/database';
 import { assertLiveMainPlace } from '@/lib/tours/main-place';
@@ -46,9 +46,19 @@ export const CREATE_ACTIVITY_TYPES = ['trekking', 'thermal', 'boat_trip', 'rafti
 const KIND_VALUE = z.string().regex(/^[a-z_]{2,40}$/, 'Недопустимое значение вида');
 
 /**
- * Адрес снимка тура от оператора: ссылка на его сайт или загруженное здесь.
- * Чужая схема (`javascript:`, `data:` …) не сохраняется: очередь администратора
- * ставит адрес в ссылку (lib/tours/photo-address).
+ * Адрес снимка НОВОГО тура: только снимок — путь раздачи картинок сайта
+ * (загруженное здесь) или `https://` (lib/tours/photo-address). Путь вроде
+ * `/api/admin/…` снимком не является: браузер проверяющего запросил бы его
+ * сам, со своей кукой (перепроверка 23.11).
+ */
+const NewPhotoAddress = z.string().max(500).refine((u) => openablePhotoAddress(u) !== null, PHOTO_ADDRESS_TEXT);
+
+/**
+ * Адрес снимка в ПРАВКЕ тура. Форма шлёт снимки целиком, и среди них могут
+ * быть старые записи тура, которые новому правилу не отвечают: схема пускает
+ * их, если нет чужой схемы (`javascript:`, `data:` …), а роут правки
+ * (`PATCH /api/hub/operator/tours/[id]`) требует настоящего снимка от каждого
+ * адреса, которого у тура ещё нет.
  */
 const PhotoAddress = z.string().max(500).refine((u) => !photoAddressHasForeignScheme(u), PHOTO_ADDRESS_TEXT);
 
@@ -77,8 +87,8 @@ const TourFieldsSchema = z.object({
   included: z.array(z.string().max(200)).max(30).optional(),
   not_included: z.array(z.string().max(200)).max(30).optional(),
   what_to_bring: z.array(z.string().max(200)).max(30).optional(),
-  photos: z.array(PhotoAddress).max(20).optional(),
-  tour_image: PhotoAddress.optional(),
+  photos: z.array(NewPhotoAddress).max(20).optional(),
+  tour_image: NewPhotoAddress.optional(),
   agent_route_id: z.string().uuid().optional(),
   /** Маршрут тура (kamchatka_routes.id) — по нему карточка тура находит трек и точки. */
   route_id: z.string().uuid().optional(),
@@ -126,6 +136,8 @@ export const UpdateTourSchema = TourFieldsSchema.partial().extend({
   season_start:      z.string().date().nullable().optional(),
   season_end:        z.string().date().nullable().optional(),
   difficulty:          z.enum(['easy', 'medium', 'hard', 'expert']).nullable().optional(),
+  // Снимки правки: нижняя граница здесь, настоящая проверка — в роуте (см. PhotoAddress).
+  photos:              z.array(PhotoAddress).max(20).optional(),
   tour_image:          PhotoAddress.nullable().optional(),
   agent_route_id:      z.string().uuid().nullable().optional(),
   latitude:            z.number().min(-90).max(90).nullable().optional(),

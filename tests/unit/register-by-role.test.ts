@@ -328,6 +328,16 @@ describe('оферта: двери регистрации партнёра', () 
     expect(clientQueryMock).not.toHaveBeenCalled();
   });
 
+  it('главная дверь: отметка — только настоящее true; строка, число, null и объект — не акцепт', async () => {
+    // Форма шлёт булево состояние галочки. Всё, что на него лишь похоже, — отказ, и база не тронута.
+    for (const mark of ['true', 'on', 'yes', 1, null, {}, [], ['true']]) {
+      const res = await POST(registerReq({ email: 'p@x.ru', password: 'Secret123', name: 'Тест', role: 'operator', roles: ['operator'], offer_accepted: mark }));
+      expect(res.status, JSON.stringify(mark)).toBe(400);
+    }
+    expect(clientQueryMock).not.toHaveBeenCalled();
+    expect(acceptCalls()).toHaveLength(0);
+  });
+
   it('набор ролей один: роль аккаунта всегда в нём', () => {
     expect(registrationRoles(undefined, undefined)).toEqual({ userRole: 'tourist', allRoles: ['tourist'] });
     expect(registrationRoles('stay', undefined)).toEqual({ userRole: 'stay', allRoles: ['stay'] });
@@ -401,6 +411,15 @@ describe('оферта: двери регистрации партнёра', () 
       expect(await res.json()).toEqual({ success: false, error: OFFER_REQUIRED_TEXT, code: 'offer_required' });
     }
     expect(clientQueryMock).not.toHaveBeenCalled();
+  });
+
+  it('вторая дверь: отметка — только настоящее true; строка, число, null и объект — не акцепт', async () => {
+    for (const mark of ['true', 'on', 'yes', 1, null, {}, [], ['true']]) {
+      const res = await secondDoor({ offer_accepted: mark });
+      expect(res.status, JSON.stringify(mark)).toBe(400);
+    }
+    expect(clientQueryMock).not.toHaveBeenCalled();
+    expect(acceptCalls()).toHaveLength(0);
   });
 
   it('вторая дверь, отметка стоит: акцепт — в транзакции, после карточки, с версией оферты', async () => {

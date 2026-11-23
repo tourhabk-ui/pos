@@ -80,7 +80,7 @@ const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 describe('правило: что идёт через проверку, а что сразу', () => {
   it('содержание — через проверку; скрыть, даты, места и сезон — сразу', () => {
     const r = splitTourInput({
-      title: 'Тур', base_price: 100, photos: ['/a.jpg'], cancellation_policy: 'за 3 дня',
+      title: 'Тур', base_price: 100, photos: ['/images/tours/a.jpg'], cancellation_policy: 'за 3 дня',
       is_active: false, max_participants: 6, season_start: '2027-06-01', difficulty: 'hard',
     });
     expect(Object.keys(r.content).sort()).toEqual(['base_price', 'cancellation_policy', 'photos', 'title']);
@@ -136,8 +136,8 @@ const EDIT: TourEditCard = {
   id: 'e1000000-0000-4000-8000-000000000001', tourId: '51', tourTitle: 'Вулкан Горелый',
   partnerId: 'p1', partnerName: 'Камчатская рыбалка', partnerCategory: 'operator', kind: 'edit',
   changes: tourEditChanges(
-    { base_price: '10000.00', photos: ['/a.jpg'] },
-    { base_price: 12000, photos: ['/b.jpg', '/c.jpg'] },
+    { base_price: '10000.00', photos: ['/images/tours/a.jpg'] },
+    { base_price: 12000, photos: ['/images/tours/b.jpg', '/images/tours/c.jpg'] },
   ),
   content: [], seen: 'a'.repeat(64), since: '2026-11-23T10:00:00.000Z',
 };
@@ -148,7 +148,7 @@ const NEW_TOUR: TourEditCard = {
   content: [
     { field: 'title', label: 'Название', text: 'Новый сплав' },
     { field: 'base_price', label: 'Цена', text: '8 000 ₽' },
-    { field: 'photos', label: 'Фото', text: 'снимков: 1', photos: ['/n.jpg'] },
+    { field: 'photos', label: 'Фото', text: 'снимков: 1', photos: ['/images/tours/n.jpg'] },
   ],
   seen: 'b'.repeat(64), since: '2026-11-23T11:00:00.000Z',
 };
@@ -176,8 +176,8 @@ describe('очередь администратора: что видно', () =>
     // Снимки — картинками: что уйдёт с сайта и что придёт.
     const before = within(changes[1]).getByRole('list', { name: 'Фото: сейчас' });
     const after = within(changes[1]).getByRole('list', { name: 'Фото: станет' });
-    expect(within(before).getAllByRole('img').map((i) => i.getAttribute('src'))).toEqual(['/a.jpg']);
-    expect(within(after).getAllByRole('img').map((i) => i.getAttribute('src'))).toEqual(['/b.jpg', '/c.jpg']);
+    expect(within(before).getAllByRole('img').map((i) => i.getAttribute('src'))).toEqual(['/images/tours/a.jpg']);
+    expect(within(after).getAllByRole('img').map((i) => i.getAttribute('src'))).toEqual(['/images/tours/b.jpg', '/images/tours/c.jpg']);
     expect(card.getByRole('link', { name: 'как на сайте сейчас' }).getAttribute('href')).toBe('/catalog/tours/51');
     expect(card.getByRole('button', { name: 'Одобрить' })).toBeTruthy();
   });
@@ -188,7 +188,7 @@ describe('очередь администратора: что видно', () =>
     expect(card.getByText('Новый тур просится на сайт')).toBeTruthy();
     expect(card.getByText('Гид: Гид Тест')).toBeTruthy();
     expect(card.getAllByRole('term').map((t) => t.textContent)).toEqual(['Название', 'Цена', 'Фото']);
-    expect(card.getByRole('img').getAttribute('src')).toBe('/n.jpg');
+    expect(card.getByRole('img').getAttribute('src')).toBe('/images/tours/n.jpg');
     expect(card.queryByRole('link', { name: 'как на сайте сейчас' })).toBeNull();
     expect(card.getByRole('button', { name: 'Опубликовать' })).toBeTruthy();
   });
@@ -662,12 +662,17 @@ describe('дверь решения: POST /api/admin/moderation/tour-edits/[id]'
   });
 
   it('правка изменилась, решение уже есть, правки нет, база не ответила — свой код, без сообщения и пинга', async () => {
-    for (const [outcome, status] of [['changed', 409], ['already', 409], ['not_found', 404], ['db_error', 503]] as const) {
+    for (const [outcome, status] of [['changed', 409], ['bad_photo', 409], ['already', 409], ['not_found', 404], ['db_error', 503]] as const) {
       h.decide.mockResolvedValue({ outcome });
       const r = await post({ action: 'approve', seen: SEEN });
       expect(r.status, outcome).toBe(status);
       expect(r.body.success).toBe(false);
     }
+    // Адрес, который не снимок: администратору сказано, что делать, — вернуть правку.
+    h.decide.mockResolvedValue({ outcome: 'bad_photo' });
+    const bad = await post({ action: 'approve', seen: SEEN });
+    expect(bad.body.code).toBe('bad_photo');
+    expect(bad.body.error).toBe('В правке есть адрес снимка, который снимком не является. Тур не изменён — верните правку владельцу с причиной.');
     expect((await (async () => { h.decide.mockResolvedValue({ outcome: 'changed' }); return post({ action: 'approve', seen: SEEN }); })()).body.code).toBe('changed');
     expect(h.notify).not.toHaveBeenCalled();
     expect(h.ping).not.toHaveBeenCalled();
