@@ -21,7 +21,7 @@ import { dayAvailabilityLine, type TripDayAvailability } from '@/lib/trips/day-a
 // зоне и «Тигильская» северной — округа, которые база относит к другим зонам.
 import { zoneName } from '@/lib/planner/zone-style';
 import { dayCardWarning, runLabel, safetyBlock, shortWeatherLine, tourRuns } from '@/lib/planner/day-card-view';
-import { placeTouchesZones } from '@/lib/safety/place-zones';
+import { planHeaderStatus } from '@/lib/safety/place-zones';
 import { SafetyBlock } from '@/components/planner/SafetyBlock';
 import { TripToday } from '@/components/planner/TripToday';
 
@@ -100,26 +100,12 @@ function useDayStatus(planZones: readonly string[]): { title: string | null; has
     fetch('/api/public/safety-status', { signal: ctrl.signal })
       .then(r => (r.ok ? r.json() : null))
       .then((d: unknown) => {
-        const data = (d as { data?: { topTitle?: unknown; hasAlert?: unknown; unavailable?: unknown; feedTitles?: unknown } } | null)?.data;
-        if (!data) return;
-        // Источник недоступен — статуса дня нет (fail-soft), а не «спокойно».
-        if (data.unavailable === true) return;
-        // Сводка — только о зонах плана (слово владельца 22.11: «Ключевской»
-        // вверху плана без Северной зоны). Место без привязки к зоне — сводка
-        // остаётся: зону не угадываем.
-        const zones = zonesKey ? zonesKey.split(',') : [];
-        const titles = [
-          ...(Array.isArray(data.feedTitles) ? data.feedTitles.filter((t): t is string => typeof t === 'string') : []),
-          ...(typeof data.topTitle === 'string' ? [data.topTitle] : []),
-        ];
-        const title = zones.length === 0
-          ? (typeof data.topTitle === 'string' ? data.topTitle : null)
-          : titles.find((t) => placeTouchesZones(t, zones)) ?? null;
-        if (data.hasAlert === true && title === null) {
-          setStatus({ title: 'В зонах этого плана сводок нет — данные safety-мониторинга платформы', hasAlert: false });
-          return;
-        }
-        setStatus({ title, hasAlert: data.hasAlert === true });
+        // Сводка — только о зонах плана (слово владельца 22.11), по районам,
+        // которые записала лента; тревога в крае без совпадения остаётся
+        // тревогой, а не зелёной галочкой (ревью #3690). Источник
+        // недоступен — статуса дня нет (fail-soft), а не «спокойно».
+        const next = planHeaderStatus(d, zonesKey ? zonesKey.split(',') : []);
+        if (next) setStatus(next);
       })
       .catch(() => { /* нет данных — нет блока */ });
     return () => ctrl.abort();

@@ -74,7 +74,7 @@ import {
 } from '@/lib/planner/trip-season';
 import { loadActiveWarnings } from '@/lib/safety/active-warnings';
 import { applyPlanParkStatus } from '@/lib/planner/park-status';
-import { applyPlanOfficialAlerts, officialAlertsPlanWarning, OFFICIAL_ALERTS_UNREAD_NOTE } from '@/lib/planner/official-alerts';
+import { applyPlanOfficialAlerts, officialAlertsPlanWarning, OFFICIAL_ALERTS_UNREAD_NOTE, planSafetyScope } from '@/lib/planner/official-alerts';
 import { KRONOKI_ESCORT } from '@/lib/seo/query-landings';
 import type { TourCalendar } from '@/lib/planner/item-status';
 import { replaceIdeaDays } from '@/lib/planner/honest-days';
@@ -2927,9 +2927,9 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     warnings.push({ type: 'mchs', severity: 'important', message: MCHS_UNREAD_NOTE });
   } else {
     // Только сводки о зонах плана (слово владельца 22.11): Ключевской и
-    // Шивелуч не пишутся плану, где Северной зоны нет.
-    const planZones = [...new Set(days.map((d) => d.zone))];
-    const dayNotes = days.flatMap((d) => d.dayWarnings ?? []);
+    // Шивелуч не пишутся плану, где Северной зоны нет. Зону сводки называет
+    // лента (`affected_zones`), а не догадка по имени (ревью #3690).
+    const { zones: planZones, texts: dayNotes } = planSafetyScope(days);
     const digest = warningDigest(warningsForPlanZones(mchsTrip.forTrip, planZones, dayNotes));
     if (digest) warnings.push({ type: 'mchs', severity: 'important', message: digest });
     const endedHere = warningsForPlanZones(mchsTrip.endedBefore, planZones, dayNotes);

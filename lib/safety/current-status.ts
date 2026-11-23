@@ -75,6 +75,14 @@ export interface CurrentSafetyStatus {
    */
   feedZones?: string[][] | null;
   /**
+   * Районы верхней тревоги (`affected_zones`), как их записала лента. Верхняя
+   * тревога бывает вне ленты (землетрясение): без её районов шапка плана
+   * /trip угадывала зону по заголовку «… км от Петропавловска-Камчатского» и
+   * прятала северный эпицентр (ревью #3690). Пусто — не записаны. Optional:
+   * старые места его не знают.
+   */
+  topZones?: string[] | null;
+  /**
    * Что входит в общее число, но не в ленту туриста (#2495): типы вне ленты
    * со счётом и повторы одной темы (лента — одна строка на заголовок).
    * Ответ называл «7 активных, меняют решение 5» и пять строк — две записи
@@ -148,8 +156,8 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
       // и тай-брейк `created_at DESC` отдавал строку «Наиболее значимое»
       // именно ему (issue #1984). Строка не выбрасывается — отбой остаётся
       // кандидатом, если ничего другого нет.
-      query<{ title: string | null; alert_type: string | null; external_id: string | null; source_url: string | null }>(`
-        SELECT title, alert_type, external_id, source_url
+      query<{ title: string | null; alert_type: string | null; external_id: string | null; source_url: string | null; affected_zones: string[] | null }>(`
+        SELECT title, alert_type, external_id, source_url, affected_zones
         FROM external_alerts
         WHERE expires_at > ${UTC_WALL_NOW_SQL}
         ORDER BY (title ~* $1) ASC, severity DESC, created_at DESC
@@ -253,6 +261,7 @@ export async function getCurrentSafetyStatus(): Promise<CurrentSafetyStatus | nu
       activeCount,
       topTitle: top?.title ?? null,
       topType: top?.alert_type ?? null,
+      topZones: top ? (Array.isArray(top.affected_zones) ? top.affected_zones : []) : null,
       dataUpdatedAt: ingestResult.rows[0]?.last_update ?? null,
       source: top
         ? (alertOrigin(top.external_id, top.source_url)?.label ?? UNKNOWN_ORIGIN_TEXT)

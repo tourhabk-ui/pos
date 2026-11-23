@@ -18,11 +18,13 @@ export type ActiveWarningLoad =
  * Действующие строки вулканов и дорог. Срок строки и дата сводки идут в
  * ответ: план поездки судит по ним, говорит ли сводка о его датах (разбор
  * 06.11). `external_id` — чтобы строка называла, кто сообщил (21.11): в
- * выборку входят и МЧС, и турпортал края, и КБГС РАН. Проверка на настоящей
+ * выборку входят и МЧС, и турпортал края, и КБГС РАН. `affected_zones` —
+ * районы, записанные лентой: ими план судит, касается ли сводка его зон
+ * (ревью безопасности #3690, 22.11). Проверка на настоящей
  * базе — tests/integration/alert-place-scope.pg.
  */
 export const ACTIVE_MCHS_WARNINGS_SQL = `
-  SELECT alert_type, title, description, source_url, external_id, volcano_name,
+  SELECT alert_type, title, description, source_url, external_id, volcano_name, affected_zones,
          ${utcWallIsoSql('expires_at')} AS expires_iso,
          ${utcWallIsoSql('COALESCE(last_published_at, created_at)')} AS published_iso
     FROM external_alerts

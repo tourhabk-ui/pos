@@ -8,13 +8,11 @@
  *   5) сводки — только о зонах плана, и в шапке /trip тоже.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type { DayPlan } from '@/lib/planner';
 import { formatTripPlanForChat, formatPlanPrice } from '@/lib/kuzmich/trip-plan-tool';
 import { clothingAdvice, safetyBlock, shortWeatherLine, SAFETY_BLOCK_TITLE } from '@/lib/planner/day-card-view';
 import { estimateGroup } from '@/lib/planner/estimate';
-import { placeTouchesZones } from '@/lib/safety/place-zones';
+import { placeTouchesZones, planHeaderStatus } from '@/lib/safety/place-zones';
 import { warningsForPlanZones } from '@/lib/safety/mchs-bulletin';
 import { tourFitsDate } from '@/lib/planner/tour-day-fit';
 
@@ -92,15 +90,22 @@ describe('сводки — только о зонах плана', () => {
     expect(placeTouchesZones('Вулкан Ключевской: не приближаться', ['avachinsky'])).toBe(false);
     expect(placeTouchesZones('Вулкан Мутновский: не приближаться', ['avachinsky'])).toBe(true);
     expect(placeTouchesZones('Штормовое предупреждение', ['avachinsky'])).toBe(true);
-    const ws = [{ place: 'Ключевской' }, { place: 'Мутновский' }, { place: 'Шивелуч' }];
+    const ws = [
+      { place: 'Ключевской', stems: ['ключевск'] },
+      { place: 'Мутновский', stems: ['мутновск'] },
+      { place: 'Шивелуч', stems: ['шивелуч'] },
+    ];
     expect(warningsForPlanZones(ws, ['avachinsky']).map((w) => w.place)).toEqual(['Мутновский']);
     // Место названо в программе дня — остаётся, какая бы ни была зона.
     expect(warningsForPlanZones(ws, ['avachinsky'], ['МЧС о вулкане Шивелуч: не ближе 10 км']).map((w) => w.place)).toEqual(['Мутновский', 'Шивелуч']);
   });
 
   it('шапка /trip берёт сводку о зонах плана', () => {
-    const src = readFileSync(join(process.cwd(), 'app/trip/[token]/_TripShareClient.tsx'), 'utf8');
-    expect(src).toMatch(/titles\.find\(\(t\) => placeTouchesZones\(t, zones\)\)/);
+    const status = planHeaderStatus({ data: {
+      hasAlert: true, topTitle: 'Вулкан Ключевской: не приближаться',
+      feedTitles: ['Вулкан Ключевской: не приближаться', 'Вулкан Мутновский: не приближаться'],
+    } }, ['avachinsky']);
+    expect(status).toEqual({ title: 'Вулкан Мутновский: не приближаться', hasAlert: true });
   });
 });
 
