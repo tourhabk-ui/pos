@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { ACTIVITY_CONSTRAINTS } from '@/lib/planner/constants';
 import { outingCap, varietyAdmit, varietyKey } from '@/lib/planner/day-variety';
-import { recordedMinAge } from '@/lib/planner/tour-gates';
+import { liveCardCoversDate, recordedMinAge } from '@/lib/planner/tour-gates';
 import { buildRefusal } from '@/lib/kuzmich/trip-plan-tool';
 import { assignCatalogFreeDays, type SelfPlace } from '@/lib/planner/self-fill';
 import { NO_TOUR_DAY_TITLE } from '@/lib/planner/honest-days';
@@ -82,6 +82,10 @@ vi.mock('@/lib/planner/intelligence', async (importOriginal) => {
   return { ...real, fetchForecastDays: vi.fn(async () => ({ ok: false, reason: 'test' })) };
 });
 vi.mock('@/lib/ai/providers', () => ({ callAIWithModelDirect: vi.fn(async () => '') }));
+vi.mock('@/lib/seat-requests/core', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/seat-requests/core')>();
+  return { ...real, kamchatkaToday: () => '2026-11-23' };
+});
 vi.mock('@/lib/ai/agent-models', () => ({ getModelForAgent: () => null }));
 vi.mock('@/lib/db-pool', () => ({
   pool: {
@@ -176,6 +180,8 @@ describe('правило разнообразия', () => {
     expect(text).toMatch(/основу автоплана/);
     expect(text).not.toMatch(/Не поместились в срок поездки/);
     expect(rec.days.some((d) => d.title === 'Резервный день на погоду')).toBe(true);
+    const nums = rec.days.map((d) => d.day);
+    expect(nums).toEqual([...nums].sort((a, b) => a - b));
     expect(text).toMatch(/Вулканы:[\s\S]*12 лет[\s\S]*не в сезоне/);
     expect(text).toMatch(/Медведи:[\s\S]*6 лет[\s\S]*не в сезоне/);
   });
@@ -198,6 +204,42 @@ describe('красное закрытие парка в плане', () => {
     expect(text).toMatch(/парк у места тура закрыт/);
     expect(text).toMatch(/не сезон/);
     expect(text).not.toMatch(/Облёт Авачинской бухты[\s\S]{0,80}Ключевск/);
+  });
+
+  it('зимняя карточка не снимает летний тур без тревоги на эту дату', async () => {
+    expect(liveCardCoversDate('2026-11-23', `${Y}-11-24`)).toBe(true);
+    expect(liveCardCoversDate('2026-11-23', `${Y}-07-15`)).toBe(false);
+    expect(liveCardCoversDate('2026-07-15', `${Y}-08-01`)).toBe(true);
+    expect(liveCardCoversDate('2026-07-15', `${Y}-12-01`)).toBe(false);
+    TOURS = { 'avachinsky:helicopter': [TOLBACHIK] };
+    KEEPS = { 't-tolb': false };
+    const rec = await recommendTrip({
+      interests: ['helicopter'],
+      arrivalDate: `${Y}-07-10`, departureDate: `${Y}-07-16`,
+      adults: 2, children: [], fitnessLevel: 'moderate', budgetTier: 'comfort', travelStyle: 'mixed',
+      tripOrigin: 'visitor',
+    }, { itinerary: 'plain' });
+    expect(tourIds(rec)).toContain('t-tolb');
+    expect(warnings(rec)).not.toMatch(/закрыт по сводке/);
+  });
+
+  it('резерв на погоду стоит в свою дату, а не после более позднего дня', async () => {
+    const climb: Tour = {
+      tourId: 't-climb', title: 'Ключевская за четыре дня', zone: 'avachinsky',
+      activityType: 'volcano', durationHours: 4 * 24,
+    };
+    TOURS = { 'avachinsky:volcano': [climb] };
+    KEEPS = { 't-climb': false };
+    const rec = await recommendTrip({
+      interests: ['volcano'],
+      arrivalDate: `${Y}-06-26`, departureDate: `${Y}-07-05`,
+      adults: 2, children: [], fitnessLevel: 'active', budgetTier: 'comfort', travelStyle: 'operator',
+    });
+    const nums = rec.days.map((d) => d.day);
+    expect(nums).toEqual([...nums].sort((a, b) => a - b));
+    const reserve = rec.days.find((d) => d.title === 'Резервный день на погоду');
+    expect(reserve).toBeDefined();
+    expect(rec.days.some((d) => d.realTour && d.day > reserve!.day)).toBe(true);
   });
 
   it('межсезонье без опасности красным закрытием тур не снимает', async () => {

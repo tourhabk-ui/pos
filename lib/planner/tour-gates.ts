@@ -20,7 +20,11 @@
  * `closed = false` и пустое окно открытия не прячут красный park_closure.
  * Межсезонье без слова опасности — не красное (#3487, `isSeasonalClosure`):
  * «опасно» в сводке этот признак снимает, и закрытие остаётся красным.
+ * Живая карточка — про сегодняшний сезон вулканов, не про любую дату:
+ * зимняя красная сводка не закрывает июль.
  */
+import { ACTIVITY_CONSTRAINTS } from '@/lib/planner/constants';
+import { monthOfIsoDate } from '@/lib/planner/trip-season';
 import { isSeasonalClosure } from '@/lib/safety/park-closure';
 
 export type TourGateReason = 'park_and_off_season' | 'park' | 'place' | 'age';
@@ -147,6 +151,20 @@ function ageClauseOf(input: TourGateInput): string | null {
   }
   if (ageBits.length === 0 || input.youngest === null) return null;
   return `в группе ребёнок ${input.youngest} лет, а ${ageBits.join('; ')}`;
+}
+
+/**
+ * Живая карточка места описывает сегодняшний сезон, не дату поездки.
+ * Месяцы вулканов (июль–сентябрь) и остальные — разные сезоны закрытия:
+ * красная зимняя сводка не относится к летней дате, и наоборот.
+ * Тревога с окном дат сюда не входит — её судит день плана отдельно.
+ */
+export function liveCardCoversDate(todayIso: string, dateIso: string): boolean {
+  const todayMonth = monthOfIsoDate(todayIso);
+  const dateMonth = monthOfIsoDate(dateIso);
+  if (todayMonth === null || dateMonth === null) return false;
+  const open = new Set(ACTIVITY_CONSTRAINTS.volcano.months);
+  return open.has(todayMonth) === open.has(dateMonth);
 }
 
 /** Красное закрытие: карточка или тревога, которая не межсезонье. */

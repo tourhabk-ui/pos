@@ -84,7 +84,7 @@ import {
 } from '@/lib/planner/day-variety';
 import { placePoint } from '@/lib/planner/place-point';
 import { assignCatalogFreeDays, fetchSelfFillPlaces } from '@/lib/planner/self-fill';
-import { tourGate, type TourGate } from '@/lib/planner/tour-gates';
+import { liveCardCoversDate, tourGate, type TourGate } from '@/lib/planner/tour-gates';
 import {
   appendOfferingFlags, appendUnreadSafety, MCHS_UNREAD_NOTE, mchsBeforeTripNote, notesForPlanDay,
   splitWarningsForTrip, warningDigest, warningsForPlanZones, type ActiveWarning,
@@ -1496,6 +1496,10 @@ async function generateDayPlans(
     const m = monthOfIsoDate(date);
     const kind = tourDates.get(t.tourId)?.kind;
     const fromAlert = date ? parkSummaryOn(t.tourId, date) : null;
+    // Карточка места — про сегодняшний сезон. На дату другого сезона она не
+    // свидетель: зимнее «закрыто, опасно» не снимает июльский тур без
+    // тревоги на этот день. Тревога с окном дат по-прежнему про этот день.
+    const cardNow = date !== null && liveCardCoversDate(today, date);
     return tourGate({
       kind: kind === 'dated' || kind === 'request' || kind === 'unread' ? kind : undefined,
       youngest,
@@ -1505,9 +1509,9 @@ async function generateDayPlans(
       placeOpenTo: t.place?.openTo ?? null,
       offOrientation: Boolean(date && months && m !== null && !months.includes(m)),
       parkClosed: date !== null && parkClosedOn(t.tourId, date),
-      placeLevel: t.place?.level ?? null,
-      placeClosed: t.place?.closed === true,
-      parkSummary: fromAlert ?? t.place?.parkSummary ?? null,
+      placeLevel: cardNow ? (t.place?.level ?? null) : null,
+      placeClosed: cardNow ? t.place?.closed === true : false,
+      parkSummary: fromAlert ?? (cardNow ? (t.place?.parkSummary ?? null) : null),
       ageText: [t.shortDescription, ...(t.included ?? [])].filter((x): x is string => typeof x === 'string').join('\n'),
       date,
     });
@@ -2670,13 +2674,19 @@ async function generateDayPlans(
       if (!taken.has(n)) { reserveDay = n; break; }
     }
     if (reserveDay > 0) {
-      days.push({
+      const reserve: DayPlan = {
         day: reserveDay, type: 'rest', zone: 'avachinsky',
         ...reserveBody,
         coords: PKC_COORDS, defaultTransport: 'walking',
         allowedTransports: ['walking', 'jeep'], difficulty: 'easy',
         childFriendly: true, minChildAge: 0,
-      });
+      };
+      // Дыра может быть раньше уже поставленного дня (сезон начался позже).
+      // В конец списка такой день вставать нельзя: ночь и соседство читают
+      // массив по порядку, а не по номеру.
+      const at = days.findIndex((d) => d.day > reserveDay);
+      if (at < 0) days.push(reserve);
+      else days.splice(at, 0, reserve);
     } else {
       const freeTitle = new Set([NO_TOUR_DAY_TITLE, NO_SELF_ROUTE_DAY_TITLE, 'Свободный день. Город, сувениры, рыбный рынок']);
       let reserveAt = -1;
