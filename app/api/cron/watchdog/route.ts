@@ -3,6 +3,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { logAgentRun } from '@/lib/agents/run-logger';
 import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
+import { watchdogRunVerdict, lastWatchdogRun } from '@/lib/agents/watchdog-verdict';
 
 /**
  * GET /api/cron/watchdog
@@ -25,7 +26,13 @@ export async function GET(req: Request) {
   // супервизор контейнера). Без аренды владелец получал бы один и тот же
   // алерт в Telegram дважды.
   const lease = await claimCronWindow('watchdog', 30, 'external');
-  if (!shouldRun(lease)) return Response.json(leaseSkipBody('watchdog', 30));
+  if (!shouldRun(lease)) {
+    // Окно занято — работу делает другой планировщик. Вторая нога при этом
+    // не слепнет: отдаём признаки последнего записанного прогона (без текста
+    // тревог), и шаг workflow краснеет, если тот не доставил тревогу или
+    // записи давно нет (держатель окна упал).
+    return Response.json({ ...leaseSkipBody('watchdog', 30), last_run: await lastWatchdogRun() });
+  }
 
   const started_at = new Date();
   try {
@@ -35,10 +42,14 @@ export async function GET(req: Request) {
     // проверок падали, alerts выходил пустым, и история записывала зелёное.
     // Сторож, чей отказ выглядит как «нарушений нет», хуже отсутствия сторожа
     // (§4.0). 'partial' говорит правду: что-то проверено, что-то нет.
+    // И недоставка — не успех (23.11): тревога, которую Telegram не принял,
+    // записывалась зелёным прогоном, и немой сторож был неотличим от
+    // спокойного. Правило статуса — `watchdogRunVerdict`.
     const failedChecks = result.checks.failed.length;
+    const verdict = watchdogRunVerdict(result);
     void logAgentRun({
       agent_id: 'watchdog',
-      status: failedChecks > 0 ? 'partial' : 'success',
+      status: verdict.status,
       started_at,
       duration_ms: Date.now() - started_at.getTime(),
       // Мера работы (перепись пользы агентов, 05.11): проверено — сколько
@@ -46,10 +57,8 @@ export async function GET(req: Request) {
       // в журнале был «успех без чисел», и польза сторожа не читалась.
       items_processed: result.checks.total - failedChecks,
       items_created: result.alerts.length,
-      errors_count: failedChecks,
-      error_msg: failedChecks > 0
-        ? `не смогли выполниться: ${result.checks.failed.map(f => f.check).join(', ')}`
-        : undefined,
+      errors_count: verdict.errorsCount,
+      error_msg: verdict.errorMsg,
       metadata: {
         ...(result as unknown as Record<string, unknown>),
         // Общий ключ `skip_reason` — его детектор бесплодных кронов читает у
@@ -57,12 +66,10 @@ export async function GET(req: Request) {
         // checkPendingTransferBookings на отсутствующей таблице) отчитались
         // как «без результата, причина не записана» — класс беды без самой
         // беды. Имена проверок — и есть причина.
-        skip_reason: failedChecks > 0
-          ? `unverified: ${result.checks.failed.map(f => f.check).join(', ')}`
-          : null,
+        skip_reason: verdict.skipReason,
       },
     });
-    return Response.json({ success: failedChecks === 0, ...result });
+    return Response.json({ success: verdict.ok, ...result });
   } catch (err) {
     void logAgentRun({
       agent_id: 'watchdog',
