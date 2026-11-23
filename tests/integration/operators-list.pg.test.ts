@@ -1427,6 +1427,9 @@ withPg('витрина /operators: факты о живых турах, кноп
     const LIVE = Object.fromEntries(KINDS.map((k, i) => [k, row(i, k, false)])) as Record<Kind, ReturnType<typeof row>>;
     const all = [...Object.values(STAND), ...Object.values(LIVE)];
     const ids = all.map((r) => r.id);
+    const STAND_PRICE = 1000;
+    const LIVE_PRICE = 9000;
+    let routeId = '';
 
     beforeAll(async () => {
       await pool.query(`ALTER TABLE partners DROP CONSTRAINT partners_test_not_public`);
@@ -1451,9 +1454,33 @@ withPg('витрина /operators: факты о живых турах, кноп
           [r.id],
         );
       }
+      // Маршрут с турами обоих операторов — для читателей представления
+      // v_route_marketplace: оно держит свою копию флагов и отметки тестового
+      // профиля не знает. Тур стенда дешевле: утёк бы — стал бы ценой «от».
+      const route = await pool.query<{ id: string }>(
+        `INSERT INTO kamchatka_routes (category, title, slug, is_visible, lat, lng)
+         VALUES ('hiking', 'Маршрут второго замка', 'gate2-route', TRUE, 53.25, 158.83) RETURNING id::text`,
+      );
+      routeId = route.rows[0].id;
+      await pool.query(
+        `INSERT INTO _agent_route_knowledge_legacy (id, route_dedupe_key, category, title, search_text, source_hash, kind)
+         VALUES ($1::uuid, $1::text, 'hiking', 'legacy', '', 'h', 'route')`,
+        [routeId],
+      );
+      for (const [r, price] of [[STAND.operator, STAND_PRICE], [LIVE.operator, LIVE_PRICE]] as const) {
+        await pool.query(
+          `INSERT INTO operator_tours (operator_id, title, base_price, price_unit, max_participants,
+                                       is_active, is_published, activity_type, duration_hours, agent_route_id)
+           VALUES ($1, $2, $3, 'per_person', 10, TRUE, TRUE, 'hiking', 6, $4::uuid)`,
+          [r.id, `Тур ${r.name}`, price, routeId],
+        );
+      }
     });
 
     afterAll(async () => {
+      await pool.query(`DELETE FROM operator_tours WHERE operator_id = ANY($1::uuid[])`, [ids]);
+      await pool.query(`DELETE FROM _agent_route_knowledge_legacy WHERE id = $1::uuid`, [routeId]);
+      await pool.query(`DELETE FROM kamchatka_routes WHERE id = $1::uuid`, [routeId]);
       await pool.query(`DELETE FROM partners WHERE id = ANY($1::uuid[])`, [ids]);
       await pool.query(`ALTER TABLE partners ADD CONSTRAINT partners_test_not_public CHECK (NOT (is_test AND is_public IS TRUE))`);
     });
@@ -1517,6 +1544,44 @@ withPg('витрина /operators: факты о живых турах, кноп
       expect(ours((await loadRentalCompanies()).map((c) => c.slug), 'slug')).toEqual([LIVE.rental.slug]);
       expect(await loadRentalCompanyBySlug(LIVE.rental.slug)).not.toBeNull();
       expect(await loadRentalCompanyBySlug(STAND.rental.slug)).toBeNull();
+    });
+
+    it('представление v_route_marketplace само тестовый тур пропускает — сцена честная', async () => {
+      const { rows } = await pool.query<{ operator_id: string }>(
+        `SELECT operator_id::text FROM v_route_marketplace WHERE route_id = $1::uuid ORDER BY 1`, [routeId]);
+      expect(rows.map((r) => r.operator_id)).toEqual([STAND.operator.id, LIVE.operator.id].sort());
+    });
+
+    it('карточка маршрута: тур живого оператора есть, тестового нет', async () => {
+      const { loadRouteDetail } = await import('@/lib/routes/route-detail');
+      type Detail = { offers?: Array<{ operator?: { name?: unknown } }> };
+      const r = (await loadRouteDetail(routeId, { explain: false, countView: false })) as unknown as { data?: Detail } & Detail;
+      const names = ((r.data ?? r).offers ?? []).map((o) => String(o.operator?.name));
+      expect(names).toEqual([LIVE.operator.name]);
+    });
+
+    it('цена маршрута «от» в каталоге — по туру живого оператора, а не дешёвому тестовому', async () => {
+      const { routeTourPriceFromSql, routeTourPriceLateralSql } = await import('@/lib/routes/route-tour-price');
+      const scalar = await pool.query<{ price: string | null }>(
+        `SELECT ${routeTourPriceFromSql('ark')} AS price FROM agent_route_knowledge ark WHERE ark.id = $1::uuid`, [routeId]);
+      expect(Number(scalar.rows[0].price)).toBe(LIVE_PRICE);
+      const lateral = await pool.query<{ price_from: string | null; tours: number }>(
+        `SELECT rp.price_from, rp.tours FROM agent_route_knowledge ark ${routeTourPriceLateralSql('ark', 'rp')} WHERE ark.id = $1::uuid`, [routeId]);
+      expect(Number(lateral.rows[0].price_from)).toBe(LIVE_PRICE);
+      expect(lateral.rows[0].tours).toBe(1);
+    });
+
+    it('маршруты на странице компании: у живой — маршрут, у тестовой — пусто', async () => {
+      const { GET } = await import('@/app/api/operators/[slug]/routes/route');
+      const routesOf = async (slug: string) => {
+        const res = await GET(new NextRequest(`http://localhost/api/operators/${slug}/routes`), { params: Promise.resolve({ slug }) });
+        expect(res.status).toBe(200);
+        const body = await res.json() as { success?: boolean; data?: unknown[] };
+        expect(body.success).toBe(true);
+        return (body.data ?? []).length;
+      };
+      expect(await routesOf(LIVE.operator.slug)).toBe(1);
+      expect(await routesOf(STAND.operator.slug)).toBe(0);
     });
 
     it('sitemap: адреса живых перевозчика и прокатчика есть, тестовых нет', async () => {

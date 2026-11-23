@@ -13,14 +13,17 @@
  *   - сравнение `is_public = TRUE` руками в `app/` и `lib/` — только из
  *     списка с причиной: другая таблица либо партнёр, но не витрина. Новая
  *     копия краснеет; список только сокращается;
- *   - каждый читатель витрины из реестра зовёт условие.
+ *   - каждый читатель витрины из реестра зовёт условие;
+ *   - представление `v_route_marketplace` держит свою копию флагов в SQL и
+ *     отметки тестового профиля не знает (ревью безопасности #3780): каждый,
+ *     кто его читает, спрашивает отметку сам.
  * Сам отбор на настоящей базе, при снятом CHECK, —
  * tests/integration/operators-list.pg.test.ts.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { publicPartnerSql } from '@/lib/partners/test-profile';
+import { publicPartnerSql, testPartnerIdSql, testPartnerTourSql } from '@/lib/partners/test-profile';
 import { publicGuideWhere } from '@/lib/guides/visibility';
 
 const ROOT = process.cwd();
@@ -39,6 +42,26 @@ describe('publicPartnerSql: опубликована и не тестовая', 
 
   it('реестр гидов зовёт то же условие', () => {
     expect(publicGuideWhere('g')).toContain(publicPartnerSql('g'));
+  });
+});
+
+describe('testPartnerIdSql: партнёр по id — тестовый профиль', () => {
+  it('подставляет колонку с алиасом и без', () => {
+    expect(testPartnerIdSql('v.operator_id')).toBe(
+      'EXISTS (SELECT 1 FROM partners test_gate WHERE test_gate.id = v.operator_id AND test_gate.is_test IS TRUE)',
+    );
+    expect(testPartnerIdSql('operator_id')).toContain('test_gate.id = operator_id ');
+  });
+
+  it('колонка — только имя: строка из запроса в SQL не попадёт', () => {
+    for (const bad of ['v.operator_id; DROP TABLE partners', 'a.b.c', 'v.operator id', "v.'x'", '1v.id', 'v.', '']) {
+      expect(() => testPartnerIdSql(bad), bad).toThrow(/недопустимая колонка/);
+    }
+  });
+
+  it('шлюз туров спрашивает ту же отметку', () => {
+    expect(testPartnerTourSql('ot')).toBe(testPartnerIdSql('ot.operator_id'));
+    expect(testPartnerTourSql('')).toBe(testPartnerIdSql('operator_tours.operator_id'));
   });
 });
 
@@ -145,6 +168,38 @@ describe('сравнение is_public мимо условия', () => {
     for (const [file, { why }] of Object.entries(KNOWN_RAW)) {
       expect(why.startsWith(`${OTHER_TABLE}: `) || why.startsWith(`${NOT_STOREFRONT}: `), file).toBe(true);
     }
+  });
+});
+
+/**
+ * Читатели представления `v_route_marketplace`. Его WHERE записан в SQL
+ * (миграция 056: три флага тура и `p.is_public = true`) и ни шлюза туров, ни
+ * условия витрины позвать не может — отметку тестового профиля спрашивает
+ * читатель. Новый читатель представления без неё краснеет.
+ */
+const VIEW_READERS: Record<string, string> = {
+  'lib/routes/route-detail.ts': 'туры на карточке маршрута',
+  'lib/routes/route-tour-price.ts': 'цена маршрута «от» в каталоге',
+  'app/api/operators/[slug]/routes/route.ts': 'маршруты на странице компании',
+};
+
+describe('читатели v_route_marketplace спрашивают отметку тестового профиля', () => {
+  const readers: string[] = [];
+  for (const dir of ['app', 'lib']) {
+    for (const file of sourceFiles(join(ROOT, dir))) {
+      if (/\bv_route_marketplace\b/.test(code(readFileSync(file, 'utf-8')))) {
+        readers.push(relative(ROOT, file).split('\\').join('/'));
+      }
+    }
+  }
+
+  it('перепись читателей совпадает с реестром: нового читателя без записи нет', () => {
+    expect(readers.sort()).toEqual(Object.keys(VIEW_READERS).sort());
+  });
+
+  it.each(Object.entries(VIEW_READERS))('%s — %s', (file) => {
+    const src = code(readFileSync(join(ROOT, file), 'utf-8'));
+    expect(src).toMatch(/testPartnerIdSql\(|publicPartnerSql\(/);
   });
 });
 

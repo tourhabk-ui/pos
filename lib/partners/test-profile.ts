@@ -43,8 +43,30 @@ function checkAlias(fn: string, alias: string): void {
  */
 export function testPartnerTourSql(alias: string): string {
   checkAlias('testPartnerTourSql', alias);
-  const col = alias ? `${alias}.operator_id` : 'operator_tours.operator_id';
-  return `EXISTS (SELECT 1 FROM partners test_gate WHERE test_gate.id = ${col} AND test_gate.is_test IS TRUE)`;
+  return testPartnerIdSql(alias ? `${alias}.operator_id` : 'operator_tours.operator_id');
+}
+
+/**
+ * SQL-условие «партнёр с этим id — тестовый профиль». Для читателя, у
+ * которого в запросе есть только id партнёра, а строки `partners` нет.
+ *
+ * Главный такой читатель — представление `v_route_marketplace` (туры на
+ * карточке маршрута, цена «от» в каталоге маршрутов, маршруты на странице
+ * компании). Его условие записано в SQL миграции 056 — `p.is_public = true`,
+ * без отметки тестового профиля, — и позвать `publicPartnerSql` оно не может.
+ * Ревью безопасности PR #3780 (23.11) нашло, что второй замок до него не
+ * доходил. Поэтому отметку спрашивает каждый, кто читает представление:
+ * `NOT testPartnerIdSql('v.operator_id')`. Сторож
+ * `tests/unit/public-partner-gate.test.ts` не пускает читателя без него.
+ *
+ * `column` — имя колонки с id партнёра, с алиасом таблицы или без; проверяется
+ * так же, как алиас: в текст запроса попадает только имя.
+ */
+export function testPartnerIdSql(column: string): string {
+  if (!/^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?$/i.test(column)) {
+    throw new Error(`testPartnerIdSql: недопустимая колонка «${column}»`);
+  }
+  return `EXISTS (SELECT 1 FROM partners test_gate WHERE test_gate.id = ${column} AND test_gate.is_test IS TRUE)`;
 }
 
 /**

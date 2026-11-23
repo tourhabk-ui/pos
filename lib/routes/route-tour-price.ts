@@ -30,6 +30,7 @@
  *
  * Сторож: tests/unit/route-tour-price.test.tsx.
  */
+import { testPartnerIdSql } from '@/lib/partners/test-profile';
 
 /** Единица цены, по которой у маршрута считается «от»: за человека. */
 export const ROUTE_PRICE_UNIT = 'per_person';
@@ -59,7 +60,8 @@ function pricedToursWhere(arkAlias: string): string {
   return `${arkAlias}.kind = 'route'
          AND ${routeToursKeySql('v', `${arkAlias}.id`)}
          AND v.price_unit = '${ROUTE_PRICE_UNIT}'
-         AND v.tour_price_base > 0`;
+         AND v.tour_price_base > 0
+         AND NOT ${testPartnerIdSql('v.operator_id')}`;
 }
 
 /**

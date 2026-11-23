@@ -45,6 +45,7 @@ import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy, offerOrderDay } from '@/lib/tours/offer-order';
 import { routeToursKeySql } from '@/lib/routes/route-tour-price';
 import { publicSourceUrl } from '@/lib/text/source-attribution';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 /**
  * Сбой запроса — в лог, с тем, чем его чинят.
@@ -245,7 +246,10 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
        -- до 18.11 только по kamchatka_routes.id, и маршрут, чей номер карточки
        -- (ark_id) с ним расходится, терял туры, привязанные по номеру карточки.
        -- То же правило считает цену маршрута в каталоге.
-       WHERE ${routeToursKeySql('v', '$1')}`,
+       WHERE ${routeToursKeySql('v', '$1')}
+         -- Представление держит свою копию флагов и отметки тестового профиля
+         -- не знает: её спрашивает читатель (ревью #3780).
+         AND ${publicPartnerSql('p')}`,
       [id]
     );
 

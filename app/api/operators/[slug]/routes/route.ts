@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { testPartnerIdSql } from '@/lib/partners/test-profile';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,6 +46,7 @@ export async function GET(
       JOIN agent_route_knowledge ark ON ark.id = vm.route_id
       WHERE vm.operator_slug = $1
         AND ark.is_visible = TRUE
+        AND NOT ${testPartnerIdSql('vm.operator_id')}
       ORDER BY ark.id, vm.marketplace_score DESC
       LIMIT 20`,
       [slug],
