@@ -86,8 +86,10 @@ export interface Trip {
   availability?: Record<string, TripDayAvailability>;
   /** Прогноз на дату дня (Open-Meteo, горизонт 16 суток; B-5). */
   weather?: Record<string, { date: string; tempMin: number; tempMax: number; windKmh: number; precipMm: number; description: string; bad: boolean }>;
-  /** Запасные туры дня при непогоде (contingency_rules операторов; B-5). */
-  plan_b?: Record<string, Array<{ tour_id: string; slug?: string | null; title: string }>>;
+  /** Запасные туры дня при непогоде (contingency_rules операторов; B-5). Город — place_href, без тура. */
+  plan_b?: Record<string, Array<{ tour_id?: string | null; slug?: string | null; title: string; place_href?: string | null }>>;
+  /** Сводка МЧС и прочие строки блока «Безопасность и разрешения», не про форму плана. */
+  safety_notes?: Array<{ type: string; severity: string; message: string }>;
 }
 
 
@@ -479,9 +481,12 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
                         <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                           План Б при непогоде:{' '}
                           {alts.map((a, i) => (
-                            <span key={a.tour_id}>
+                            <span key={a.place_href ?? a.tour_id ?? String(i)}>
                               {i > 0 && ' · '}
-                              <Link href={tourPath({ id: a.tour_id, slug: a.slug })} style={{ color: 'var(--ocean)' }}>
+                              <Link
+                                href={a.place_href || (a.tour_id ? tourPath({ id: a.tour_id, slug: a.slug }) : '/places')}
+                                style={{ color: 'var(--ocean)' }}
+                              >
                                 {a.title}
                               </Link>
                             </span>
@@ -494,7 +499,7 @@ export function TripShareClient({ trip, token }: { trip: Trip; token: string }) 
               </div>
             );
           })}
-          <SafetyBlock items={safetyBlock(trip.days, [])} />
+          <SafetyBlock items={safetyBlock(trip.days, trip.safety_notes ?? [])} />
         </div>
 
         <div className="rounded-lg p-6 text-center space-y-3"

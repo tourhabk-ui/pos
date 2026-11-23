@@ -79,9 +79,10 @@ import { KRONOKI_ESCORT } from '@/lib/seo/query-landings';
 import type { TourCalendar } from '@/lib/planner/item-status';
 import { replaceIdeaDays, noTourDay, NO_SELF_ROUTE_DAY_TITLE, NO_TOUR_DAY_TITLE } from '@/lib/planner/honest-days';
 import {
-  capSkippedLine, emptyLedger, longTourSkippedLine, noteGap, noteVariety, varietyAdmit, varietyKey,
+  admitsAt, capSkippedLine, emptyLedger, longTourSkippedLine, noteGap, noteVariety, outingVarietyKey, varietyAdmit, varietyKey,
   type VarietyLedger,
 } from '@/lib/planner/day-variety';
+import { shelterBadOutings } from '@/lib/planner/weather-plan-b';
 import { placePoint } from '@/lib/planner/place-point';
 import { assignCatalogFreeDays, fetchSelfFillPlaces } from '@/lib/planner/self-fill';
 import { gateClosureFromAlerts, liveCardCoversDate, tourGate, type TourGate } from '@/lib/planner/tour-gates';
@@ -230,6 +231,11 @@ export interface DayPlan {
      * метка дня отличает «мест нет» от «дату подтвердит оператор».
      */
     calendar?: TourCalendar;
+    /** Слово оператора о виде тура и текст, по которым день считается источниками. */
+    activityType?: string | null;
+    title?: string;
+    shortDescription?: string | null;
+    included?: string[] | null;
     /** Почему цена тура отличается от заголовочной: «−15%, последние места». */
     priceLabel?: string;
     /**
@@ -1311,7 +1317,7 @@ async function generateDayPlans(
       day: dayNum++, type: 'arrival', zone: 'avachinsky',
       title: arrivalDay.title,
       description: arrivalDay.description,
-      activityType: 'hot_spring', priceFrom: 0, priceTo: 0,
+      activityType: 'arrival', priceFrom: 0, priceTo: 0,
       coords: PKC_COORDS, defaultTransport: 'walking',
       allowedTransports: ['walking'], difficulty: 'easy',
       childFriendly: true, minChildAge: 0, dayWarnings: [],
@@ -2087,7 +2093,15 @@ async function generateDayPlans(
         spanUnknown.add(realTour.title);
       }
       const span = declaredSpan ?? 1;
-      const vKey = varietyKey(interest);
+      const vKey = realTour
+        ? outingVarietyKey({
+          interest,
+          activityType: realTour.activityType,
+          title: realTour.title,
+          description: realTour.shortDescription,
+          included: realTour.included,
+        })
+        : varietyKey(interest);
       const placeId = realTour?.place?.name ?? realTour?.tourId ?? null;
       // Разнообразие (23.11, разбор программ): одну тему не ставят подряд,
       // полный день на источниках — один, многодневный тур на источниках в
@@ -2326,6 +2340,10 @@ async function generateDayPlans(
           ...(realTour.maxParticipants !== null ? { maxParticipants: realTour.maxParticipants } : {}),
           ...(realTour.minParticipants !== null ? { minParticipants: realTour.minParticipants } : {}),
           weatherDependent: realTour.weatherDependent,
+          activityType: realTour.activityType,
+          title: realTour.title,
+          shortDescription: realTour.shortDescription,
+          included: realTour.included,
           durationHours: realTour.durationHours,
           priceUnit: realTour.priceUnit,
           durationDays: tourDurationDays({
@@ -2420,7 +2438,7 @@ async function generateDayPlans(
         // туром на Горелый шёл под «Восхождение на Авачинский…», а сезон
         // Авачинского в базе — с 1 июля (Сыщик 20.11).
         description: realTour ? (realTour.shortDescription ?? '') : (c.seasonNote ?? ''),
-        activityType: interest,
+        activityType: realTour && vKey === 'hot_spring' && varietyKey(interest) !== 'hot_spring' ? 'hot_spring' : interest,
         // Цена дня — только цена тура оператора (слово владельца 14.11
         // «5 -1»): справочной вилки вида активности больше нет, её числа были
         // зашиты в код. Тура нет — цену называет исполнитель (смета).
@@ -2624,7 +2642,7 @@ async function generateDayPlans(
       day: dayNum++, type: 'activity', zone: 'avachinsky',
       title: 'Свободный день. Город, сувениры, рыбный рынок',
       description: 'Прогулка по Петропавловску, смотровые площадки, кафе.',
-      activityType: 'hot_spring', priceFrom: 0, priceTo: 0,
+      activityType: 'city', priceFrom: 0, priceTo: 0,
       coords: PKC_COORDS, defaultTransport: 'walking',
       allowedTransports: ['walking', 'jeep'], difficulty: 'easy',
       childFriendly: true, minChildAge: 0,
@@ -3140,14 +3158,26 @@ function isFillableDay(d: DayPlan): boolean {
  */
 async function fillEmptyDays(
   days: DayPlan[], offDays: ReadonlyArray<{ title: string; dates: readonly string[]; interest?: string; zone?: ZoneId }>, profile: TripProfile,
-): Promise<{ days: DayPlan[]; titles: string[] }> {
+): Promise<{ days: DayPlan[]; titles: string[]; skipped: string[] }> {
   const arrival = profile.arrivalDate;
-  if (!arrival || !profile.departureDate || (profile.travelStyle ?? 'mixed') === 'self') return { days, titles: [] };
+  if (!arrival || !profile.departureDate || (profile.travelStyle ?? 'mixed') === 'self') return { days, titles: [], skipped: [] };
   const out = days.slice();
   const titles: string[] = [];
+  const skipped: string[] = [];
+  const tripDays = getTripDays(profile);
   const placed = new Set(out.map((d) => d.realTour?.tourId).filter((id): id is string => Boolean(id)));
   const dateOf = (n: number): string => dateOfTripDay(arrival, n) ?? '';
-  /** Тур с выездом на дату дня — мини-планом движка; нет — null. */
+  const rememberSkip = (key: string, kind: string): void => {
+    if (key !== 'hot_spring' || (kind !== 'cap' && kind !== 'row')) return;
+    const line = capSkippedLine(key);
+    if (!skipped.includes(line)) skipped.push(line);
+  };
+  /**
+   * Тур с выездом на дату дня — мини-планом движка. Мини-план не видит
+   * уже стоящие дни большого плана, поэтому второй полный день на
+   * источниках (и соседний с уже стоящим) сюда не ставится: категория
+   * берётся из типа, описания и тегов самого тура.
+   */
   const tourOn = async (target: DayPlan): Promise<DayPlan | null> => {
     const date = dateOf(target.day);
     const interests = [...new Set(offDays.filter((o) => o.interest && o.dates.includes(date) && (!o.zone || o.zone === target.zone)).map((o) => o.interest as string))];
@@ -3159,7 +3189,19 @@ async function fillEmptyDays(
       const pick = mini.days.find((x) => x.day === 2 && x.type === 'activity' && x.realTour
         && x.realTour.calendar === 'dated' && !placed.has(x.realTour.tourId) && x.zone === target.zone
         && mini.days.filter((y) => y.realTour?.tourId === x.realTour?.tourId).length === 1);
-      if (pick?.realTour) return { ...pick, day: target.day };
+      if (!pick?.realTour) continue;
+      const key = outingVarietyKey({
+        activityType: pick.realTour.activityType,
+        title: pick.realTour.title,
+        description: pick.realTour.shortDescription,
+        included: pick.realTour.included,
+      });
+      const admit = admitsAt(out, target.day, key, pick.realTour.tourId, 1, tripDays);
+      if (!admit.ok) {
+        rememberSkip(key, admit.kind);
+        continue;
+      }
+      return { ...pick, day: target.day };
     }
     return null;
   };
@@ -3185,7 +3227,7 @@ async function fillEmptyDays(
       break;
     }
   }
-  return { days: out, titles };
+  return { days: out, titles, skipped };
 }
 
 export async function recommendTrip(profile: TripProfile, opts: RecommendTripOptions = {}): Promise<TripRecommendation> {
@@ -3267,8 +3309,11 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // Пустые дни — турами с выездом на ЭТУ дату, которым в своём блоке дня не
   // нашлось (кейс владельца 23.11: облёты Мутновского и Авачи с выездами 29–30.11
   // стояли в «не встали», а дни 7 и 10 были пустыми).
-  const filled = opts.fillFor ? { days: honest.days, titles: [] as string[] }
+  const filled = opts.fillFor ? { days: honest.days, titles: [] as string[], skipped: [] as string[] }
     : await fillEmptyDays(honest.days, [...generated.offDays, ...(generated.fillPool ?? [])], profile);
+  for (const line of filled.skipped) {
+    if (!generated.varietySkipped?.includes(line)) (generated.varietySkipped ??= []).push(line);
+  }
   // Оставшиеся дни «на своё усмотрение» — местами из каталога рядом с городом
   // (музей, смотровая, источник). Живой запрос, без кэша. База не ответила
   // или мест нет — день остаётся свободным, выдуманной прогулки нет.
@@ -3734,14 +3779,20 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     }
   }
 
-  const priceBreakdown = calculatePriceBreakdown(days);
+  // Плохой день (тот же порог, что у страницы плана: ветер ≥ 40 км/ч или
+  // осадки ≥ 10 мм) не получает выезд, если есть резервный день, у которого
+  // прогноз этого порога не достигает. Прогноза у резерва нет — он всё равно
+  // принимается: выезд на известном плохом дне не оставляем. Прогноз остаётся у даты.
+  const plannedDays = shelterBadOutings(days);
+
+  const priceBreakdown = calculatePriceBreakdown(plannedDays);
   mark('weather');
 
   // AI itinerary — include seasickness context
   let itinerary = `Маршрут на ${tripDays} дней по Камчатке: ${zones.map(z => ZONE_NAMES[z.zone]).join(', ')}.`;
 
   if (opts.itinerary !== 'plain') {
-    const aiResponse = await aiItineraryText(profile, zones, days, warnings);
+    const aiResponse = await aiItineraryText(profile, zones, plannedDays, warnings);
     if (aiResponse) itinerary = aiResponse;
   }
   mark('ai_itinerary');
@@ -3756,13 +3807,13 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
       ? {
         travelStyle: profile.travelStyle ?? 'mixed',
         restDaysRequested: Math.max(0, Math.floor(profile.restDays ?? 0)),
-        restDaysPlanned: days.filter((d) => d.type === 'rest').length,
+        restDaysPlanned: plannedDays.filter((d) => d.type === 'rest').length,
         notes: preferenceNotes,
       }
       : undefined;
 
   return {
-    zones, days, warnings, priceBreakdown, itinerary,
+    zones, days: plannedDays, warnings, priceBreakdown, itinerary,
     catalogueOpen: catalogueOpen ? [...catalogueOpen] : null,
     ...(preferences ? { preferences } : {}),
     ...(childBlocked.length > 0 ? { childBlocked } : {}),
