@@ -221,12 +221,17 @@ withPg('витрина туров: снятый тур не в плане и н�
     expect(counts.storefrontTours).toBe((await queryCatalogSummary()).total);
     // Правило витрины, записанное здесь независимо от шлюза: из пяти туров
     // сцены на витрине два, и удалённый (флаги true, deleted_at стоит) — нет.
+    // Компания на паузе, отклонённая и приостановленная — тоже не на витрине
+    // (23.11, «Разберись с Местечком»; список паузы — lib/operators/site-pause).
+    const { OPERATOR_SITE_PAUSE_SLUGS } = await import('@/lib/operators/site-pause');
     const { rows } = await pool.query<{ on_gate: string; ours: string }>(
       `SELECT COUNT(*) FILTER (WHERE ot.is_active AND ot.is_published AND ot.deleted_at IS NULL
-                                 AND p.is_test IS NOT TRUE)::text AS on_gate,
+                                 AND p.is_test IS NOT TRUE
+                                 AND COALESCE(p.status, '') NOT IN ('suspended', 'rejected')
+                                 AND NOT (COALESCE(p.slug, '') = ANY($2::text[])))::text AS on_gate,
               COUNT(*) FILTER (WHERE ot.operator_id = $1)::text AS ours
          FROM operator_tours ot JOIN partners p ON p.id = ot.operator_id`,
-      [OPERATOR.id],
+      [OPERATOR.id, [...OPERATOR_SITE_PAUSE_SLUGS]],
     );
     expect(Number(rows[0].ours)).toBe(STATES.length);
     expect(counts.storefrontTours).toBe(Number(rows[0].on_gate));

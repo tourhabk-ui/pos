@@ -72,7 +72,7 @@ vi.mock('@/lib/db-pool', () => ({
   },
 }));
 
-import { publicTourSql, storefrontState, missingStorefrontMarks, STOREFRONT_LABELS } from '@/lib/tours/public-visibility';
+import { publicTourSql, tourOpenByLinkSql, storefrontState, missingStorefrontMarks, STOREFRONT_LABELS } from '@/lib/tours/public-visibility';
 import { isPublicApiPath } from '@/lib/auth/public-api-routes';
 import { GET as toursList } from '@/app/api/tours/route';
 import { GET as tourDetail } from '@/app/api/tours/[id]/route';
@@ -187,7 +187,9 @@ describe('каждый публичный роут туров спрашивае
       // мутация это и показала. Чистые писатели (POST/PATCH оператора) под
       // правило не попадают: они пишут свой тур, а не показывают чужой витрине.
       if (!/(FROM|JOIN)\s+operator_tours/i.test(src)) continue;
-      if (!src.includes('publicTourSql(')) without.push(f.replace(process.cwd() + '/', ''));
+      const rel = f.replace(process.cwd() + '/', '');
+      const gated = src.includes('publicTourSql(') || (rel in BY_LINK_READERS && src.includes('tourOpenByLinkSql('));
+      if (!gated) without.push(rel);
     }
     expect(
       without,
@@ -677,6 +679,32 @@ const TOURIST_SELECTIONS: Record<string, string> = {
   'lib/zh/content.ts': 'китайские конспекты туров и мест',
 };
 
+/**
+ * Читатели, которые показывают ОДИН тур или одну компанию по адресу, уже
+ * бывшему у человека, и потому зовут `tourOpenByLinkSql` — шлюз без паузы
+ * оператора (23.11, «Разберись с Местечком», lib/operators/site-pause). Тур
+ * оператора на паузе Ведар не предлагает на общих витринах, но открытая по
+ * старой ссылке карточка, её даты и заявка работают. Отбор, где турист
+ * выбирает из нескольких туров или компаний, сюда не вносится.
+ *
+ * Реестр закрыт с двух сторон: вызов `tourOpenByLinkSql` вне реестра —
+ * красный (пауза не должна утечь мимо витрины молча), запись без вызова —
+ * тоже (самоустаревает).
+ */
+const BY_LINK_READERS: Record<string, string> = {
+  'app/api/tours/[id]/route.ts': 'карточка тура по id',
+  'app/api/tours/[id]/slots/route.ts': 'даты открытой карточки',
+  'app/api/tours/[id]/price/route.ts': 'цена открытой карточки на дату',
+  'app/api/tours/[id]/availability/route.ts': 'доступность открытой карточки',
+  'lib/tours/tour-detail-query.ts': 'чтение карточки /catalog/tours/[id]',
+  'lib/tours/nearest-free-date.ts': 'ближайшие свободные даты одного тура на его карточке',
+  'lib/requests/tour-date-question.ts': 'вопрос оператору о дате с формы открытой карточки',
+  'app/operators/[slug]/page.tsx': 'страница самой компании — её витрина',
+  'lib/partner-sites/load.ts': 'сайт партнёра — его витрина',
+  'lib/embed/widget-chat.ts': 'чат виджета на сайте партнёра — его витрина',
+  'app/api/p/[code]/route.ts': 'подборка оператора, отправленная клиенту ссылкой',
+};
+
 /** Префиксы, которые перепись публичных роутов не судит, — с причиной. */
 const CENSUS_SKIP: Record<string, string> = {
   '/api/cron/': 'Edge пускает крон без входа, но внутри CRON_SECRET: турист сюда не ходит; '
@@ -726,13 +754,14 @@ function readsTours(fileName: string, src: string): boolean {
 }
 
 /** Зовёт ли файл шлюз — вызовом, а не упоминанием в комментарии. */
-function callsGate(fileName: string, src: string): boolean {
+function callsGate(fileName: string, src: string, gateNames: readonly string[] = ['publicTourSql']): boolean {
+  const names = new Set(gateNames);
   const kind = fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
   const file = ts.createSourceFile(fileName, src, ts.ScriptTarget.Latest, false, kind);
   let found = false;
   const visit = (n: ts.Node): void => {
     if (found) return;
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'publicTourSql') found = true;
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && names.has(n.expression.text)) found = true;
     else ts.forEachChild(n, visit);
   };
   visit(file);
@@ -759,6 +788,39 @@ function touristSurfaceReaders(): { api: string[]; pages: string[] } {
   return { api: api.sort(), pages: pages.sort() };
 }
 
+describe('шлюз по прямой ссылке — только у читателей одного тура или своей компании', () => {
+  it('tourOpenByLinkSql зовут только файлы BY_LINK_READERS, и каждая запись зовёт', () => {
+    const callers: string[] = [];
+    for (const dir of ['app', 'lib', 'components']) {
+      for (const f of sourceFiles(join(ROOT, dir))) {
+        const rel = relative(ROOT, f);
+        if (rel === 'lib/tours/public-visibility.ts') continue;
+        if (callsGate(f, readFileSync(f, 'utf-8'), ['tourOpenByLinkSql'])) callers.push(rel);
+      }
+    }
+    const outside = callers.filter((f) => !(f in BY_LINK_READERS));
+    expect(
+      outside,
+      'шлюз без паузы оператора позван вне реестра. Общий отбор (каталог, поиск, план, агенты) '
+      + 'зовёт publicTourSql; показ одного тура по ссылке — внесите файл в BY_LINK_READERS с причиной',
+    ).toEqual([]);
+    const stale = Object.keys(BY_LINK_READERS).filter((f) => !callers.includes(f));
+    expect(stale, 'запись реестра больше не зовёт tourOpenByLinkSql — удалите её').toEqual([]);
+    for (const [f, why] of Object.entries(BY_LINK_READERS)) expect(why.length, f).toBeGreaterThan(10);
+  });
+
+  it('витрина отсекает паузу оператора, прямая ссылка — нет; флаги тура у обоих', () => {
+    for (const a of ['ot', '']) {
+      expect(publicTourSql(a)).toContain(tourOpenByLinkSql(a).slice(1, -1));
+      expect(publicTourSql(a)).toContain('off_gate');
+      expect(tourOpenByLinkSql(a)).not.toContain('off_gate');
+      expect(tourOpenByLinkSql(a)).toContain('is_published = true');
+      expect(tourOpenByLinkSql(a)).toContain('test_gate');
+    }
+    expect(() => tourOpenByLinkSql('ot; DROP TABLE x')).toThrow();
+  });
+});
+
 describe('отборы для туриста — через шлюз (ревью #2642)', () => {
   const surfaces = touristSurfaceReaders();
 
@@ -777,7 +839,9 @@ describe('отборы для туриста — через шлюз (ревью
       if (!existsSync(p)) { bad.push(`${f}: файла нет (${surface})`); continue; }
       const src = readFileSync(p, 'utf-8');
       if (!readsTours(p, src)) bad.push(`${f}: operator_tours не читает — запись устарела`);
-      else if (!callsGate(p, src)) bad.push(`${f}: читает тур без publicTourSql (${surface})`);
+      else if (!callsGate(p, src, f in BY_LINK_READERS ? ['publicTourSql', 'tourOpenByLinkSql'] : ['publicTourSql'])) {
+        bad.push(`${f}: читает тур без publicTourSql (${surface})`);
+      }
       const hand = handShowcaseFlags(p, src);
       if (hand > 0) bad.push(`${f}: флагов витрины руками ${hand} — рядом со шлюзом их быть не должно`);
     }
@@ -807,11 +871,14 @@ describe('отборы для туриста — через шлюз (ревью
 
 describe('отборы ревью #2642 — поведением: в отправленном SQL стоит шлюз', () => {
   const GATES = ['ot', 't', ''].map((a) => publicTourSql(a));
+  // Поверхности по прямой ссылке (BY_LINK_READERS) — шлюз без паузы оператора.
+  const LINK_GATES = ['ot', 't', ''].map((a) => tourOpenByLinkSql(a));
   /** SQL, читающие тур, — каждый со шлюзом; и хотя бы один такой был. */
-  const expectGated = (sent: string[], label: string) => {
+  const expectGated = (sent: string[], label: string, byLink = false) => {
     const reads = sent.filter((s) => /\b(?:FROM|JOIN)\s+operator_tours\b/i.test(s));
     expect(reads.length, `${label}: тур не читался вовсе`).toBeGreaterThan(0);
-    for (const s of reads) expect(GATES.some((g) => s.includes(g)), `${label}: ${s.slice(0, 160)}`).toBe(true);
+    const gates = byLink ? [...GATES, ...LINK_GATES] : GATES;
+    for (const s of reads) expect(gates.some((g) => s.includes(g)), `${label}: ${s.slice(0, 160)}`).toBe(true);
   };
   const sentPool = () => poolQueryMock.mock.calls.map((c) => String(c[0]));
   const sentQuery = () => queryMock.mock.calls.map((c) => String(c[0]));
@@ -1063,7 +1130,7 @@ describe('отборы ревью #2642 — поведением: в отпра�
     const sel = await import('@/app/api/p/[code]/route');
     const res = await sel.GET(new NextRequest('http://localhost/api/p/abc'), { params: Promise.resolve({ code: 'abc' }) });
     expect(res.status).toBe(200);
-    expectGated(sentPool(), 'подборка по ссылке');
+    expectGated(sentPool(), 'подборка по ссылке', true);
   });
 
   it('напоминание в Telegram и пост в канал', async () => {

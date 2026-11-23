@@ -17,7 +17,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
-import { publicTourSql } from '@/lib/tours/public-visibility';
+import { tourOpenByLinkSql } from '@/lib/tours/public-visibility';
 import { parseTourParam } from '@/lib/tours/tour-url';
 import { tourClips, type TourClip } from '@/lib/tours/tour-clips';
 import { publicReviewerName } from '@/lib/reviews/public-name';
@@ -223,7 +223,7 @@ function buildSql(withOptional: boolean): string {
       -- партнёры, несезонные окна), is_active при этом часто остаётся true.
       -- Условие жило здесь копией, а три публичных роута /api/tours его не
       -- знали вовсе — теперь оно одно (lib/tours/public-visibility.ts).
-      AND ${publicTourSql('ot')}
+      AND ${tourOpenByLinkSql('ot')}
   `;
 }
 
@@ -242,7 +242,7 @@ function isUndefinedColumn(e: unknown): boolean {
 export async function getTourIdBySlug(slug: string): Promise<number | null> {
   try {
     const { rows } = await pool.query<{ id: number }>(
-      `SELECT id FROM operator_tours WHERE slug = $1 AND ${publicTourSql('')} LIMIT 1`,
+      `SELECT id FROM operator_tours WHERE slug = $1 AND ${tourOpenByLinkSql('')} LIMIT 1`,
       [slug],
     );
     return rows[0] ? Number(rows[0].id) : null;
