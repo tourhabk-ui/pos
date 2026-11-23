@@ -42,7 +42,8 @@ declare global {
 /** Номер счётчика 114292233 — создан 2026-11-17 через API после удаления 113581440. */
 export const METRIKA_ID = 114292233;
 
-export const METRIKA_TAG_URL = 'https://mc.yandex.ru/metrika/tag.js';
+/** URL загрузчика — как в сниппете кабинета; номер из константы, чтобы не разъехаться. */
+export const METRIKA_TAG_URL = `https://mc.yandex.ru/metrika/tag.js?id=${METRIKA_ID}`;
 
 /**
  * Опции инициализации — ровно те, что в сниппете владельца. `referrer` и
