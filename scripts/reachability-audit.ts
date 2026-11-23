@@ -110,7 +110,12 @@ function mentions(route: string, ownFile: string): { ui: string[]; other: string
     // RoleJoinPage / RoleEntryLinks; карта «роль → кабинет» (lib/auth/role-routes)
     // — ссылка «в кабинет» на странице профиля. До этого дня профиль держал
     // свою копию карты, и в ней не было ни проката автомобилей, ни жилья.
-    const UI_REGISTRIES = new Set(['lib/navigation/platform-links.ts', 'lib/landings/texts.ts', 'lib/landings/texts-batch2.ts', 'lib/landings/texts-batch3.ts', 'lib/landings/texts-batch4.ts', 'lib/landings/landings.ts', 'lib/partners/join-pages.ts', 'lib/auth/role-routes.ts']);
+    //
+    // Чек-лист готовности партнёра (23.11, этап 3c): пункты со ссылками «куда
+    // идти» лежат данными в lib/partners/readiness и рисуются целиком карточкой
+    // PartnerReadinessCard на главной каждого кабинета. Прежняя панель «Первые
+    // шаги» оператора держала ссылку на настройку профиля прямо в вёрстке.
+    const UI_REGISTRIES = new Set(['lib/navigation/platform-links.ts', 'lib/landings/texts.ts', 'lib/landings/texts-batch2.ts', 'lib/landings/texts-batch3.ts', 'lib/landings/texts-batch4.ts', 'lib/landings/landings.ts', 'lib/partners/join-pages.ts', 'lib/auth/role-routes.ts', 'lib/partners/readiness.ts']);
     const isUi = ((f.startsWith('app/') || f.startsWith('components/') || f.startsWith('hooks/'))
       && !f.includes('/api/') && !f.startsWith('tests/')) || UI_REGISTRIES.has(f);
     (isUi ? ui : other).push(f);
