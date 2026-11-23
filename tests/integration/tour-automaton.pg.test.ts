@@ -284,6 +284,23 @@ withPg('автомат предлагает правку тура', () => {
     expect((await liveOf(tour)).is_published).toBe(false);
   });
 
+  it('тур просил публикацию и получил поле от автомата: отказ — это отказ владельцу, и он его видит', async () => {
+    const tour = await addTour('Автомат: отказ в публикации');
+    await ownerSaves(tour, { is_published: true });
+    await propose(tour, { pickup_details: 'Забираем от гостиницы' });
+    // В правке одно поле, и оно от автомата, — но публикацию просил владелец.
+    expect((await draftOf(tour)).proposed_by).toEqual({ pickup_details: 'tour-describe' });
+    const card = (await adminGet()).data.edits.find((e) => e.tourId === tour)!;
+    sent.alerts.length = 0;
+    const r = await adminPost(card.id, { action: 'reject', reason: 'Нет программы дня, допишите.' });
+    expect(r.body.message).toBe('«Автомат: отказ в публикации»: тур не опубликован');
+    expect(sent.alerts).toHaveLength(1);
+    expect(sent.alerts[0].text).toContain('Тур не опубликован');
+    const view = await ownView(tour);
+    expect(view?.rejected?.reason).toBe('Нет программы дня, допишите.');
+    expect(view?.rejected?.wantsPublish).toBe(true);
+  });
+
   it('автомату тур виден целиком: витрина плюс правка на проверке, поля владельца названы', async () => {
     const tour = await addTour('Автомат: чтение тура', { published: true });
     await ownerSaves(tour, { base_price: 11000 });
