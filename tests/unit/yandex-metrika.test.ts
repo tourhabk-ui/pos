@@ -33,6 +33,8 @@ function walk(dir: string): string[] {
 const SOURCES = ['app', 'lib', 'components'].flatMap((d) => walk(join(ROOT, d)))
   .map((abs) => ({ rel: relative(ROOT, abs), src: readFileSync(abs, 'utf8') }));
 
+import { carrierReviewInviteUrl } from '@/lib/transfers/carrier-review-rules';
+
 describe('номер счётчика — один', () => {
   it('константа равна действующему счётчику 114292233', () => {
     expect(METRIKA_ID).toBe(114292233);
@@ -113,6 +115,21 @@ describe('где счётчика нет', () => {
       '/booking-success/12', '/watch/abc', '/checkin-ok', '/sos', '/emergency', '/offline', '/field-check',
       '/request-status', '/confirm', '/vote/AbCdEfGhIjKlMnOpQrStUvWxYz012345']) {
       expect(shouldTrackPath(p), `${p} должен быть без счётчика`).toBe(false);
+    }
+  });
+
+  it('адреса с ключами — без счётчика: ответ на запрос мест и отзыв о перевозчике (23.11)', () => {
+    // Загрузчик шлёт location.href целиком — с `?k=` и с фрагментом `#ключ`.
+    for (const p of ['/seat-request/answer/42', '/seat-request', '/transfers/shatun/review', '/transfers/shatun/review/']) {
+      expect(shouldTrackPath(p), `${p} должен быть без счётчика`).toBe(false);
+    }
+    // Ссылки строятся теми же функциями, что шлют их людям.
+    expect(shouldTrackPath(new URL(carrierReviewInviteUrl('https://vedarai.ru', 'shatun', 'k3y')).pathname)).toBe(false);
+  });
+
+  it('страница перевозчика и витрина трансферов остаются со счётчиком', () => {
+    for (const p of ['/transfers', '/transfers/shatun', '/transfers/review', '/transfers/shatun/reviews-archive']) {
+      expect(shouldTrackPath(p), `${p} должен считаться`).toBe(true);
     }
   });
 

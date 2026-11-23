@@ -36,6 +36,11 @@ export const WARNING_PHRASE: Record<string, string> = {
   license: 'часть услуг — только у лицензированного оператора',
   crowd: 'в популярных местах бывает людно',
   mchs: 'по маршруту есть сводки МЧС',
+  // Закрытый парк, извержение, непрочитанные тревоги движок ставит типом
+  // `safety`. До 23.11 ключа не было, и такие предупреждения в промпт не
+  // попадали: модель писала программу дня, не зная о закрытии. Фраза общая:
+  // текст предупреждения из браузера не берётся (в нём бывает здоровье).
+  safety: 'в плане есть предупреждения о безопасности — они показаны туристу отдельно',
   zone_days: 'дальняя зона уместилась не целиком',
   home_nights: 'ночи в Авачинской зоне — дома у туриста',
   tour_dates: 'часть туров не встала по датам',
@@ -53,7 +58,10 @@ export interface PublicTour { id: string; title: string; operatorName: string; p
 export function itineraryDays(days: ItineraryDayIn[], tours: ReadonlyMap<string, PublicTour>) {
   return days.map((d) => {
     const tour = d.type === 'activity' && d.tourId ? tours.get(d.tourId) : undefined;
-    const label = d.activityType ? ACTIVITY_LABEL[d.activityType] : undefined;
+    // Собственный ключ словаря, а не «constructor» из прототипа: иначе вместо
+    // подписи приходила функция, и роут отвечал 500.
+    const label = d.activityType && Object.prototype.hasOwnProperty.call(ACTIVITY_LABEL, d.activityType)
+      ? ACTIVITY_LABEL[d.activityType] : undefined;
     const title = tour
       ? tour.title
       : d.type === 'activity' && label ? `${DAY_PHRASE.activity}: ${label.toLowerCase()}` : DAY_PHRASE[d.type];
@@ -72,7 +80,7 @@ export function itineraryWarnings(warnings: Array<{ type: string; severity: 'cri
   const seen = new Set<string>();
   const out: Array<{ type: string; severity: 'critical' | 'important' | 'info'; message: string }> = [];
   for (const w of warnings) {
-    const message = WARNING_PHRASE[w.type];
+    const message = Object.prototype.hasOwnProperty.call(WARNING_PHRASE, w.type) ? WARNING_PHRASE[w.type] : undefined;
     if (!message || seen.has(w.type)) continue;
     seen.add(w.type);
     out.push({ type: w.type, severity: w.severity, message });
