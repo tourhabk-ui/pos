@@ -368,7 +368,10 @@ export function OperatorCard({
   const [isTest, setIsTest] = useState(op.is_test === true);
   // Канала нет — заявка туриста до партнёра не дойдёт (lib/partners/storefront-gate).
   // Пометка только там, где заявки приходят: агенту канал не нужен.
-  const noChannel = receivesRequests(op.category) && op.has_telegram === false && op.has_max === false;
+  // Роль с заявками — или любая карточка на витрине: форма заявки есть на
+  // странице каждой, и без канала заявка до партнёра не дойдёт.
+  const noChannel = (receivesRequests(op.category) || op.is_public === true)
+    && op.has_telegram === false && op.has_max === false;
 
   const [widgetEnabled, setWidgetEnabled] = useState(op.widget_enabled ?? false);
   const [widgetDomains, setWidgetDomains] = useState((op.widget_domains ?? []).join('\n'));

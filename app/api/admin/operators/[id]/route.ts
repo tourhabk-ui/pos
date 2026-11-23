@@ -81,7 +81,7 @@ export async function PATCH(
     // тестовый профиль оно туда не ставит, а уже стоящих не запирает.
     const publishesNow = !isAgent && partner.is_test !== true && partner.is_public !== true;
     if (publishesNow) {
-      const gate = await storefrontChannelGate(id, partner.category);
+      const gate = await storefrontChannelGate(id);
       if (gate.outcome === 'no_channel') {
         return NextResponse.json({ success: false, error: NO_CHANNEL_TEXT, code: 'no_channel' }, { status: 409 });
       }

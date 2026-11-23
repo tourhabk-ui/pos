@@ -5,7 +5,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { z } from 'zod';
 import { adminContactView, websiteWrite } from '@/lib/partners/admin-contact';
 import { isTestProfileNotPublicViolation, TEST_PROFILE_NOT_PUBLIC_TEXT } from '@/lib/partners/test-profile';
-import { becomesRequestStorefront, storefrontChannelGate, NO_CHANNEL_TEXT, CHANNEL_UNKNOWN_TEXT } from '@/lib/partners/storefront-gate';
+import { needsChannelCheck, storefrontChannelGate, NO_CHANNEL_TEXT, CHANNEL_UNKNOWN_TEXT } from '@/lib/partners/storefront-gate';
 
 export const dynamic = 'force-dynamic';
 
@@ -161,15 +161,16 @@ export async function PUT(
     }
     const site = websiteWrite(currentRes.rows[0], contact.website);
 
-    // Канал уведомлений до витрины (23.11, этап 3b): карточку, которой
-    // приходят заявки, нельзя ВПЕРВЫЕ поставить на витрину без MAX или
-    // Telegram. «Впервые» — это и выклад, и смена категории уже стоящей
-    // карточки на ту, что принимает заявки. Правка карточки, которая уже на
-    // витрине и уже принимает заявки, и снятие с витрины правилом не задеты.
+    // Канал уведомлений до витрины (23.11, этап 3b): карточку нельзя ВПЕРВЫЕ
+    // поставить на витрину без MAX или Telegram — любой категории, потому что
+    // форма заявки есть на странице каждой. «Впервые» — это и выклад, и смена
+    // категории уже стоящей карточки на роль с заявками. Правка карточки,
+    // которая уже на витрине и уже принимает заявки, и снятие с витрины
+    // правилом не задеты.
     const before = { isPublic: currentRes.rows[0].is_public === true, category: currentRes.rows[0].category };
     const after = { isPublic: isPublic ?? before.isPublic, category: category || before.category };
-    if (becomesRequestStorefront(before, after)) {
-      const gate = await storefrontChannelGate(id, after.category);
+    if (needsChannelCheck(before, after)) {
+      const gate = await storefrontChannelGate(id);
       if (gate.outcome === 'no_channel') {
         return NextResponse.json({ success: false, error: NO_CHANNEL_TEXT, code: 'no_channel' }, { status: 409 });
       }

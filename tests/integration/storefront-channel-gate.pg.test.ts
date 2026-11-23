@@ -16,8 +16,11 @@
  *    спрашивается;
  *  - правка карточки: впервые на витрину без канала — 409; снятие с витрины
  *    и правка стоящей — как прежде;
- *  - новая карточка сразу на витрину — 409, строки в базе нет; ресторану
- *    заявки не приходят — можно.
+ *  - категория исключения не даёт (ревью 23.11): форма заявки стоит на
+ *    странице каждой карточки с витрины, поэтому ресторан без канала на
+ *    витрину не выходит ни одобрением, ни правкой, ни при создании;
+ *  - ресторан на витрине не становится туроператором без канала;
+ *  - новая карточка сразу на витрину — 409, строки в базе нет.
  *
  * Своя база `storefront_channel_gate_test`. Без KERNEL_PG_TEST_URL файл
  * честно пропускается — «не прогнано», а не «прошло».
@@ -59,6 +62,9 @@ const CARDS: Card[] = [
   { key: 'editPublic', category: 'operator', profileStatus: 'approved', isPublic: true },
   { key: 'cafePublic', category: 'restaurant', profileStatus: 'approved', isPublic: true },
   { key: 'cafeBound',  category: 'restaurant', profileStatus: 'approved', isPublic: true, max: 700005 },
+  { key: 'cafeHidden', category: 'restaurant', profileStatus: 'approved', isPublic: false },
+  { key: 'cafeHiddenBound', category: 'restaurant', profileStatus: 'approved', isPublic: false, telegram: 700006 },
+  { key: 'cafePending', category: 'restaurant', profileStatus: 'pending', isPublic: false },
 ];
 const idOf = (i: number) => `c3300000-0000-4000-8000-0000000001${String(i).padStart(2, '0')}`;
 const userOf = (i: number) => `c3300000-0000-4000-8000-0000000002${String(i).padStart(2, '0')}`;
@@ -146,6 +152,14 @@ withPg('канал уведомлений до витрины: двери адм
       expect(await state('pilot')).toMatchObject({ is_public: true, profile_status: 'approved' });
     });
 
+    it('ресторан без канала одобрение на витрину не ставит: форма заявки есть на странице любой карточки', async () => {
+      const { NO_CHANNEL_TEXT } = await import('@/lib/partners/storefront-gate');
+      const r = await approve('cafePending');
+      expect(r.status).toBe(409);
+      expect(r.body).toEqual({ success: false, error: NO_CHANNEL_TEXT, code: 'no_channel' });
+      expect(await state('cafePending')).toMatchObject({ is_public: false, profile_status: 'pending' });
+    });
+
     it('агента одобрение на витрину не ставит — канал не спрашивается', async () => {
       const r = await approve('agent');
       expect(r.status, JSON.stringify(r.body)).toBe(200);
@@ -189,10 +203,21 @@ withPg('канал уведомлений до витрины: двери адм
       expect((await state('editPublic')).is_public).toBe(false);
     });
 
+    it('ресторан впервые на витрину: без канала — 409, с каналом — можно', async () => {
+      const { NO_CHANNEL_TEXT } = await import('@/lib/partners/storefront-gate');
+      const denied = await edit('cafeHidden', { name: 'Канал cafeHidden', isPublic: true });
+      expect(denied.status).toBe(409);
+      expect(denied.body).toEqual({ success: false, error: NO_CHANNEL_TEXT, code: 'no_channel' });
+      expect((await state('cafeHidden')).is_public).toBe(false);
+      const ok = await edit('cafeHiddenBound', { name: 'Канал cafeHiddenBound', isPublic: true });
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      expect((await state('cafeHiddenBound')).is_public).toBe(true);
+    });
+
     it('ресторан на витрине правкой становится туроператором: без канала — 409, с каналом — можно', async () => {
       const { NO_CHANNEL_TEXT } = await import('@/lib/partners/storefront-gate');
       const category = async (key: string) => (await pool.query<{ category: string }>(`SELECT category FROM partners WHERE id = $1`, [ID[key]])).rows[0].category;
-      // Ресторану канал не нужен — он на витрине и без него. Туроператору — нужен.
+      // Ресторан оказался на витрине без канала до правила. Туроператором без канала он не станет.
       const denied = await edit('cafePublic', { name: 'Канал cafePublic', category: 'operator' });
       expect(denied.status).toBe(409);
       expect(denied.body).toEqual({ success: false, error: NO_CHANNEL_TEXT, code: 'no_channel' });
@@ -200,7 +225,7 @@ withPg('канал уведомлений до витрины: двери адм
       // То же при явном isPublic: true — «уже на витрине» правило не обходит.
       expect((await edit('cafePublic', { name: 'Канал cafePublic', category: 'operator', isPublic: true })).status).toBe(409);
       expect(await category('cafePublic')).toBe('restaurant');
-      // Имя ресторана править можно: заявок он не принимает.
+      // Имя править можно: уже стоящих на витрине правило не запирает.
       expect((await edit('cafePublic', { name: 'Канал cafePublic (правка)' })).status).toBe(200);
       const ok = await edit('cafeBound', { name: 'Канал cafeBound', category: 'operator' });
       expect(ok.status, JSON.stringify(ok.body)).toBe(200);
@@ -236,10 +261,16 @@ withPg('канал уведомлений до витрины: двери адм
       expect(await exists('gate-new-hidden')).toBe(1);
     });
 
-    it('ресторану заявки не приходят — сразу на витрину можно', async () => {
+    it('ресторан сразу на витрину — тоже 409: категория исключения не даёт', async () => {
+      const { NEW_CARD_NOT_PUBLIC_TEXT } = await import('@/lib/partners/storefront-gate');
       const r = await create({ name: 'Канал ресторан', slug: 'gate-new-restaurant', category: 'restaurant', contact: { phone: '+70000000000' }, isPublic: true });
-      expect(r.status, JSON.stringify(r.body)).toBe(201);
-      expect(await exists('gate-new-restaurant')).toBe(1);
+      expect(r.status).toBe(409);
+      expect(r.body).toEqual({ success: false, error: NEW_CARD_NOT_PUBLIC_TEXT, code: 'no_channel' });
+      expect(await exists('gate-new-restaurant')).toBe(0);
+      // Скрытой — заводится: канал подключат, и администратор поставит её на витрину.
+      const hidden = await create({ name: 'Канал ресторан скрытый', slug: 'gate-new-restaurant-hidden', category: 'restaurant', contact: { phone: '+70000000000' } });
+      expect(hidden.status, JSON.stringify(hidden.body)).toBe(201);
+      expect(await exists('gate-new-restaurant-hidden')).toBe(1);
     });
   });
 });

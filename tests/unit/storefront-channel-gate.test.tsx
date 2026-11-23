@@ -19,7 +19,7 @@ vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
 vi.mock('@/components/admin/TildaPanel', () => ({ default: () => null }));
 
 import {
-  storefrontChannelGate, becomesRequestStorefront, receivesRequests, REQUEST_RECEIVING_CATEGORIES,
+  storefrontChannelGate, needsChannelCheck, receivesRequests, REQUEST_RECEIVING_CATEGORIES,
   NO_CHANNEL_TEXT, CHANNEL_UNKNOWN_TEXT, NEW_CARD_NOT_PUBLIC_TEXT,
 } from '@/lib/partners/storefront-gate';
 import { CONNECT_CHANNEL_HELP, OPERATORS, GUIDES } from '@/lib/help/content';
@@ -33,26 +33,27 @@ const reach = (over: Record<string, unknown>) => ({ telegramChatId: null, maxCha
 describe('storefrontChannelGate', () => {
   it('MAX или Telegram есть — на витрину можно', async () => {
     reachForPartner.mockResolvedValue(reach({ maxChatId: '1', reachable: true }));
-    expect(await storefrontChannelGate('p1', 'operator')).toEqual({ outcome: 'ok' });
+    expect(await storefrontChannelGate('p1')).toEqual({ outcome: 'ok' });
     reachForPartner.mockResolvedValue(reach({ telegramChatId: '2', telegramSource: 'user', reachable: true }));
-    expect(await storefrontChannelGate('p1', 'stay')).toEqual({ outcome: 'ok' });
+    expect(await storefrontChannelGate('p1')).toEqual({ outcome: 'ok' });
   });
 
   it('ни MAX, ни Telegram — нет', async () => {
     reachForPartner.mockResolvedValue(reach({}));
-    expect(await storefrontChannelGate('p1', 'transfer')).toEqual({ outcome: 'no_channel' });
+    expect(await storefrontChannelGate('p1')).toEqual({ outcome: 'no_channel' });
   });
 
   it('не смог прочитать — «не знаю», а не «можно»', async () => {
     reachForPartner.mockResolvedValue(null);
-    expect(await storefrontChannelGate('p1', 'guide')).toEqual({ outcome: 'unknown' });
+    expect(await storefrontChannelGate('p1')).toEqual({ outcome: 'unknown' });
   });
 
-  it('категории без заявок канал не спрашивают — базу не трогаем', async () => {
-    for (const category of ['restaurant', 'agent', 'souvenir', '', null, undefined]) {
-      expect(await storefrontChannelGate('p1', category), String(category)).toEqual({ outcome: 'exempt' });
-    }
-    expect(reachForPartner).not.toHaveBeenCalled();
+  it('исхода «канал не нужен» у шлюза нет: он всегда читает адрес партнёра', async () => {
+    // Первая редакция освобождала ресторан и агента и базу не читала. Форма
+    // заявки стоит на странице карточки любой категории (ревью 23.11).
+    reachForPartner.mockResolvedValue(reach({}));
+    expect(await storefrontChannelGate('p1')).toEqual({ outcome: 'no_channel' });
+    expect(reachForPartner).toHaveBeenCalledWith('p1');
   });
 
   it('заявки приходят шести ролям — и прокату автомобилей тоже', () => {
@@ -61,22 +62,24 @@ describe('storefrontChannelGate', () => {
     expect(receivesRequests('agent')).toBe(false);
   });
 
-  it('канал спрашивается, когда карточка становится «на витрине и с заявками», — и только тогда', () => {
+  it('канал спрашивается при выкладе карточки любой категории и при смене категории на роль с заявками', () => {
     const on = (category: string | null) => ({ isPublic: true, category });
     const off = (category: string | null) => ({ isPublic: false, category });
-    // Первый выклад.
-    expect(becomesRequestStorefront(off('operator'), on('operator'))).toBe(true);
-    // Смена категории уже стоящей карточки на ту, что принимает заявки.
-    expect(becomesRequestStorefront(on('restaurant'), on('operator'))).toBe(true);
-    expect(becomesRequestStorefront(on('agent'), on('guide'))).toBe(true);
+    // Первый выклад — любой категории: форма заявки есть на странице каждой карточки.
+    for (const category of ['operator', 'guide', 'transfer', 'stay', 'gear', 'cars', 'restaurant', 'agent', 'souvenir', null]) {
+      expect(needsChannelCheck(off(category), on(category)), String(category)).toBe(true);
+    }
+    // Уже на витрине: смена категории на роль с заявками.
+    expect(needsChannelCheck(on('restaurant'), on('operator'))).toBe(true);
+    expect(needsChannelCheck(on('agent'), on('guide'))).toBe(true);
     // Уже на витрине и уже с заявками — правило не запирает (пилоты).
-    expect(becomesRequestStorefront(on('operator'), on('operator'))).toBe(false);
-    expect(becomesRequestStorefront(on('operator'), on('guide'))).toBe(false);
-    // Снятие с витрины, правка скрытой, ресторан — канал не нужен.
-    expect(becomesRequestStorefront(on('operator'), off('operator'))).toBe(false);
-    expect(becomesRequestStorefront(off('operator'), off('guide'))).toBe(false);
-    expect(becomesRequestStorefront(off('restaurant'), on('restaurant'))).toBe(false);
-    expect(becomesRequestStorefront(on('operator'), on('restaurant'))).toBe(false);
+    expect(needsChannelCheck(on('operator'), on('operator'))).toBe(false);
+    expect(needsChannelCheck(on('operator'), on('guide'))).toBe(false);
+    expect(needsChannelCheck(on('restaurant'), on('restaurant'))).toBe(false);
+    expect(needsChannelCheck(on('operator'), on('restaurant'))).toBe(false);
+    // Снятие с витрины и правка скрытой — канал не нужен.
+    expect(needsChannelCheck(on('operator'), off('operator'))).toBe(false);
+    expect(needsChannelCheck(off('operator'), off('guide'))).toBe(false);
   });
 
   it('отказы называют, что делать, и не обещают лишнего', () => {
@@ -153,10 +156,17 @@ describe('админка: карточка без канала помечена 
     }
   });
 
-  it('агенту канал не нужен — пометки нет', async () => {
-    const view = await card({ category: 'agent' });
+  it('скрытому агенту пометка не нужна; карточке любой категории на витрине — нужна', async () => {
+    // Агента одобрение на витрину не ставит, и формы заявки у скрытой карточки нет.
+    const hidden = await card({ category: 'agent', is_public: false });
     expect(screen.queryByText('Нет канала')).toBeNull();
-    view.unmount();
+    hidden.unmount();
+    // На витрине форма заявки есть у каждой карточки — без канала заявка не дойдёт.
+    for (const category of ['restaurant', 'agent', 'souvenir']) {
+      const view = await card({ category, is_public: true });
+      expect(screen.queryByText('Нет канала'), category).not.toBeNull();
+      view.unmount();
+    }
   });
 
   it('канал не прочитан — пометки нет: «не знаю» не выдаётся за «нет»', async () => {
