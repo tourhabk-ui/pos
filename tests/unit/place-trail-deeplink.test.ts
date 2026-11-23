@@ -26,8 +26,9 @@ const PLACE = read('app/places/[id]/_PlaceDetailClient.tsx');
 const TRAIL = read('app/planning/_PlanningClient.tsx');
 
 describe('карточка места несёт деплинк на пеший путь', () => {
-  it('ссылка ведёт на /planning?mode=trail&q=<имя места>&auto=1', () => {
-    expect(PLACE).toContain('/planning?mode=trail&q=${encodeURIComponent(place.name)}&auto=1');
+  it('ссылку строит trailLinkForPlace — имя, auto=1 и id места (24.11)', () => {
+    // Сама ссылка проверяется вызовом в trail-linked-place.test.tsx.
+    expect(PLACE).toContain('href={trailLinkForPlace(place)}');
   });
 
   it('живёт рядом со своим автопутём — тем же разделом карточки', () => {
@@ -37,7 +38,7 @@ describe('карточка места несёт деплинк на пеший 
     // дорогу считает свой граф — PlaceOwnRoute. Соседство осталось тем же по
     // смыслу: сперва дорога, следом тропа.
     const carAt = PLACE.indexOf('<PlaceOwnRoute lat={place.lat}');
-    const linkAt = PLACE.indexOf('mode=trail&q=');
+    const linkAt = PLACE.indexOf('trailLinkForPlace(place)');
     expect(carAt).toBeGreaterThan(0);
     expect(linkAt).toBeGreaterThan(carAt);
   });
@@ -65,9 +66,12 @@ describe('auto=1 доводит цель и старт до автовыбора
   it('автовыбор цели переиспользует ту же группировку, что и карточки поиска', () => {
     const at = TRAIL.indexOf('Автовыбор цели');
     expect(at).toBeGreaterThan(0);
-    const block = TRAIL.slice(at, at + 500);
-    expect(block).toContain('groupRoutesByDestination(searchRoutes, modalQuery.trim())');
-    expect(block).toContain('setSelectedDestination(destinations[0])');
+    const block = TRAIL.slice(at, TRAIL.indexOf('}, [', at));
+    expect(block).toContain('groupRoutesByDestination(searchRoutes, query)');
+    // Что именно выбирается — место с треками или само место из ссылки —
+    // держит вызовом autoDestination в trail-linked-place.test.tsx.
+    expect(block).toContain('autoDestination({');
+    expect(block).toContain('setSelectedDestination(picked)');
     // Одноразовый: без этого автовыбор бы боролся с ручным выбором человека
     // при каждом новом searchRoutes.
     expect(block).toContain('autoDestConsumedRef.current = true');

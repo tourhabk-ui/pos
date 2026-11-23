@@ -30,6 +30,7 @@ import PhotoCredit, { creditFor } from '@/components/places/PhotoCredit';
 import { offerOrderDay } from '@/lib/tours/offer-order';
 import { placeFaq } from '@/lib/places/place-faq';
 import FaqSection from '@/components/faq/FaqSection';
+import { trailLinkForPlace } from '@/lib/on-route/destination';
 
 // Герой, описание, факты и ссылки на маршруты/туры/соседей рендерятся на
 // сервере (initialPlace): это то, что читает поисковик. До 29.09 вся карточка
@@ -469,7 +470,7 @@ export default function PlaceDetailClient({ id, initialPlace = null, landingHead
               одного слова о самом месте. Элемент один и тот же — вторая копия
               ради второго вида расходится поведением (#887). */}
           <Link
-            href={`/planning?mode=trail&q=${encodeURIComponent(place.name)}&auto=1`}
+            href={trailLinkForPlace(place)}
             className="flex items-center gap-2 py-1 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--accent)] lg:rounded-lg lg:border lg:border-[var(--border)] lg:bg-[var(--bg-card)] lg:px-4 lg:py-2.5 lg:text-[var(--text-primary)] lg:hover:border-[var(--accent)]"
           >
             <Navigation className="h-4 w-4 text-[var(--accent)]" aria-hidden />

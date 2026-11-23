@@ -31,6 +31,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { trailLinkForPlace } from '@/lib/on-route/destination';
 
 const PLANNING = readFileSync(
   join(process.cwd(), 'app/planning/_PlanningClient.tsx'),
@@ -42,8 +43,13 @@ const PLACE = readFileSync(
 );
 
 describe('карточка места шлёт имя и просит довести до цели', () => {
-  it('ссылка несёт mode=trail, q и auto=1', () => {
-    expect(PLACE).toMatch(/\/planning\?mode=trail&q=\$\{encodeURIComponent\(place\.name\)\}&auto=1/);
+  it('ссылка несёт mode=trail, q, auto=1 и id места', () => {
+    expect(PLACE).toContain('href={trailLinkForPlace(place)}');
+    const url = new URL(trailLinkForPlace({ id: 'abcdef0123', name: 'Раздолье Камчатки' }), 'https://vedarai.ru');
+    expect(url.searchParams.get('mode')).toBe('trail');
+    expect(url.searchParams.get('q')).toBe('Раздолье Камчатки');
+    expect(url.searchParams.get('auto')).toBe('1');
+    expect(url.searchParams.get('place')).toBe('abcdef0123');
   });
 });
 
@@ -74,6 +80,6 @@ describe('планер по такой ссылке открывает выбо�
 
   it('цель выбирается автоматически, когда пути нашлись', () => {
     expect(PLANNING).toMatch(/cameFromPlaceRef\.current/);
-    expect(PLANNING).toMatch(/setSelectedDestination\(destinations\[0\]\)/);
+    expect(PLANNING).toMatch(/setSelectedDestination\(picked\)/);
   });
 });
