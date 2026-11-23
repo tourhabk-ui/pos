@@ -45,7 +45,7 @@ export function FishingGuide() {
             </tbody>
           </table>
         </div>
-        <p className="mt-3 text-xs">Сроки хода зависят от года и реки — точные даты заездов задаёт оператор в карточке тура.</p>
+        <p className="mt-3 text-xs">Сроки хода зависят от года и реки — точные даты заездов задаёт оператор в карточке тура. Где и когда ловить по видам и рекам — в справочнике <Link className="underline" href="/fish">«Рыбалка на Камчатке»</Link>.</p>
       </section>
 
       <section>

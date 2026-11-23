@@ -58,6 +58,8 @@ export interface PlanParkAlert {
   alert_type: 'park_closure' | 'park_status_unknown';
   title: string;
   description: string | null;
+  /** Парки, названные в строке. Голое «маршруты закрыты» межсезонно, только если каждый из них закрыт межсезонной сводкой. */
+  affected_parks?: string[] | null;
   /** Дата последней сводки (ISO, UTC). */
   published_iso: string;
   /** Срок строки (ISO, UTC). */
@@ -96,6 +98,7 @@ export const PLAN_PARK_ALERTS_SQL = `
        AND p.ark_id::text IN (SELECT ark_id FROM refs)
   )
   SELECT DISTINCT refs.ref_kind, refs.ref_id, ea.id::text AS alert_id, ea.alert_type, ea.title, ea.description,
+         ea.affected_parks,
          ${utcWallIsoSql('COALESCE(ea.last_published_at, ea.created_at)')} AS published_iso,
          ${utcWallIsoSql('ea.expires_at')} AS expires_iso
     FROM refs

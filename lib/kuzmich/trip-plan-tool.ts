@@ -138,8 +138,8 @@ export function buildRefusal(
   childBlocked: readonly ChildBlocked[] = [],
 ): string {
   const open = inSeasonInterests(month, catalogueOpen);
-  const byAge = new Set(childBlocked.map((b) => b.interest));
-  const closed = asked.filter((k) => !open.includes(k) && !byAge.has(k));
+  // Возраст не прячет сезон: если занятие снято и тем и другим, в тексте оба.
+  const closed = asked.filter((k) => !open.includes(k));
 
   const monthWord = MONTH_NAME[month - 1] ?? 'этом месяце';
   const openWords = open.map((k) => ACTIVITY_NAMES[k]).filter(Boolean).join(', ');

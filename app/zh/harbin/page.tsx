@@ -6,7 +6,7 @@ import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import { Header } from '@/components/layout/Header';
 import { HarbinFlight } from '@/components/zh/HarbinFlight';
-import { HARBIN_PAGE, HARBIN_PATH, loadSaturdayWeekTours } from '@/lib/zh/harbin';
+import { HARBIN_PAGE, HARBIN_PATH, harbinHreflang, loadSaturdayWeekTours } from '@/lib/zh/harbin';
 import { recordZhEntryHit } from '@/lib/analytics/agent-entry-hits';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { loadCnyRate } from '@/lib/currency/cbr-rate';
@@ -18,7 +18,10 @@ const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 export const metadata: Metadata = {
   title: { absolute: HARBIN_PAGE.title },
   description: HARBIN_PAGE.description,
-  alternates: { canonical: `${SITE}${HARBIN_PATH}` },
+  alternates: {
+    canonical: `${SITE}${HARBIN_PATH}`,
+    languages: harbinHreflang(SITE),
+  },
   openGraph: {
     url: `${SITE}${HARBIN_PATH}`,
     title: HARBIN_PAGE.title,
