@@ -20,11 +20,14 @@
  * - `category = 'guide'` — запись гида, а не оператора;
  * - `profile_status = 'approved'` — заявку одобрил администратор
  *   (`PATCH /api/admin/operators/[id]`, общая очередь партнёров);
- * - `is_public = TRUE` — одобрение ставит его само; снятие — способ спрятать
- *   гида, не отзывая одобрения;
+ * - карточка на витрине (`publicPartnerSql`): `is_public = TRUE` — одобрение
+ *   ставит его само, снятие — способ спрятать гида, не отзывая одобрения; и
+ *   не тестовый профиль (23.11: «Тестовый гид Ведар» стоял в реестре);
  * - `status` не `suspended`/`rejected` — приостановленный партнёр не
  *   показывается, даже если когда-то был одобрен.
  */
+
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 export const PUBLIC_GUIDE_PROFILE_STATUS = 'approved' as const;
 
@@ -39,6 +42,6 @@ export function publicGuideWhere(alias: string): string {
   }
   return `${alias}.category = 'guide'
      AND ${alias}.profile_status = '${PUBLIC_GUIDE_PROFILE_STATUS}'
-     AND ${alias}.is_public = TRUE
+     AND ${publicPartnerSql(alias)}
      AND COALESCE(${alias}.status, '') NOT IN ('suspended', 'rejected')`;
 }

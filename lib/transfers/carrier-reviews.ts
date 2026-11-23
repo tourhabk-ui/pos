@@ -26,6 +26,7 @@ import {
   type CarrierReviewProof,
   type RideConfirmedBy,
 } from '@/lib/transfers/carrier-review-rules';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -58,7 +59,7 @@ export async function findPublicCarrier(slug: string): Promise<ReviewedCarrier |
   if (!CARRIER_SLUG_RE.test(slug)) return null;
   const { rows } = await query<{ id: string; slug: string; name: string }>(
     `SELECT id::text, slug, name FROM partners
-      WHERE slug = $1 AND is_public = TRUE AND category = 'transfer'
+      WHERE slug = $1 AND ${publicPartnerSql('')} AND category = 'transfer'
       LIMIT 1`,
     [slug],
   );

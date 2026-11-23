@@ -23,6 +23,7 @@ import type {
   RentalBodyKind, RentalCompany, RentalCompanyProfile, RentalDrive, RentalDriver, RentalOffer, RentalTerms,
   RentalTransmission,
 } from '@/lib/rental/rental-format';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 export * from '@/lib/rental/rental-format';
 import { ACTIVE_CONSENT_JSON_SQL, parseActiveConsent } from '@/lib/partners/material-consent';
@@ -134,7 +135,7 @@ export async function loadRentalCompanies(): Promise<RentalCompany[]> {
   const partners = await query<PartnerRow>(
     `SELECT ${PARTNER_COLUMNS}
        FROM partners p
-      WHERE p.is_public = TRUE
+      WHERE ${publicPartnerSql('p')}
         AND p.slug IS NOT NULL
         AND ${HAS_ACTIVE_RENTAL_OFFERS_SQL('p')}
       ORDER BY lower(p.name), p.id`,
@@ -182,7 +183,7 @@ export async function loadRentalCompanyBySlug(slug: string): Promise<RentalCompa
        FROM partners p
        LEFT JOIN car_rental_terms t ON t.partner_id = p.id
       WHERE p.slug = $1
-        AND p.is_public = TRUE
+        AND ${publicPartnerSql('p')}
         AND ${HAS_ACTIVE_RENTAL_OFFERS_SQL('p')}
       LIMIT 1`,
     [slug],

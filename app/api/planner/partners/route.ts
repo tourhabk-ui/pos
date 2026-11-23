@@ -14,6 +14,7 @@ import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { rawTypesFor } from '@/lib/planner/constants';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 export const dynamic = 'force-dynamic';
 
@@ -79,7 +80,7 @@ export async function GET(req: NextRequest) {
         (COALESCE(tm.activity_types, '{}')::text[] && $1::text[]) AS has_matching_tours
       FROM partners p
       LEFT JOIN tour_match tm ON tm.operator_id = p.id
-      WHERE p.is_public = TRUE
+      WHERE ${publicPartnerSql('p')}
         AND p.status = 'active'
         AND p.category = 'operator'
       ORDER BY

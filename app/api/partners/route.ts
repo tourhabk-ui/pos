@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { Partner, ApiResponse, PaginatedResponse } from '@/types';
 import { requireAdmin } from '@/lib/auth/middleware';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 export const dynamic = 'force-dynamic';
 const ALLOWED_SORT_FIELDS = new Set(['created_at', 'updated_at', 'name', 'category', 'rating', 'review_count', 'is_verified']);
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
     const sortOrder = (searchParams.get('sortOrder') || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
     // Строим WHERE условия. Аноним видит только публичные карточки.
-    const whereConditions: string[] = ['is_public = true'];
+    const whereConditions: string[] = [publicPartnerSql('')];
     const queryParams: unknown[] = [];
     let paramIndex = 1;
 

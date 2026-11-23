@@ -76,7 +76,7 @@ describe('считает тем же, чем ищет движок', () => {
 
     // «Тур на витрине» — один шлюз (publicTourSql) у переписи и у движка;
     // компания на витрине — отдельным предикатом у обоих.
-    for (const predicate of ["${publicTourSql('ot')}", 'p.is_public = TRUE']) {
+    for (const predicate of ["${publicTourSql('ot')}", "${publicPartnerSql('p')}"]) {
       expect(toursSql, `в SQL переписи нет ${predicate}`).toContain(predicate);
       expect(DATA, `в движке нет ${predicate}`).toContain(predicate);
     }

@@ -45,6 +45,7 @@ import { anyDayOpenSql } from '@/lib/tours/schedule-kind';
 import { orderOffersBy, offerOrderDay } from '@/lib/tours/offer-order';
 import { routeToursKeySql } from '@/lib/routes/route-tour-price';
 import { publicSourceUrl } from '@/lib/text/source-attribution';
+import { routeMarketplaceSql } from '@/lib/routes/marketplace-view';
 
 /**
  * Сбой запроса — в лог, с тем, чем его чинят.
@@ -236,7 +237,7 @@ export async function loadRouteDetail(id: string, opts: RouteDetailOptions) {
          ot.slug AS tour_slug,
          -- «В любой день сезона» — тоже из тура: вторая ступень правила 1в.
          ${anyDayOpenSql('ot')} AS any_day_open
-       FROM v_route_marketplace v
+       FROM ${routeMarketplaceSql('v')}
        -- Открыта ли карточка оператора — из partners, а не «по построению»
        -- WHERE вьюхи: ссылке на его страницу (13.10) нужен источник.
        JOIN partners p ON p.id = v.operator_id

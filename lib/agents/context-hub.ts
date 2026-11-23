@@ -9,6 +9,7 @@
  */
 
 import { pool } from '@/lib/db-pool';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -118,7 +119,7 @@ export class ContextHub {
       }>(
         `SELECT
            (SELECT COUNT(*) FROM agent_route_knowledge WHERE is_visible = TRUE)::int AS routes_count,
-           (SELECT COUNT(*) FROM partners WHERE is_public = TRUE)::int AS active_operators,
+           (SELECT COUNT(*) FROM partners WHERE ${publicPartnerSql('')})::int AS active_operators,
            (SELECT COUNT(*) FROM operator_tours WHERE deleted_at IS NULL)::int AS tours_count`
       );
       this.platformCache = {

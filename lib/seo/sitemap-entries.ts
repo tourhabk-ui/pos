@@ -33,6 +33,7 @@ import { DEFAULT_WEATHER_SLUG, WEATHER_PLACES, weatherPlaceHref } from '@/lib/we
 import { ZH_STATIC_REVISION, zhPageUrls } from '@/lib/zh/pages';
 import { QUERY_LANDINGS } from '@/lib/seo/query-landings';
 import { loadZhDetailEntries, ZhTranslationsUnread } from '@/lib/zh/content';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -420,7 +421,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
   try {
     const { rows } = await pool.query<{ slug: string; updated_at: Date }>(
       `SELECT slug, updated_at FROM partners
-       WHERE category = 'transfer' AND slug IS NOT NULL AND is_public = TRUE
+       WHERE category = 'transfer' AND slug IS NOT NULL AND ${publicPartnerSql('')}
        ORDER BY updated_at DESC LIMIT 200`
     );
     carrierPages = rows.map(row => ({
@@ -440,7 +441,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
   try {
     const { rows } = await pool.query<{ slug: string; updated_at: Date }>(
       `SELECT p.slug, p.updated_at FROM partners p
-       WHERE p.slug IS NOT NULL AND p.is_public = TRUE
+       WHERE p.slug IS NOT NULL AND ${publicPartnerSql('p')}
          AND ${HAS_ACTIVE_RENTAL_OFFERS_SQL('p')}
        ORDER BY p.updated_at DESC LIMIT 200`
     );

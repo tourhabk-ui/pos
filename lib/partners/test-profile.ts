@@ -43,8 +43,58 @@ function checkAlias(fn: string, alias: string): void {
  */
 export function testPartnerTourSql(alias: string): string {
   checkAlias('testPartnerTourSql', alias);
-  const col = alias ? `${alias}.operator_id` : 'operator_tours.operator_id';
-  return `EXISTS (SELECT 1 FROM partners test_gate WHERE test_gate.id = ${col} AND test_gate.is_test IS TRUE)`;
+  return testPartnerIdSql(alias ? `${alias}.operator_id` : 'operator_tours.operator_id');
+}
+
+/**
+ * SQL-условие «партнёр с этим id — тестовый профиль». Для читателя, у
+ * которого в запросе есть только id партнёра, а строки `partners` нет.
+ *
+ * Главный такой читатель — представление `v_route_marketplace` (туры на
+ * карточке маршрута, цена «от» в каталоге маршрутов, маршруты на странице
+ * компании). Его условие записано в SQL миграции 056 — `p.is_public = true`,
+ * без отметки тестового профиля, — и позвать `publicPartnerSql` оно не может.
+ * Ревью безопасности PR #3780 (23.11) нашло, что второй замок до него не
+ * доходил. Поэтому представление читают только через обёртку
+ * `routeMarketplaceSql` (lib/routes/marketplace-view): в ней тестовый профиль
+ * отсечён этим условием, а прямое обращение к представлению сторож
+ * `tests/unit/public-partner-gate.test.ts` не пускает.
+ *
+ * `column` — имя колонки с id партнёра, с алиасом таблицы или без; проверяется
+ * так же, как алиас: в текст запроса попадает только имя.
+ */
+export function testPartnerIdSql(column: string): string {
+  if (!/^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?$/i.test(column)) {
+    throw new Error(`testPartnerIdSql: недопустимая колонка «${column}»`);
+  }
+  return `EXISTS (SELECT 1 FROM partners test_gate WHERE test_gate.id = ${column} AND test_gate.is_test IS TRUE)`;
+}
+
+/**
+ * SQL-условие «карточка партнёра на витрине»: опубликована и не тестовая.
+ * Алиас — `partners` в запросе; пустая строка — таблица без алиаса.
+ *
+ * ── Зачем, если есть CHECK ────────────────────────────────────────────────
+ *
+ * 23.11 на витрине нашлись три служебные карточки: «Тестовый оператор Ведар»,
+ * «Тестовый гид Ведар» и «Admin» — в `/api/partners` и в реестре гидов. CHECK
+ * их не остановил: отметки `is_test` у них не было (миграция 1495 ставила её
+ * по почте, а у стенда почта другая). Данные поправила миграция 1505; это
+ * условие — второй замок: читатель витрины спрашивает отметку сам и не
+ * зависит от того, что CHECK в базе стоит и что его не сняли.
+ *
+ * Одно условие на всех читателей, а не `AND is_test IS NOT TRUE` руками в
+ * каждом: копии расходятся. Сторож `tests/unit/public-partner-gate.test.ts`
+ * не пускает в `app/` и `lib/` новое сравнение `is_public` у партнёра мимо
+ * этого условия.
+ *
+ * Кабинет партнёра, админка и стенд запросов мест условие не зовут: им
+ * тестовый профиль виден по делу.
+ */
+export function publicPartnerSql(alias: string): string {
+  checkAlias('publicPartnerSql', alias);
+  const p = alias ? `${alias}.` : '';
+  return `(${p}is_public = TRUE AND ${p}is_test IS NOT TRUE)`;
 }
 
 /** Отказ базы — нарушение именно этого CHECK, а не любой другой. */

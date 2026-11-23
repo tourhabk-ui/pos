@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 type MetricsRow = {
   routes_total: number | string;
@@ -29,7 +30,7 @@ export async function GET() {
 
         (SELECT COUNT(*)
          FROM partners p
-         WHERE p.is_verified = TRUE)::int AS verified_operators,
+         WHERE p.is_verified = TRUE AND ${publicPartnerSql('p')})::int AS verified_operators,
 
         (SELECT COUNT(*)
          FROM operator_tours ot

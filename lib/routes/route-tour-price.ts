@@ -30,6 +30,7 @@
  *
  * Сторож: tests/unit/route-tour-price.test.tsx.
  */
+import { routeMarketplaceSql } from '@/lib/routes/marketplace-view';
 
 /** Единица цены, по которой у маршрута считается «от»: за человека. */
 export const ROUTE_PRICE_UNIT = 'per_person';
@@ -68,7 +69,7 @@ function pricedToursWhere(arkAlias: string): string {
  * У места и у маршрута без такого тура — NULL.
  */
 export function routeTourPriceFromSql(arkAlias: string): string {
-  return `(SELECT MIN(v.tour_price_base) FROM v_route_marketplace v
+  return `(SELECT MIN(v.tour_price_base) FROM ${routeMarketplaceSql('v')}
             WHERE ${pricedToursWhere(arkAlias)})`;
 }
 
@@ -79,7 +80,7 @@ export function routeTourPriceFromSql(arkAlias: string): string {
 export function routeTourPriceLateralSql(arkAlias: string, alias: string): string {
   return `LEFT JOIN LATERAL (
          SELECT MIN(v.tour_price_base) AS price_from, COUNT(*)::int AS tours
-           FROM v_route_marketplace v
+           FROM ${routeMarketplaceSql('v')}
           WHERE ${pricedToursWhere(arkAlias)}
        ) ${alias} ON TRUE`;
 }

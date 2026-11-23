@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
 import type { OperatorProfileRow } from '@/lib/types/db-rows';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,7 +34,7 @@ export async function GET(
               rating::text, review_count::text, is_verified,
               registry_status, registry_number, created_at::text
        FROM partners
-       WHERE slug = ANY($1) AND is_public = TRUE
+       WHERE slug = ANY($1) AND ${publicPartnerSql('')}
        ORDER BY CASE
          WHEN slug = $2 THEN 0
          WHEN slug = 'kamchatskaya-rybalka' THEN 1

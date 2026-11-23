@@ -27,6 +27,7 @@ import { OperatorLegalInfo } from '@/components/operator/OperatorLegalInfo';
 import { OperatorLeadForm } from '@/components/operators/OperatorLeadForm';
 import { carrierPagePath } from '@/lib/transfers/charter-format';
 import { rentalPagePath } from '@/lib/rental/rental-format';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,7 +78,7 @@ async function getOperatorProfile(slug: string): Promise<OperatorProfileRow | nu
             created_at::text,
             ${ACTIVE_CONSENT_JSON_SQL('partners')} AS materials_consent
      FROM partners
-     WHERE slug = ANY($1) AND is_public = TRUE
+     WHERE slug = ANY($1) AND ${publicPartnerSql('')}
      ORDER BY CASE
        WHEN slug = $2 THEN 0
        WHEN slug = 'kamchatskaya-rybalka' THEN 1

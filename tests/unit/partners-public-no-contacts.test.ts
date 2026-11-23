@@ -14,6 +14,7 @@ vi.mock('@/lib/database', () => ({ query: queryMock }));
 vi.mock('@/lib/auth/middleware', () => ({ requireAdmin: vi.fn() }));
 
 import { GET } from '@/app/api/partners/route';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 const ROW = {
   id: 'p1', name: 'Местечко Камчатка', category: 'operator', description: 'Экскурсии',
@@ -47,8 +48,9 @@ describe('GET /api/partners — без контактов, только публ
     const listSql = queryMock.mock.calls.map((c) => String(c[0])).find((s) => !/COUNT\(\*\)/.test(s)) ?? '';
     const countSql = queryMock.mock.calls.map((c) => String(c[0])).find((s) => /COUNT\(\*\)/.test(s)) ?? '';
     expect(listSql).not.toMatch(/\bcontact\b/);
-    expect(listSql).toMatch(/is_public = true/);
-    expect(countSql).toMatch(/is_public = true/);
+    // Витрина — одно условие: опубликована и не тестовая (23.11, этап 2).
+    expect(listSql).toContain(publicPartnerSql(''));
+    expect(countSql).toContain(publicPartnerSql(''));
   });
 
   it('limit ограничен: выгрузить всех разом нельзя; мусор вместо числа — умолчание', async () => {

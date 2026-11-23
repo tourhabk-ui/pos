@@ -14,6 +14,7 @@ import { publicTourSql } from '@/lib/tours/public-visibility';
 import { notifyOctoWebhooks } from '@/lib/octo/webhooks';
 import { linkContactQuietly } from '@/lib/crm/contacts';
 import { recordSourceEventQuietly, statusChangeTitle } from '@/lib/crm/events';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 // isRealTour убрана 22.08.2026 (перепись).
 //
@@ -40,7 +41,7 @@ export async function getSuppliers(operatorId?: string | null) {
   const { rows } = await pool.query(
     `SELECT p.id, p.company_name AS name, p.slug, p.description, p.contacts
      FROM partners p
-     WHERE p.is_public = true
+     WHERE ${publicPartnerSql('p')}
        AND EXISTS (
          SELECT 1 FROM operator_tours ot
          WHERE ot.operator_id = p.id AND ${publicTourSql('ot')}
@@ -67,7 +68,7 @@ export async function getSupplierById(supplierId: string) {
   const { rows } = await pool.query(
     `SELECT p.id, p.company_name AS name, p.slug, p.description, p.contacts
      FROM partners p
-     WHERE p.id = $1 AND p.is_public = true`,
+     WHERE p.id = $1 AND ${publicPartnerSql('p')}`,
     [supplierId]
   );
   return rows[0] ?? null;

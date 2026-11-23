@@ -8,6 +8,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { PARTNER_PAGES_SQL } from '@/lib/seo/partner-sitemap';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 const code = (p: string) => read(p).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
@@ -61,7 +63,8 @@ describe('Н9: sitemap не предлагает адресов с 404 и 308', 
     // на витрине, без тестового стенда); на настоящей базе его судит
     // tests/integration/operators-list.pg.test.ts.
     expect(src).toMatch(/partnerSitemapRows\(/);
-    expect(code('lib/seo/partner-sitemap.ts')).toMatch(/p\.is_public = TRUE/);
+    // Витрина — одно условие: опубликована и не тестовая (23.11, этап 2).
+    expect(PARTNER_PAGES_SQL).toContain(publicPartnerSql('p'));
   });
   it('слитые места не попадают (они отвечают 308)', () => {
     expect(src).toMatch(/FROM places[\s\S]{0,200}NOT_MERGED\('places'\)/);

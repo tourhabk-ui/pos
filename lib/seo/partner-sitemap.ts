@@ -19,12 +19,13 @@ import type { Pool, PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { TEST_STAND_PARTNER_IDS } from '@/lib/seat-requests/test-stand';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 export const PARTNER_PAGES_SQL = `
   SELECT p.slug, p.updated_at
     FROM partners p
    WHERE p.slug IS NOT NULL
-     AND p.is_public = TRUE
+     AND ${publicPartnerSql('p')}
      AND NOT (p.id = ANY($1::uuid[]))
      AND (
        p.category = 'operator'

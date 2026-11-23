@@ -15,6 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { publicTourSql } from '@/lib/tours/public-visibility';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
   // флагов (находка аудита 15.10 P1-04). Копия держала is_active и deleted_at,
   // но не is_published — снятый с витрины тур (черновик, несезонное окно,
   // демо) уезжал в фид как продаваемый, хотя у нас его не купить.
-  const conditions = [publicTourSql('t'), 'p.is_public = true', 'p.slug IS NOT NULL'];
+  const conditions = [publicTourSql('t'), publicPartnerSql('p'), 'p.slug IS NOT NULL'];
   const params: unknown[] = [];
 
   if (operatorSlug) {

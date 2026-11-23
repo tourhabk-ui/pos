@@ -28,6 +28,7 @@ import { tourPlanSpan } from './tour-span';
 import { rereadTourDay } from './tour-day-reread';
 import { WEATHER_SENSITIVE_TYPES, weatherKindOfActivity } from './weather-plan-b';
 import type { DayOption } from './day-options';
+import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 export interface DayOptionsInput {
   mode: 'same' | 'ground';
@@ -105,7 +106,7 @@ async function readRows(input: DayOptionsInput, inZone: boolean): Promise<Row[]>
   const { rows } = await pool.query<Row>(`${SELECT}
     WHERE ${typeCond}
       AND ${publicTourSql('ot')}
-      AND p.is_public = TRUE
+      AND ${publicPartnerSql('p')}
       AND ot.id::text <> $3::text
       ${zoneCond}`, params);
   return rows;
