@@ -71,7 +71,7 @@ describe('инициализация — сниппет владельца', () 
   it('dataLayer заводится до init, тег грузится с mc.yandex.ru', () => {
     expect(script.indexOf('window.dataLayer=window.dataLayer||[]')).toBeGreaterThanOrEqual(0);
     expect(script.indexOf('window.dataLayer')).toBeLessThan(script.indexOf('"init"'));
-    expect(METRIKA_TAG_URL).toBe('https://mc.yandex.ru/metrika/tag.js');
+    expect(METRIKA_TAG_URL).toBe(`https://mc.yandex.ru/metrika/tag.js?id=${METRIKA_ID}`);
     expect(script).toContain(METRIKA_TAG_URL);
   });
 });
@@ -144,10 +144,10 @@ describe('Вебвизор — поля с ПД не записываются', 
 });
 
 describe('CSP пропускает Метрику', () => {
-  it('middleware и next.config разрешают mc.yandex.ru в script-src и connect-src', () => {
+  it('middleware и next.config разрешают хосты Метрики и Вебвизора', () => {
     // В middleware директивы собраны из констант (`const scriptSrc = "…"`),
     // в next.config — записаны в строке заголовка; читаются обе формы.
-    const directive = (src: string, name: 'script' | 'connect'): string => {
+    const directive = (src: string, name: 'script' | 'connect' | 'frame' | 'child'): string => {
       const asConst = src.match(new RegExp(`${name}Src\\s*=\\s*"([^"]*)"`, 'g')) ?? [];
       const inline = src.match(new RegExp(`${name}-src ([^;"\`]*)`, 'g')) ?? [];
       return [...asConst, ...inline].join(' ');
@@ -155,7 +155,13 @@ describe('CSP пропускает Метрику', () => {
     for (const f of ['middleware.ts', 'next.config.js']) {
       const src = read(f);
       expect(directive(src, 'script'), `${f}: script-src без mc.yandex.ru`).toMatch(/https:\/\/mc\.yandex\.ru/);
+      expect(directive(src, 'script'), `${f}: script-src без yastatic.net`).toMatch(/https:\/\/yastatic\.net/);
+      expect(directive(src, 'script'), `${f}: script-src без mc.yandex.com`).toMatch(/https:\/\/mc\.yandex\.com/);
       expect(directive(src, 'connect'), `${f}: connect-src без mc.yandex.ru`).toMatch(/https:\/\/mc\.yandex\.ru/);
+      expect(directive(src, 'connect'), `${f}: connect-src без mc.yandex.com`).toMatch(/https:\/\/mc\.yandex\.com/);
+      expect(directive(src, 'frame'), `${f}: frame-src без mc.yandex.ru`).toMatch(/https:\/\/mc\.yandex\.ru/);
+      expect(directive(src, 'frame'), `${f}: frame-src без blob:`).toMatch(/blob:/);
+      expect(directive(src, 'child'), `${f}: child-src без mc.yandex.ru`).toMatch(/https:\/\/mc\.yandex\.ru/);
     }
   });
 });
