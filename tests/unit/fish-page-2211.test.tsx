@@ -70,6 +70,10 @@ describe('текст /fish', () => {
     expect(FISH_LEAD).toMatch(/путёвк/);
     expect(FISH_LEAD).toMatch(/палтус/);
     expect(FISH_LEAD).toMatch(/навагу/);
+    expect(FISH_LEAD).toMatch(/Быстрой/);
+    expect(FISH_LEAD).toMatch(/Жупановой/);
+    expect(FISH_LEAD).toMatch(/Опале/);
+    expect(FISH_LEAD).toMatch(/Авачинском заливе/);
   });
 
   it('прямой ответ умещается в первые 40 слов, H2 разделов — вопросы, текст в серверном HTML', () => {
@@ -77,6 +81,8 @@ describe('текст /fish', () => {
     expect(first).toMatch(/Рыбалка на Камчатке возможна/);
     expect(first).toMatch(/лосос/);
     expect(first).toMatch(/путёвк/);
+    expect(first).toMatch(/Быстрой/);
+    expect(first).toMatch(/Авачинском/);
     expect(words(FISH_LEAD).length).toBeLessThanOrEqual(40);
     for (const s of FISH_SECTIONS) expect(s.heading, s.id).toMatch(/\?$/);
     expect(aboutSrc).not.toMatch(/['"]use client['"]/);

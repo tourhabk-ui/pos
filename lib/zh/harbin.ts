@@ -18,6 +18,14 @@ import { orderZhTours, withZhTitles, type ZhTourRow } from '@/lib/zh/entry';
 
 export const HARBIN_PATH = '/zh/harbin';
 
+/** Русской пары нет: самоссылка языка и x-default. */
+export function harbinHreflang(site = 'https://vedarai.ru'): Record<string, string> {
+  const root = site.replace(/\/+$/, '');
+  const url = `${root}${HARBIN_PATH}`;
+  return { 'zh-CN': url, 'x-default': url };
+}
+
+
 export const HARBIN_PAGE = {
   title: '从哈尔滨飞往堪察加：伊尔航空周六航班与一周团队游｜Vedar 堪察加',
   description: '伊尔航空周六航班哈尔滨往返堪察加，约3.5小时。中国公民普通护照免签至多30天（总统令第872号，至2027-12-31）。一周团队游来自数据库。',

@@ -67,8 +67,9 @@ describe('вторая партия посадочных', () => {
   });
 
   it('Article с датой ревизии и FAQPage', () => {
-    const ld = landingJsonLd(landingBySlug('putevka-na-rybalku-gosuslugi41')) as { '@graph': Array<Record<string, unknown>> };
-    expect(String(ld['@graph'].find((n) => n['@type'] === 'Article')!.dateModified)).toMatch(/^2026-11-21/);
+    const putevka = landingBySlug('putevka-na-rybalku-gosuslugi41');
+    const ld = landingJsonLd(putevka) as { '@graph': Array<Record<string, unknown>> };
+    expect(String(ld['@graph'].find((n) => n['@type'] === 'Article')!.dateModified)).toMatch(new RegExp('^' + putevka.date));
     expect(ld['@graph'].some((n) => n['@type'] === 'FAQPage')).toBe(true);
   });
 
