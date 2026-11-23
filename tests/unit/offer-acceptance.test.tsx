@@ -127,6 +127,24 @@ describe('отметка «принимаю оферту»', () => {
     fireEvent.click(offerBox()!);
     expect(onChange).toHaveBeenLastCalledWith(false);
   });
+
+  it('пометка «обязательно» — по слову формы: на регистрации есть, сама по себе галочка её не несёт', () => {
+    const { rerender } = render(<OfferAcceptCheckbox checked={false} onChange={vi.fn()} />);
+    expect(offerBox()?.required).toBe(false);
+    expect(offerBox()?.getAttribute('aria-required')).toBeNull();
+    rerender(<OfferAcceptCheckbox checked={false} onChange={vi.fn()} required />);
+    expect(offerBox()?.required).toBe(true);
+    expect(offerBox()?.getAttribute('aria-required')).toBe('true');
+    // Браузер без отметки такую форму не отправит и назовёт причину нашими словами.
+    expect(offerBox()?.validity.valid).toBe(false);
+    expect(offerBox()?.validationMessage).toBe(OFFER_REQUIRED_TEXT);
+    rerender(<OfferAcceptCheckbox checked onChange={vi.fn()} required />);
+    expect(offerBox()?.validity.valid).toBe(true);
+    expect(offerBox()?.validationMessage).toBe('');
+    // Не обязательная галочка причины отказа не несёт.
+    rerender(<OfferAcceptCheckbox checked={false} onChange={vi.fn()} />);
+    expect(offerBox()?.validity.valid).toBe(true);
+  });
 });
 
 // ─── Общая форма регистрации ──────────────────────────────────────────────────
@@ -162,8 +180,16 @@ describe('форма регистрации /auth/login', () => {
     openForm(partnerRegisterPath(role));
     await waitFor(() => expect(offerBox()).not.toBeNull());
     expect(offerBox()?.checked).toBe(false);
+    // Обязательность сказана и разметкой: помощник чтения и браузер знают о ней до отправки.
+    expect(offerBox()?.required).toBe(true);
+    expect(offerBox()?.getAttribute('aria-required')).toBe('true');
     fill();
+    // Кнопка: браузер сам не отправляет форму с пустой обязательной галочкой и называет причину.
     submit();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(offerBox()?.validationMessage).toBe(OFFER_REQUIRED_TEXT);
+    // Отправка мимо проверки браузера: форма отказывает сама, теми же словами.
+    fireEvent.submit(screen.getByRole('button', { name: 'Зарегистрироваться' }).closest('form')!);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByTestId('register-error').textContent).toBe(OFFER_REQUIRED_TEXT);
   });
@@ -188,6 +214,9 @@ describe('форма регистрации /auth/login', () => {
     fireEvent.click(offerBox()!);
     fireEvent.click(offerBox()!);
     submit();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(offerBox()?.validationMessage).toBe(OFFER_REQUIRED_TEXT);
+    fireEvent.submit(screen.getByRole('button', { name: 'Зарегистрироваться' }).closest('form')!);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByTestId('register-error').textContent).toBe(OFFER_REQUIRED_TEXT);
   });
@@ -217,6 +246,11 @@ describe('форма туроператора /operators/join', () => {
   it('без отметки об оферте форма не уходит и говорит почему', () => {
     render(<JoinClient routesLine={null} />);
     expect(offerBox()?.checked).toBe(false);
+    // Замечание 23.11: у согласия на данные пометка «обязательно» была, у оферты — нет.
+    const pd = screen.getByRole('checkbox', { name: /обработку персональных данных/ }) as HTMLInputElement;
+    expect(pd.required).toBe(true);
+    expect(offerBox()?.required).toBe(true);
+    expect(offerBox()?.getAttribute('aria-required')).toBe('true');
     fill();
     submit();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -420,6 +454,56 @@ describe('запреты', () => {
       expect(read(file), file).toMatch(/recordOfferAcceptanceFor(?:User|Partner)\(/);
       // Ни одна дверь записи не открывается входом администратора или ключом крона.
       expect(read(file), file).not.toMatch(/requireAdmin|CRON_SECRET/);
+    }
+  });
+
+  it('двери, заводящие аккаунт: партнёром без отметки об оферте сам не зарегистрируешься ни через одну', () => {
+    // Перепись всех мест, где появляется строка `users` (замечание 23.11: «если
+    // сервер не проверяет галочку сам, партнёр сможет зарегистрироваться без
+    // акцепта»). Новая дверь — красный, пока не названа здесь со своим родом.
+    type Kind =
+      /** Человек регистрируется сам и может выбрать партнёрскую роль: отметка обязательна. */
+      | 'self_partner'
+      /** Человек входит сам, но роль аккаунта — всегда турист. */
+      | 'tourist_only'
+      /** Аккаунт заводит администратор: оферту за партнёра он не принимает. */
+      | 'admin'
+      /** Вход владельца УЖЕ существующей карточки по ссылке администратора. */
+      | 'existing_card';
+    const DOORS: Record<string, Kind> = {
+      'app/api/auth/register/route.ts': 'self_partner',
+      'app/api/auth/register-operator/route.ts': 'self_partner',
+      'app/api/partners/register/route.ts': 'self_partner',
+      'app/api/auth/telegram/route.ts': 'tourist_only',
+      'app/api/auth/max/status/route.ts': 'tourist_only',
+      'app/api/admin/users/create-agent/route.ts': 'admin',
+      'app/api/admin/operators/[id]/account/route.ts': 'admin',
+      'app/api/admin/operators/create/route.ts': 'admin',
+      'lib/partners/messenger-login.ts': 'existing_card',
+    };
+    const code = (f: string) => read(f).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const found = sources().filter((f) => /INSERT INTO users\b/.test(code(f))).sort();
+    expect(found).toEqual(Object.keys(DOORS).sort());
+
+    for (const [file, kind] of Object.entries(DOORS)) {
+      const src = code(file);
+      if (kind === 'self_partner') {
+        // Отказ без отметки стоит ДО первой записи в базу, акцепт пишется журналом.
+        const gate = src.search(/offer_accepted !== true|agreeOffer:\s*z\.literal\(true/);
+        expect(gate, `${file}: отметка не проверяется`).toBeGreaterThan(-1);
+        expect(gate, `${file}: отметка проверяется после записи аккаунта`).toBeLessThan(src.indexOf('INSERT INTO users'));
+        expect(src, file).toMatch(/recordOfferAcceptanceFor(?:User|Partner)\(/);
+      } else if (kind === 'tourist_only') {
+        // Роль в самой вставке — слово «tourist», а не значение из запроса.
+        const insert = src.slice(src.indexOf('INSERT INTO users'), src.indexOf('INSERT INTO users') + 400);
+        expect(insert, file).toMatch(/VALUES \(\$1, \$2, 'tourist'/);
+        expect(src, file).not.toMatch(/INSERT INTO partners\b/);
+      } else if (kind === 'admin') {
+        expect(src, file).toMatch(/await requireAdmin\(/);
+      } else {
+        // Карточку эта дверь не заводит — только привязывает вход к существующей.
+        expect(src, file).not.toMatch(/INSERT INTO partners\b/);
+      }
     }
   });
 

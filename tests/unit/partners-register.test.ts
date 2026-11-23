@@ -181,7 +181,8 @@ describe('POST /api/partners/register — акцепт оферты в журн�
   });
 
   it('без согласия с офертой — 400, ни базы, ни журнала', async () => {
-    for (const agreeOffer of [false, undefined]) {
+    // Не акцепт и всё, что на «да» лишь похоже: строка, число, null, объект.
+    for (const agreeOffer of [false, undefined, 'true', 'on', 1, null, {}, ['true']]) {
       const res = await POST(registerReq({ ...VALID_BODY, agreeOffer }));
       expect(res.status).toBe(400);
     }

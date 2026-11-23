@@ -390,6 +390,9 @@ describe('карточка готовности', () => {
     }));
     render(<PartnerReadinessCard />);
     const box = within(await screen.findByTestId('accept-offer'));
+    // В чек-листе пункт оферты не обязателен — и галочка обязательной не названа.
+    expect(box.getByRole('checkbox')).toHaveProperty('required', false);
+    expect(box.getByRole('checkbox').getAttribute('aria-required')).toBeNull();
     fireEvent.click(box.getByRole('checkbox'));
     fireEvent.click(box.getByRole('button', { name: 'Принять оферту' }));
     expect((await box.findByRole('alert')).textContent).toBe('Принять оферту может владелец кабинета');
