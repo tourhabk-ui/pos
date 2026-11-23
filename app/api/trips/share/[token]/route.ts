@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { CITY_WEATHER_OPTION, WEATHER_RESERVE_TITLE } from '@/lib/planner/weather-plan-b';
 import { topToursByActivity, toursByIds, type TopTour } from '@/lib/tours/top-tour-by-activity';
 import { readSharedPlan } from '@/lib/trips/shared-plan';
 import type { TripDayAvailability } from '@/lib/trips/day-availability';
 import { readDayAvailability, readDayForecast, type TripDayForecast } from '@/lib/trips/day-fresh';
+import { safetyNotesForSharedDays, type SharedSafetyDay } from '@/lib/trips/plan-page-safety';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,8 +38,15 @@ export async function GET(
     // на дату считались для подменённого тура. Публичная страница плана
     // ведёт к брони, а не витрина цен «от-до» (разведка 08.08). Сбой подбора
     // не роняет план.
-    const days = plan.days as Array<{ day?: number; activityType?: string; type?: string; coords?: [number, number] }>;
+    const days = plan.days as Array<{
+      day?: number; activityType?: string; type?: string; title?: string; description?: string | null;
+      zone?: string; dayWarnings?: string[] | null; coords?: [number, number];
+    }>;
     const activityDays = days.filter((d) => d.activityType && (d.type === undefined || d.type === 'activity'));
+    const weatherDays = days.filter((d) =>
+      (d.activityType && (d.type === undefined || d.type === 'activity'))
+      || d.type === 'buffer'
+      || d.title === WEATHER_RESERVE_TITLE);
     const isDraft = plan.source === 'draft';
     const planTours = await toursByIds(Object.values(dayTourIds ?? {}));
     const dayTours: Record<string, TopTour> = {};
@@ -96,32 +105,50 @@ export async function GET(
     // (детерминированные пороги: ветер ≥ 40 км/ч или осадки ≥ 10 мм).
     // Сбой — блок не показывается, причина в логе.
     const weather: Record<string, TripDayForecast> = {};
-    const planB: Record<string, Array<{ tour_id: string; slug: string | null; title: string }>> = {};
+    const planB: Record<string, Array<{ tour_id: string | null; slug: string | null; title: string; place_href?: string }>> = {};
     if (Number.isFinite(arrivalMs)) {
       const today = new Date().toISOString().slice(0, 10);
-      await Promise.all(activityDays.map(async (d) => {
+      await Promise.all(weatherDays.map(async (d) => {
         if (typeof d.day !== 'number' || !Array.isArray(d.coords) || d.coords.length !== 2) return;
         const date = new Date(arrivalMs + (d.day - 1) * 86400000).toISOString().slice(0, 10);
         const forecast = await readDayForecast([d.coords[0], d.coords[1]], date, today, 'trips/share');
         if (!forecast) return;
         weather[String(d.day)] = forecast;
+        if (!forecast.bad) return;
         const tour = tourFor(d);
-        if (!forecast.bad || !tour?.weather_dependent) return;
-        try {
-          const { createPlannerCache, fetchContingencyAlternatives } = await import('@/lib/planner');
-          const alts = await fetchContingencyAlternatives(tour.id, createPlannerCache());
-          if (alts.length > 0) {
-            planB[String(d.day)] = alts.slice(0, 2).map((a) => ({ tour_id: a.tourId, slug: a.slug ?? null, title: a.title }));
+        if (tour?.weather_dependent) {
+          try {
+            const { createPlannerCache, fetchContingencyAlternatives } = await import('@/lib/planner');
+            const alts = await fetchContingencyAlternatives(tour.id, createPlannerCache());
+            if (alts.length > 0) {
+              planB[String(d.day)] = alts.slice(0, 2).map((a) => ({ tour_id: a.tourId, slug: a.slug ?? null, title: a.title }));
+              return;
+            }
+          } catch (err) {
+            console.error('[trips/share] план Б на день не прочитан, SQLSTATE', (err as { code?: string } | null)?.code ?? 'нет SQLSTATE');
           }
-        } catch (err) {
-          console.error('[trips/share] план Б на день не прочитан, SQLSTATE', (err as { code?: string } | null)?.code ?? 'нет SQLSTATE');
         }
+        planB[String(d.day)] = [{
+          tour_id: null, slug: null, title: CITY_WEATHER_OPTION.title, place_href: CITY_WEATHER_OPTION.place_href,
+        }];
       }));
     }
 
+    const safetyDays: SharedSafetyDay[] = days.flatMap((d) => {
+      if (typeof d.title !== 'string' || typeof d.zone !== 'string') return [];
+      return [{
+        type: d.type ?? 'activity', zone: d.zone, title: d.title,
+        description: d.description, dayWarnings: d.dayWarnings,
+      }];
+    });
+    const safetyNotes = await safetyNotesForSharedDays(
+      safetyDays,
+      typeof plan.arrival_date === 'string' ? plan.arrival_date : null,
+    );
+
     return NextResponse.json({
       success: true,
-      data: { ...plan, top_tours: topTours, day_tours: dayTours, availability, weather, plan_b: planB },
+      data: { ...plan, top_tours: topTours, day_tours: dayTours, availability, weather, plan_b: planB, safety_notes: safetyNotes },
     });
   } catch (err) {
     // Отказ не глушится (§4.0): причина — в лог, без данных плана.

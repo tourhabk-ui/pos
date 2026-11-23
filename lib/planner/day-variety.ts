@@ -16,19 +16,139 @@
  *   музей, этно, природа. Чего в каталоге нет — в план не дописывается.
  */
 
-import { ACTIVITY_NAMES } from '@/lib/planner/constants';
-
-const ALIAS: Record<string, string> = { thermal: 'hot_spring' };
+import { ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, normalizeActivity } from '@/lib/planner/constants';
 
 const MUSEUM = new Set(['museum', 'historical']);
 const ETHNO = new Set(['ethnic']);
 const OCEAN = new Set(['bay', 'cape']);
 const NATURE = new Set(['viewpoint', 'park', 'beach', 'waterfall', 'settlement', 'lake']);
 
-/** Ключ категории дня. Источники — один ключ на оба слова оператора. */
+/**
+ * Ключ категории дня. Слово оператора переводится в ключ движка тем же
+ * словарём, что и отбор туров: `thermal` — источники, `rafting` — сплав.
+ */
 export function varietyKey(type: string | null | undefined): string {
-  const t = (type ?? '').trim();
-  return ALIAS[t] ?? t;
+  return normalizeActivity((type ?? '').trim());
+}
+
+/**
+ * Слова тура о купании. Название места само по себе не считается:
+ * «озерки» без «термальных» — не источники. Ловим описание и теги.
+ */
+const SPRING_TEXT = /термальн|горяч[а-яё]*\s+источ|минеральн[а-яё]*\s+источ|купан/i;
+
+export function textSaysSprings(parts: readonly (string | null | undefined)[]): boolean {
+  const text = parts.filter((p): p is string => typeof p === 'string' && p.trim().length > 0).join('\n');
+  return text.length > 0 && SPRING_TEXT.test(text);
+}
+
+/**
+ * Свой вид тура, который описание не переписывает. Сюда приходит уже ключ
+ * движка (`varietyKey`): `rafting` к этому моменту стал `river`. Вертолёт,
+ * вулкан, сплав и джип остаются собой, даже если в тексте есть «термальные
+ * поля» или «купание». `excursion` и пустой тип — не свой вид: их читаем
+ * по описанию.
+ */
+function textMustNotOverride(key: string): boolean {
+  if (!key || key === 'hot_spring') return false;
+  return key in ACTIVITY_CONSTRAINTS || key === 'jeep';
+}
+
+/**
+ * Категория выезда. Тип оператора `thermal` / `hot_spring` — источники.
+ * Свой вид (вертолёт, вулкан, джип и остальные занятия планировщика)
+ * описание не перебивает. Нет своего вида — описание и теги: тур
+ * «экскурсия», в тексте которого термальные источники, считается полным
+ * днём на источниках. Интерес блока — запасной ключ.
+ */
+export function outingVarietyKey(input: {
+  interest?: string | null;
+  activityType?: string | null;
+  title?: string | null;
+  description?: string | null;
+  included?: readonly string[] | null;
+}): string {
+  const fromType = varietyKey(input.activityType);
+  const fromInterest = varietyKey(input.interest);
+  if (fromType === 'hot_spring') return 'hot_spring';
+  if (textMustNotOverride(fromType)) return fromType;
+  if (textSaysSprings([input.title, input.description, ...(input.included ?? [])])) return 'hot_spring';
+  if (fromInterest === 'hot_spring' || textMustNotOverride(fromInterest)) return fromInterest;
+  const typed = (input.activityType ?? '').trim();
+  if (typed) return fromType;
+  return fromInterest;
+}
+
+/** День плана, по которому считается разнообразие. Лишние поля дня не мешают. */
+export interface VarietyDay {
+  day: number;
+  type: string;
+  activityType?: string | null;
+  title?: string | null;
+  description?: string | null;
+  realTour?: {
+    tourId?: string | null;
+    activityType?: string | null;
+    title?: string | null;
+    shortDescription?: string | null;
+    included?: readonly string[] | null;
+  } | null;
+  placeKind?: string | null;
+  placeHref?: string | null;
+}
+
+/** Категория уже стоящего дня. День без тура и без места каталога — не категория. */
+export function placedVariety(day: VarietyDay): { key: string; placeId: string | null } | null {
+  if (day.type !== 'activity') return null;
+  if (day.realTour) {
+    return {
+      key: outingVarietyKey({
+        interest: day.activityType,
+        activityType: day.realTour.activityType,
+        title: day.realTour.title ?? day.title,
+        description: day.realTour.shortDescription ?? day.description,
+        included: day.realTour.included ?? null,
+      }),
+      placeId: day.realTour.tourId ?? null,
+    };
+  }
+  if (day.placeKind) return { key: placeVarietyKey(day.placeKind), placeId: day.placeHref ?? null };
+  return null;
+}
+
+/**
+ * Можно ли вставить выезд на номер `dayNum`, глядя на уже стоящие дни.
+ * Счёт — по всей поездке, соседство — и с предыдущим, и со следующим:
+ * дырка между двумя одинаковыми днями не делает их «не подряд».
+ */
+export function admitsAt(
+  days: readonly VarietyDay[],
+  dayNum: number,
+  key: string,
+  placeId: string | null,
+  span: number,
+  tripDays: number,
+): { ok: true } | { ok: false; kind: VarietyDeny; reason: string } {
+  const before = days.filter((d) => d.day < dayNum).sort((a, b) => a.day - b.day);
+  const ledger = emptyLedger();
+  for (const d of before) {
+    const v = placedVariety(d);
+    if (v) noteVariety(ledger, v.key, 1, v.placeId);
+    else noteGap(ledger);
+  }
+  let already = 0;
+  for (const d of days) {
+    if (d.day === dayNum) continue;
+    if (placedVariety(d)?.key === key) already += 1;
+  }
+  const admit = varietyAdmit(already, ledger.previous, key, span, tripDays, ledger.previousPlace, placeId);
+  if (!admit.ok) return admit;
+  const after = days.filter((d) => d.day > dayNum).sort((a, b) => a.day - b.day);
+  const next = after.length > 0 ? placedVariety(after[0]!) : null;
+  if (next && (next.key === key || (placeId !== null && next.placeId === placeId))) {
+    return { ok: false, kind: 'row', reason: `день категории «${varietyWord(key)}» шёл бы подряд со следующим` };
+  }
+  return { ok: true };
 }
 
 /** Тип места каталога → категория самостоятельного дня. */

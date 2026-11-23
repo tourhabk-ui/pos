@@ -9,7 +9,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { ACTIVITY_CONSTRAINTS } from '@/lib/planner/constants';
-import { outingCap, varietyAdmit, varietyKey } from '@/lib/planner/day-variety';
+import { admitsAt, capSkippedLine, outingCap, outingVarietyKey, textSaysSprings, varietyAdmit, varietyKey } from '@/lib/planner/day-variety';
+import { shelterBadOutings } from '@/lib/planner/weather-plan-b';
 import { gateClosureFromAlerts, liveCardCoversDate, recordedMinAge, tourGate } from '@/lib/planner/tour-gates';
 import { TITLE_CLIP } from '@/lib/services/safety/park-closure-hold';
 import { buildRefusal } from '@/lib/kuzmich/trip-plan-tool';
@@ -35,6 +36,7 @@ interface Tour {
   activityType: string;
   durationHours?: number;
   shortDescription?: string | null;
+  included?: string[] | null;
   place?: PlaceCard | null;
 }
 let TOURS: Record<string, Tour[]> = {};
@@ -52,7 +54,7 @@ function realTour(t: Tour) {
     operatorName: 'Оператор', operatorSlug: 'op', operatorRating: null, operatorReviewCount: 0,
     operatorVerified: false, tourRating: null, tourReviewCount: 0, basePrice: 20000, priceUnit: 'per_person',
     maxParticipants: 10, minParticipants: 1, durationHours: t.durationHours ?? 10, difficulty: null,
-    weatherDependent: false, seasonStart: null, seasonEnd: null, included: null,
+    weatherDependent: false, seasonStart: null, seasonEnd: null, included: t.included ?? null,
     lat: t.place?.lat ?? 53, lng: t.place?.lng ?? 158, coordsKnown: true, zone: t.zone, activityType: t.activityType,
     place: t.place ?? null,
   };
@@ -112,6 +114,7 @@ vi.mock('@/lib/db-pool', () => ({
   },
 }));
 
+import { fetchForecastDays, tripForecastWindow } from '@/lib/planner/intelligence';
 import { recommendTrip, splitByChildAge } from '@/lib/planner/engine';
 
 const Y = new Date().getUTCFullYear() + 1;
@@ -126,6 +129,11 @@ const THERMAL5: Tour = {
 };
 const MALKI: Tour = { tourId: 't-82', title: 'Малкинские источники', zone: 'avachinsky', activityType: 'thermal' };
 const ZELEN: Tour = { tourId: 't-106', title: 'Зеленовские озерки', zone: 'avachinsky', activityType: 'thermal' };
+const ZELEN_BY_TEXT: Tour = {
+  tourId: 't-106', title: 'Зеленовские озерки', zone: 'avachinsky', activityType: 'excursion',
+  shortDescription: 'Визитная карточка Камчатки — термальные источники Зеленовские озерки.',
+  included: ['трансфер', 'купание'],
+};
 
 const TOLBACHIK: Tour = {
   tourId: 't-tolb', title: 'Вулкан Толбачик (вертолёт)', zone: 'avachinsky', activityType: 'helicopter',
@@ -165,6 +173,20 @@ describe('правило разнообразия', () => {
     expect(varietyAdmit(0, null, 'snowmobile', 1, 10, 'Мыс Маячный', 'Мыс Маячный')).toMatchObject({ ok: false, kind: 'row' });
     expect(varietyAdmit(0, null, 'volcano', 12, 14).ok).toBe(true);
     expect(varietyAdmit(12, null, 'volcano', 1, 14)).toMatchObject({ ok: false, kind: 'cap' });
+    expect(textSaysSprings(['Зеленовские озерки'])).toBe(false);
+    expect(textSaysSprings([
+      'Визитная карточка Камчатки — термальные источники Зеленовские озерки.',
+      'купание',
+    ])).toBe(true);
+    expect(outingVarietyKey({ activityType: 'excursion', title: 'Зеленовские озерки', description: 'термальные источники', included: ['купание'] })).toBe('hot_spring');
+    expect(outingVarietyKey({ activityType: 'thermal', title: 'Малкинские источники' })).toBe('hot_spring');
+    expect(outingVarietyKey({ activityType: 'jeep', title: 'Джип к перевалу', description: 'грунтовая дорога' })).toBe('jeep');
+    expect(outingVarietyKey({ activityType: 'helicopter', title: 'Долина гейзеров', description: 'высадка у термальных полей, купание' })).toBe('helicopter');
+    expect(outingVarietyKey({ activityType: 'volcano', description: 'термальные поля Мутновского' })).toBe('volcano');
+    expect(outingVarietyKey({ activityType: 'jeep', description: 'купание в горячих источниках' })).toBe('jeep');
+    expect(varietyKey('rafting')).toBe('river');
+    expect(outingVarietyKey({ activityType: 'rafting', title: 'Сплав по Быстрой', description: 'купание у берега' })).toBe('river');
+    expect(capSkippedLine('hot_spring')).toMatch(/Ещё полный день на источниках не ставили/);
   });
 
   it('семья 23.11: автоплан не занимает поездку пятидневкой терм и ещё двумя днями источников', async () => {
@@ -191,6 +213,113 @@ describe('правило разнообразия', () => {
     expect(nums).toEqual([...nums].sort((a, b) => a - b));
     expect(text).toMatch(/Вулканы:[\s\S]*12 лет[\s\S]*не в сезоне/);
     expect(text).toMatch(/Медведи:[\s\S]*6 лет[\s\S]*не в сезоне/);
+  });
+
+  it('датированные Малки и Зеленовские по описанию: второй полный день источников не встаёт, и фраза про это правдива', async () => {
+    const span = Array.from({ length: 11 }, (_, i) => {
+      const t = Date.parse(`${iso(11, 24)}T00:00:00Z`) + i * 86_400_000;
+      return new Date(t).toISOString().slice(0, 10);
+    });
+    TOURS = { 'avachinsky:thermal': [MALKI, ZELEN_BY_TEXT] };
+    KEEPS = { 't-82': true, 't-106': true };
+    SLOTS = { 't-82': span, 't-106': span };
+    const rec = await recommendTrip({ ...FAMILY, tripOrigin: 'visitor' }, { itinerary: 'plain' });
+    const spring = (d: (typeof rec.days)[number]) => Boolean(d.realTour) && outingVarietyKey({
+      activityType: d.realTour?.activityType, title: d.realTour?.title, description: d.realTour?.shortDescription, included: d.realTour?.included,
+    }) === 'hot_spring';
+    const springDays = rec.days.filter(spring);
+    expect(springDays.map((d) => d.realTour?.tourId)).not.toContain('t-106');
+    expect(springDays.length).toBeLessThanOrEqual(1);
+    for (let i = 1; i < rec.days.length; i++) {
+      expect(spring(rec.days[i - 1]!) && spring(rec.days[i]!)).toBe(false);
+    }
+    const text = warnings(rec);
+    expect(text).toMatch(/Ещё полный день на источниках не ставили/);
+    expect(text).toMatch(/такой день в поездке обычно один/);
+    const arrival = rec.days.find((d) => d.type === 'arrival');
+    expect(arrival?.activityType).toBe('arrival');
+    const city = rec.days.find((d) => d.title.startsWith('Свободный день. Город'));
+    if (city) expect(city.activityType).toBe('city');
+    expect(rec.days.some((d) => (d.type === 'arrival' || d.title.startsWith('Свободный день. Город')) && d.activityType === 'hot_spring')).toBe(false);
+  });
+
+  it('второй день источников не встаёт в дырку рядом с уже стоящим', () => {
+    const days = [
+      { day: 1, type: 'arrival', activityType: 'arrival', title: 'Прилёт' },
+      { day: 2, type: 'activity', activityType: 'thermal', title: 'Малкинские источники', realTour: { tourId: 't-82', activityType: 'thermal', title: 'Малкинские источники' } },
+      { day: 3, type: 'activity', activityType: 'city', title: 'Свободный день. Город, сувениры, рыбный рынок' },
+    ];
+    const deny = admitsAt(days, 3, 'hot_spring', 't-106', 1, 11);
+    expect(deny.ok).toBe(false);
+    if (!deny.ok) expect(['cap', 'row']).toContain(deny.kind);
+  });
+
+  it('обмен с резервом оставляет номера дней: дыра перед отъездом не закрывается', () => {
+    const fc = (precip: number, description: string) => ({
+      tempMin: -8, tempMax: -2, precipMm: precip, windKmh: 20, code: precip >= 10 ? 75 : 3, description,
+    });
+    const days = [
+      { day: 1, type: 'arrival', zone: 'avachinsky' as const, title: 'Прилёт', activityType: 'arrival' },
+      {
+        day: 2, type: 'activity', zone: 'avachinsky' as const, title: 'Малки', activityType: 'thermal',
+        realTour: { tourId: 't-82' }, weatherForecast: fc(12, 'Сильный снег'), slotsRemaining: 4, realPrice: 20000,
+      },
+      { day: 10, type: 'rest', zone: 'avachinsky' as const, title: 'Резервный день на погоду', activityType: 'rest', weatherForecast: fc(1, 'Облачно') },
+      { day: 11, type: 'departure', zone: 'avachinsky' as const, title: 'Вылет', activityType: 'departure' },
+    ];
+    const out = shelterBadOutings(days);
+    expect(out.map((d) => d.day)).toEqual([1, 2, 10, 11]);
+    expect(out.find((d) => d.day === 11)?.type).toBe('departure');
+    expect(out.find((d) => d.day === 10)?.realTour?.tourId).toBe('t-82');
+    expect(out.find((d) => d.day === 2)?.title).toBe('Резервный день на погоду');
+    expect(out.find((d) => d.day === 2)?.weatherForecast?.description).toBe('Сильный снег');
+    expect(out.find((d) => d.day === 10)?.weatherForecast?.description).toBe('Облачно');
+    const moved = out.find((d) => d.realTour?.tourId === 't-82');
+    expect(moved && 'slotsRemaining' in moved).toBe(false);
+    expect(moved && 'realPrice' in moved).toBe(false);
+  });
+});
+
+describe('плохой день не получает выезд, если есть резерв', () => {
+  const kamchatkaIso = (offset: number): string => {
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kamchatka', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
+    return new Date(Date.parse(`${today}T00:00:00Z`) + offset * 86_400_000).toISOString().slice(0, 10);
+  };
+
+  it('сильный снег на дне выезда меняется с резервным днём', async () => {
+    const arrival = kamchatkaIso(1);
+    const departure = kamchatkaIso(11);
+    const window = tripForecastWindow(arrival, 11);
+    expect(window).not.toBeNull();
+    const badDate = window!.dates[1]!;
+    vi.mocked(fetchForecastDays).mockImplementation(async () => ({
+      ok: true,
+      days: window!.dates.map((date) => ({
+        date, tempMax: -2, tempMin: -8, precipMm: date === badDate ? 12 : 1, windKmh: 20,
+        weatherCode: date === badDate ? 75 : 3,
+        description: date === badDate ? 'Сильный снег' : 'Облачно',
+      })),
+    }));
+    TOURS = { 'avachinsky:thermal': [MALKI] };
+    KEEPS = { 't-82': true };
+    SLOTS = { 't-82': [badDate] };
+    try {
+      const rec = await recommendTrip({
+        ...FAMILY, arrivalDate: arrival, departureDate: departure, tripOrigin: 'visitor',
+      }, { itinerary: 'plain' });
+      const outing = rec.days.find((d) => d.realTour?.tourId === 't-82');
+      expect(outing).toBeTruthy();
+      expect(outing?.weatherForecast?.precipMm).not.toBe(12);
+      expect(outing?.weatherForecast?.description).not.toBe('Сильный снег');
+      const snow = rec.days.find((d) => d.weatherForecast?.description === 'Сильный снег');
+      expect(snow?.realTour).toBeFalsy();
+      expect(snow?.title).toBe('Резервный день на погоду');
+    } finally {
+      vi.mocked(fetchForecastDays).mockReset();
+      vi.mocked(fetchForecastDays).mockResolvedValue({ ok: false, reason: 'test' });
+    }
   });
 });
 

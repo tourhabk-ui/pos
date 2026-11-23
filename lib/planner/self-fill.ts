@@ -17,7 +17,7 @@ import { pool } from '@/lib/db-pool';
 import type { DayPlan } from '@/lib/planner/engine';
 import { NO_SELF_ROUTE_DAY_TITLE, NO_TOUR_DAY_TITLE } from '@/lib/planner/honest-days';
 import {
-  emptyLedger, noteGap, noteVariety, pickVariedPlace, placeVarietyKey, varietyKey,
+  emptyLedger, noteGap, noteVariety, pickVariedPlace, placedVariety, placeVarietyKey,
   type VarietyLedger,
 } from '@/lib/planner/day-variety';
 
@@ -111,12 +111,9 @@ export function selfPlaceDay(day: number, place: SelfPlace, site: string): DayPl
 
 /** День с туром или местом каталога учитывается в разнообразии. Остальное — разрыв. */
 function absorbDay(ledger: VarietyLedger, day: DayPlan): void {
-  if (day.type === 'activity' && day.realTour) {
-    noteVariety(ledger, varietyKey(day.activityType), 1);
-    return;
-  }
-  if (day.type === 'activity' && day.placeKind) {
-    noteVariety(ledger, placeVarietyKey(day.placeKind), 1);
+  const placed = placedVariety(day);
+  if (placed) {
+    noteVariety(ledger, placed.key, 1, placed.placeId);
     return;
   }
   noteGap(ledger);

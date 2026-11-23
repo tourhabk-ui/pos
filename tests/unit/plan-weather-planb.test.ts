@@ -32,6 +32,7 @@ vi.mock('@/lib/seat-requests/service', () => ({ tourKeepsSchedule: async () => t
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
 
 import { GET } from '@/app/api/trips/share/[token]/route';
+import { CITY_WEATHER_OPTION, WEATHER_RESERVE_TITLE } from '@/lib/planner/weather-plan-b';
 
 const ROOT = process.cwd();
 const SHARE_UI = readFileSync(join(ROOT, 'app/trip/[token]/_TripShareClient.tsx'), 'utf-8');
@@ -60,7 +61,7 @@ const forecastDay = (date: string, over: Record<string, unknown> = {}) => ({
 });
 type ShareData = {
   weather: Record<string, { date: string; tempMin: number; tempMax: number; windKmh: number; precipMm: number; description: string; bad: boolean }>;
-  plan_b: Record<string, Array<{ tour_id: string; title: string }>>;
+  plan_b: Record<string, Array<{ tour_id: string | null; title: string; place_href?: string }>>;
 };
 const share = async (): Promise<{ status: number; data: ShareData }> => {
   const res = await GET(new NextRequest(`http://x/api/trips/share/${TOKEN}`), { params: Promise.resolve({ token: TOKEN }) });
@@ -123,7 +124,7 @@ describe('B-5: «план Б» при непогоде', () => {
   });
   afterEach(() => { vi.clearAllMocks(); vi.restoreAllMocks(); });
 
-  it('только для погодозависимых туров при плохом прогнозе и только из contingency_rules операторов', async () => {
+  it('погодозависимый тур берёт запасные из contingency_rules, плохой день без них — город', async () => {
     // День 1 — погодозависимый тур, плохо; день 2 — не погодозависимый, плохо;
     // день 3 — погодозависимый, хорошо.
     m.readSharedPlan.mockResolvedValue(sharedPlan([1, 2, 3], { 1: '70', 2: '71', 3: '72' }));
@@ -132,8 +133,12 @@ describe('B-5: «план Б» при непогоде', () => {
       forecastDay(dayDate(1), { windKmh: 55 }), forecastDay(dayDate(2), { windKmh: 55 }), forecastDay(dayDate(3)),
     ] });
     const { plan_b } = (await share()).data;
-    expect(Object.keys(plan_b)).toEqual(['1']);
+    expect(Object.keys(plan_b).sort()).toEqual(['1', '2']);
     expect(plan_b['1'].map((a) => a.tour_id)).toEqual(['81', '82']);
+    expect(plan_b['2']).toEqual([{
+      tour_id: null, slug: null, title: CITY_WEATHER_OPTION.title, place_href: CITY_WEATHER_OPTION.place_href,
+    }]);
+    expect(plan_b['3']).toBeUndefined();
     expect(m.fetchContingencyAlternatives).toHaveBeenCalledTimes(1);
     expect(m.fetchContingencyAlternatives.mock.calls[0][0]).toBe('70');
     // Признак погодозависимости — из записи тура, без выдуманного «да».
@@ -145,7 +150,7 @@ describe('B-5: «план Б» при непогоде', () => {
     expect(SHARE_UI).toMatch(/tourPath\(\{ id: a\.tour_id, slug: a\.slug \}\)/);
   });
 
-  it('все сбои — блока нет, план жив, причина в логе', async () => {
+  it('сбой прогноза — погоды нет; сбой запасных туров — в логе, и остаётся город', async () => {
     m.readSharedPlan.mockResolvedValue(sharedPlan([1, 2], { 1: '70', 2: '70' }));
     m.toursByIds.mockResolvedValue({ 70: tour('70', true) });
     // День 1: прогноз упал; день 2: прогноз плохой, запасные туры не прочитались.
@@ -159,7 +164,28 @@ describe('B-5: «план Б» при непогоде', () => {
     r = await share();
     expect(r.status).toBe(200);
     expect(r.data.weather['2']?.bad).toBe(true);
-    expect(r.data.plan_b).toEqual({});
+    expect(r.data.plan_b['2']).toEqual([{
+      tour_id: null, slug: null, title: CITY_WEATHER_OPTION.title, place_href: CITY_WEATHER_OPTION.place_href,
+    }]);
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining('план Б на день не прочитан'), '57014');
+  });
+
+  it('резервный день с плохой погодой получает городской вариант, даже без тура', async () => {
+    const base = sharedPlan([1], { 1: '70' });
+    base.plan.days = [
+      day(1),
+      { day: 2, type: 'rest', zone: 'avachinsky', title: WEATHER_RESERVE_TITLE, activityType: 'rest', coords: [53.01, 158.65] },
+    ];
+    m.readSharedPlan.mockResolvedValue(base);
+    m.toursByIds.mockResolvedValue({ 70: tour('70', false) });
+    m.fetchContingencyAlternatives.mockResolvedValue([]);
+    m.fetchForecastDays.mockResolvedValue({ ok: true, days: [
+      forecastDay(dayDate(1), { precipMm: 12, description: 'Сильный снег' }),
+      forecastDay(dayDate(2), { precipMm: 12, description: 'Сильный снег' }),
+    ] });
+    const { plan_b } = (await share()).data;
+    expect(plan_b['1'][0]?.place_href).toBe(CITY_WEATHER_OPTION.place_href);
+    expect(plan_b['2'][0]?.title).toBe(CITY_WEATHER_OPTION.title);
+    expect(plan_b['2'][0]?.tour_id).toBeNull();
   });
 });
