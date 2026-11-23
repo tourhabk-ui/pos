@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-23 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+5): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1508_partner_offer_acceptances.sql`.
+> Снято 2026-11-23 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+5): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1510_llm_usage_spent_where.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 343 |
 | Представлений (VIEW) | 13 |
-| Колонок | 4390 |
+| Колонок | 4391 |
 | Внешних ключей | 407 |
 | Таблиц без единого FK в обе стороны | 93 |
 
@@ -1157,9 +1157,9 @@ B2B-агенты, продающие туры за комиссию. Не пут
 
 `id bigint!=` `idempotency_key varchar!` `phase varchar!` `channel varchar!` `session_ref varchar!` `tool varchar!` `request_ref varchar` `outcome varchar` `reason varchar` `created_at timestamptz!=`
 
-**llm_usage_log** · 12 кол. · PK id · индексов 4
+**llm_usage_log** · 13 кол. · PK id · индексов 4
 
-`id uuid!=` `route text!` `prompt_tokens integer!=` `completion_tokens integer!=` `total_tokens integer!=` `estimated_cost_usd numeric` `user_id uuid` `created_at timestamptz!=` `agent_id text` `cost_basis text` `cache_creation_tokens integer` `cache_read_tokens integer`
+`id uuid!=` `route text!` `prompt_tokens integer!=` `completion_tokens integer!=` `total_tokens integer!=` `estimated_cost_usd numeric` `user_id uuid` `created_at timestamptz!=` `agent_id text` `cost_basis text` `cache_creation_tokens integer` `cache_read_tokens integer` `spent_where text=`
 
 **mcp_clients** · 7 кол. · PK caller_hash, day · индексов 2
 
