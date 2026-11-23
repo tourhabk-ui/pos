@@ -76,10 +76,11 @@ type Token =
  * Функции, которые сторож умеет вычислять. `contains` нужен условию свипера
  * CI (`!contains(head_commit.message, '[ci-sweep]')`); функции статуса —
  * шагу учёта расхода руки (`always() && steps.hand.outcome != 'skipped'`,
- * аудит 15.10, AC-1). Прочие бросают — так же, как раньше бросали все.
+ * аудит 15.10, AC-1); `fromJSON` и `format` — условию и группе руки
+ * (`claude.yml`, аудит 23.11). Прочие бросают — так же, как раньше бросали все.
  */
 const STATUS_FUNCTIONS = new Set(['always', 'success', 'failure', 'cancelled']);
-const FUNCTIONS = new Set(['contains', ...STATUS_FUNCTIONS]);
+const FUNCTIONS = new Set(['contains', 'fromjson', 'format', ...STATUS_FUNCTIONS]);
 
 function tokenize(src: string): Token[] {
   const out: Token[] = [];
@@ -174,6 +175,22 @@ function callFunction(name: string, args: Value[], src: string, ctx: Record<stri
     const [search, item] = args;
     if (Array.isArray(search)) return search.some((x) => looseEq(x as Value, item));
     return asString(search).toLowerCase().includes(asString(item).toLowerCase());
+  }
+  if (name === 'fromjson') {
+    if (args.length !== 1) throw new Error(`fromJSON ждёт один аргумент: ${src}`);
+    // Неразбираемая строка у GitHub — ошибка выражения; здесь тоже бросаем.
+    return JSON.parse(asString(args[0])) as Value;
+  }
+  if (name === 'format') {
+    if (args.length < 1) throw new Error(`format ждёт шаблон: ${src}`);
+    // {N} — подстановка, {{ и }} — буквальные скобки (документация GitHub).
+    return asString(args[0]).replace(/\{\{|\}\}|\{(\d+)\}/g, (m, n: string | undefined) => {
+      if (m === '{{') return '{';
+      if (m === '}}') return '}';
+      const i = Number(n) + 1;
+      if (i >= args.length) throw new Error(`format: нет аргумента {${n}}: ${src}`);
+      return asString(args[i]);
+    });
   }
   if (STATUS_FUNCTIONS.has(name)) {
     if (args.length !== 0) throw new Error(`${name} аргументов не принимает: ${src}`);

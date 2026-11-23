@@ -23,6 +23,7 @@ import type { ChatMessage } from '@/lib/ai/prompts';
 import { repairTelegramHtml } from '@/lib/notifications/telegram-html';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { loadRepoFiles, apiRoutesFromFiles, realFileListForPrompt, validateProposalPaths } from '@/lib/agents/scout-path-guard';
+import { buildProposalIssue, scoutAutoPrEnabled, HAND_LABEL, SCOUT_PROPOSAL_LABEL } from '@/lib/agents/scout-proposal-issue';
 import { loadPlatformWeekStats, platformWeekLine, platformWeekPromptLines, type PlatformWeekRead } from '@/lib/agents/platform-week-stats';
 
 interface StructuredProposal {
@@ -81,9 +82,23 @@ async function readCodebaseRules(): Promise<string> {
 async function readGitHubIssues(state: 'open' | 'closed'): Promise<string | null> {
   const token = process.env.GITHUB_ISSUES_TOKEN;
   if (!token) return null;
+  // Две метки: прежние предложения несут только метку руки, новые — метку
+  // разведки (23.11). Не прочиталась любая — дедуп не выполнен (null).
+  const titles = new Set<string>();
+  for (const label of [HAND_LABEL, SCOUT_PROPOSAL_LABEL]) {
+    const list = await readIssueTitlesByLabel(state, label, token);
+    if (list === null) return null;
+    for (const t of list) titles.add(t);
+  }
+  // Пустой список — настоящий ответ «открытых задач нет», и он НЕ равен
+  // отказу чтения. Именно это различие и было потеряно.
+  return [...titles].map(t => `- ${t}`).join('\n');
+}
+
+async function readIssueTitlesByLabel(state: 'open' | 'closed', label: string, token: string): Promise<string[] | null> {
   try {
     const res = await githubFetch(
-      `https://api.github.com/repos/tourhabk-ui/pos/issues?state=${state}&labels=agent-proposal&per_page=15`,
+      `https://api.github.com/repos/tourhabk-ui/pos/issues?state=${state}&labels=${encodeURIComponent(label)}&per_page=15`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -98,10 +113,7 @@ async function readGitHubIssues(state: 'open' | 'closed'): Promise<string | null
       return null;
     }
     const issues = await res.json() as Array<{ title: string; created_at: string }>;
-    // Пустой список — настоящий ответ «открытых задач нет», и он НЕ равен
-    // отказу чтения. Именно это различие и было потеряно.
-    if (!issues.length) return '';
-    return issues.map(i => `- ${i.title}`).join('\n');
+    return issues.map(i => i.title);
   } catch (err) {
     console.error('[scout-innovator] список задач не прочитан:',
       err instanceof Error ? err.message : String(err));
@@ -462,39 +474,14 @@ async function createGitHubIssue(
   dateKey: string,
   /** Критик не смог оценить предложение — причина. null — оценил. */
   uncheckedReason: string | null = null,
+  /** Рука стартует сама — только при SCOUT_AUTOPR=1 (lib/agents/scout-proposal-issue). */
+  autoRun: boolean = false,
 ): Promise<string | null> {
   const token = process.env.GITHUB_ISSUES_TOKEN;
   const repo = 'tourhabk-ui/pos';
   if (!token) return null;
 
-  const body = [
-    // Непроверенное предложение обязано выглядеть иначе, чем прошедшее ревью:
-    // человек в очереди читает первым делом верх тела.
-    uncheckedReason
-      ? `> **Критик НЕ СМОГ оценить это предложение:** ${uncheckedReason}. Задача заведена (гейт не обнуляет выдачу), но вторых глаз у неё не было — проверь сам.\n`
-      : null,
-    `## Зачем (Scout-Innovator ${dateKey})`,
-    p.why,
-    '',
-    '## Файлы для изменения',
-    p.files_to_change.map(f => `- \`${f}\``).join('\n'),
-    '',
-    '## Шаги реализации',
-    p.implementation_steps.map((s, i) => `${i + 1}. ${s}`).join('\n'),
-    '',
-    '## Критерии приёмки',
-    p.acceptance_criteria.map(c => `- [ ] ${c}`).join('\n'),
-    '',
-    '---',
-    `*Scout-Innovator ${dateKey} · Сложность: ${p.complexity} · Категория: ${p.category}${uncheckedReason ? ' · БЕЗ РЕВЬЮ КРИТИКА' : ''}*`,
-    '',
-    '---',
-    '',
-    `@claude Реализуй это предложение. Ограничься файлами: ${p.files_to_change.join(', ')} (если нужен ещё файл — обоснуй в PR, не трогай защищённые: middleware.ts, lib/auth.ts, app/api/payments/, app/api/safety/sos).
-Definition of done — все критерии приёмки из этой задачи выполнены и проверяемы.
-Обязательно по CLAUDE.md: TypeScript strict (unknown + type guards, без any), все цвета — CSS vars, SQL только параметризованный ($1,$2) и import { pool } from '@/lib/db-pool', таблицы operator_bookings (booking_status) / operator_tours / v_kamchatka_routes_api (не устаревшие bookings и tours, не прямой выбор из kamchatka_routes), Zod-валидация входных данных API и JWT на защищённых роутах, AI только через callAIWaterfall/callAIFast, без отладочного console-вывода в продакшн-коде, без эмодзи в коде/UI/логах, новая миграция — следующий свободный номер, идемпотентная.
-Перед завершением: npx tsc --noEmit (0 ошибок) и npx vitest run (зелёные). Оформи изменения как PR, не пушь напрямую в main.`,
-  ].filter((x): x is string => x !== null).join('\n');
+  const issue = buildProposalIssue(p, { dateKey, uncheckedReason, autoRun });
 
   try {
     const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
@@ -505,11 +492,7 @@ Definition of done — все критерии приёмки из этой за
         'Accept': 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
-      body: JSON.stringify({
-        title: p.title,
-        body,
-        labels: ['agent-proposal', p.category],
-      }),
+      body: JSON.stringify(issue),
     });
     if (!res.ok) return null;
     const data = await res.json() as { html_url?: string };
@@ -756,13 +739,17 @@ export async function runScoutInnovator(
   // 8. GitHub Issues — каждое предложение → задача для агента-кодера
   const issueUrls: string[] = [];
   const createdTitles: string[] = [];
+  const autoRun = scoutAutoPrEnabled();
 
   for (const p of proposals) {
-    const url = await createGitHubIssue(p, dateKey, uncheckedReason.get(p.title) ?? null);
+    const url = await createGitHubIssue(p, dateKey, uncheckedReason.get(p.title) ?? null, autoRun);
     if (url) {
       issueUrls.push(url);
       createdTitles.push(p.title);
-      await tgSend(`<b>Создана задача для кодера</b>\n${p.title}\n${url}`);
+      // Без выключателя рука сама не начнёт — владельцу это сказано прямо.
+      await tgSend(autoRun
+        ? `<b>Создана задача для кодера</b>\n${p.title}\n${url}`
+        : `<b>Создана задача — ждёт вашей метки ${HAND_LABEL}</b>\nРука сама не начнёт.\n${p.title}\n${url}`);
     }
   }
 

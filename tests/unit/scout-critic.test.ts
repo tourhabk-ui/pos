@@ -18,6 +18,7 @@ vi.mock('@/lib/ai/providers', () => ({
 }));
 
 import { criticReviewProposal, criticPasses } from '@/lib/agents/scout-innovator';
+import { buildProposalIssue } from '@/lib/agents/scout-proposal-issue';
 
 const PROPOSAL = {
   title: 'Добавить кэш для маршрутов',
@@ -75,14 +76,25 @@ describe('criticReviewProposal', () => {
 describe('непроверенность видна человеку, а не только типу', () => {
   const SRC = readFileSync(join(process.cwd(), 'lib/agents/scout-innovator.ts'), 'utf8');
 
-  it('тело issue несёт пометку «критик не смог оценить»', () => {
-    expect(SRC).toMatch(/Критик НЕ СМОГ оценить это предложение/);
+  // Судится вызовом сборщика задачи (23.11), а не строкой исходника.
+  const proposal = {
+    title: 'Кэш прогноза', why: 'Зачем', files_to_change: ['lib/a.ts'], implementation_steps: ['шаг'],
+    acceptance_criteria: ['критерий'], complexity: 'small', category: 'fix',
+  };
+  const issueBody = (uncheckedReason: string | null) =>
+    buildProposalIssue(proposal, { dateKey: '2026-11-23', uncheckedReason, autoRun: false }).body;
+
+  it('тело issue несёт пометку «критик не смог оценить» с причиной', () => {
+    expect(issueBody('модель не ответила')).toContain('Критик НЕ СМОГ оценить это предложение:** модель не ответила');
+    expect(issueBody(null)).not.toContain('Критик НЕ СМОГ');
     expect(SRC).toMatch(/uncheckedReason/);
   });
 
   it('подпись issue тоже помечена', () => {
-    expect(SRC).toMatch(/БЕЗ РЕВЬЮ КРИТИКА/);
+    expect(issueBody('модель не ответила')).toContain('БЕЗ РЕВЬЮ КРИТИКА');
+    expect(issueBody(null)).not.toContain('БЕЗ РЕВЬЮ КРИТИКА');
   });
+
 
   it('немота критика попадает в лог', () => {
     expect(SRC).toMatch(/logSwallowedFailure\('scout-innovator', 'критик предложений'/);

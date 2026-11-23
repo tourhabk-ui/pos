@@ -23,8 +23,31 @@ on:
 # прогона подряд вместо двух параллельных — то же самое по деньгам. Здесь
 # нужен один, и побеждает последнее событие: новая просьба человека важнее
 # начатой работы по старой.
+#
+# В группу тикета встаёт только событие, которое руку ЗАПУСКАЕТ (аудит 23.11).
+# Группа считается раньше `if:` у работы: прежде в неё вставало любое событие
+# под тикетом, отменяло идущую руку и само пропускалось. По истории запусков
+# события cursor[bot] отменяли соседние прогоны за секунду (2904, 2920, 2923);
+# так же отменял работу комментарий без «@claude» и вторая метка у задачи.
+# Теперь событие, которое руку не запускает, получает собственную группу
+# (`claude-idle-<номер прогона>`) и не отменяет ничего.
+#
+# Условие здесь — то же, что `if:` у работы ниже, слово в слово: сторож
+# tests/unit/hand-foreign-event.test.ts вычисляет оба на одних событиях.
 concurrency:
-  group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+  group: >-
+    claude-${{
+    (
+    (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+    (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'agent-proposal') ||
+    (github.event_name == 'issues' && github.event.action != 'labeled' && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association) && !contains(github.event.issue.body, '<!-- scout-proposal -->')) ||
+    (github.event_name == 'issues' && github.event.action != 'labeled' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))) ||
+    (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+    (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
+    )
+    && (github.event.issue.number || github.event.pull_request.number)
+    || format('idle-{0}', github.run_id)
+    }}
   cancel-in-progress: true
 
 # Провайдер рук (решение владельца 03.11 «агентов переключи пока на
@@ -41,10 +64,16 @@ jobs:
     # и без лейбла agent-proposal, и владелец ждал автоматику впустую.
     # Репо публичный, поэтому чужие issues — по-прежнему только через лейбл
     # (его вешает владелец) или @claude-упоминание в комментарии владельца.
+    #
+    # Предложение разведки (пометка `<!-- scout-proposal -->` в теле) заводит
+    # токен владельца, а не человек: «открыл владелец» для него не довод
+    # (аудит 23.11). Руку по нему запускает метка agent-proposal — её ставит
+    # человек, либо сама разведка при SCOUT_AUTOPR=1
+    # (lib/agents/scout-proposal-issue.ts).
     if: |
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'agent-proposal') ||
-      (github.event_name == 'issues' && github.event.action != 'labeled' && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association)) ||
+      (github.event_name == 'issues' && github.event.action != 'labeled' && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association) && !contains(github.event.issue.body, '<!-- scout-proposal -->')) ||
       (github.event_name == 'issues' && github.event.action != 'labeled' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
