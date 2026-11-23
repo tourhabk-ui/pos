@@ -33,7 +33,8 @@ export async function GET(request: NextRequest) {
   try {
     if (request.nextUrl.searchParams.get('dry_run') === '1') {
       const ids = await listDueBookings();
-      recordCronRun('booking-auto-complete', startedAt, 'success', { items: ids.length });
+      // Сухой прогон отметки не ставит: строка «success» держала бы молчащий
+      // крон живым в панели, хотя ни одна бронь не завершена.
       return NextResponse.json({
         success: true,
         dry_run: true,
