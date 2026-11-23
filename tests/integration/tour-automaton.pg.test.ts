@@ -459,6 +459,8 @@ withPg('автомат предлагает правку тура', () => {
     it('снимки: владелец уже отправил свою галерею на проверку — крон её не трогает; тур не на сайте — в строку', async () => {
       const waiting = await addTour('Снимки: правка владельца', { published: true });
       await ownerSaves(waiting, { photos: [A, C] });
+      // Сухой прогон говорит то же, что боевой: «на проверку» он бы здесь соврал.
+      expect((await addPhotos(waiting, [B], true)).status).toBe('skipped_owner_pending');
       const kept = await addPhotos(waiting, [B]);
       expect(kept).toMatchObject({ status: 'skipped_owner_pending', was: [A, C], now: [A, C], added: 0 });
       expect((await draftOf(waiting)).patch).toEqual({ photos: [A, C] });
@@ -469,6 +471,11 @@ withPg('автомат предлагает правку тура', () => {
       expect((await addPhotos(draft, [B])).status).toBe('written');
       expect((await photosOf(draft)).photos).toEqual([A, B]);
       expect(await draftOf(draft)).toBeNull();
+      // Тур не на сайте, но уже просит публикацию: содержание замерло — и сухой прогон это знает.
+      await ownerSaves(draft, { is_published: true });
+      expect((await addPhotos(draft, [C], true)).status).toBe('would_stage');
+      expect((await addPhotos(draft, [C])).status).toBe('staged');
+      expect((await photosOf(draft)).photos).toEqual([A, B]);
       expect((await addPhotos('999999997', [B])).status).toBe('not_found');
     });
 
@@ -492,7 +499,19 @@ withPg('автомат предлагает правку тура', () => {
       expect(ok.status, JSON.stringify(ok.body)).toBe(200);
       expect((await photosOf(tour)).meeting_point).toBe('Забираем от гостиницы в 8:00');
 
+      // Владелец сам отправил точку сбора на проверку — крон её не перебивает, в том числе всухую.
+      const own = await addTour('Сбор: правка владельца', { published: true });
+      await ownerSaves(own, { meeting_point: 'Сбор у нашего офиса' });
+      for (const dryRun of [true, false]) {
+        expect(await setPickup(own, 'Забираем от гостиницы', dryRun))
+          .toMatchObject({ status: 'skipped_owner_pending', was: 'Сбор у нашего офиса' });
+      }
+      expect((await draftOf(own)).patch).toEqual({ meeting_point: 'Сбор у нашего офиса' });
+      expect((await draftOf(own)).proposed_by).toEqual({});
+
       const draft = await addTour('Сбор: черновик');
+      expect((await setPickup(draft, 'Встреча у автовокзала', true)).status).toBe('would_write');
+      expect((await photosOf(draft)).meeting_point).toBeNull();
       expect((await setPickup(draft, 'Встреча у автовокзала')).status).toBe('written');
       expect((await photosOf(draft)).meeting_point).toBe('Встреча у автовокзала');
       expect((await setPickup('999999996', 'Встреча у автовокзала')).status).toBe('not_found');
