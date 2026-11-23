@@ -165,6 +165,7 @@ describe('роут /api/cron/booking-auto-complete', () => {
     expect(dry.status).toBe(200);
     expect(await dry.json()).toMatchObject({ success: true, dry_run: true, due: 2, booking_ids_due: ['11', '12'] });
     expect(poolQuery).toHaveBeenCalledWith(DUE_BOOKINGS_SQL, [AUTO_COMPLETE_BATCH]);
+    expect(poolQuery.mock.calls.filter((c) => /agent_run_history/.test(String(c[0])))).toHaveLength(0);
     expect(completeBookingMock).not.toHaveBeenCalled();
     expect(awardMock).not.toHaveBeenCalled();
   });

@@ -45,6 +45,12 @@ export interface CronEntry {
    * `cron-registry-honesty.test.ts` выводит эндпоинт из workflow сам.
    */
   endpoint?: string;
+  /**
+   * Единственный запуск — расписание GitHub, второй ноги нет.
+   * Порог «молчит» тогда считается от фактической доставки Actions
+   * (lib/agents/cron-liveness.ts, GITHUB_CRON_FLOOR_MIN), а не от строки cron.
+   */
+  githubOnly?: boolean;
 }
 
 const DAY = 1440;
@@ -160,6 +166,7 @@ export const CRON_REGISTRY: CronEntry[] = [
     description: 'Единственный human gate: readiness agent-PR, карточка решения, label needs-owner-merge, Telegram владельцу.',
     workflow: 'volcano-merge-gate.yml', cron: '23,53 * * * *', schedule: 'каждые 30 мин + события PR',
     everyMin: 30, tier: 'ops', agentId: 'merge_gate', triggerable: false,
+    githubOnly: true,
   },
   {
     key: 'kernel-worker', label: 'Volcano OS Worker',
@@ -213,7 +220,7 @@ export const CRON_REGISTRY: CronEntry[] = [
     // /api/cron/prod-errors — дайджест серверных ошибок владельцу.
     endpoint: 'client-errors-census',
     workflow: 'cron-client-errors.yml', cron: '17 19 * * *', schedule: 'раз в сутки, 19:17 UTC (07:17 по Камчатке)',
-    everyMin: DAY, tier: 'ops', agentId: null, triggerable: false,
+    everyMin: DAY, tier: 'ops', agentId: 'client-errors-census', triggerable: false,
   },
   {
     key: 'payments', label: 'Abandoned Booking Recovery',
@@ -233,6 +240,7 @@ export const CRON_REGISTRY: CronEntry[] = [
     description: 'Запросы мест без ответа оператора за 2 часа → «оператор не ответил», сообщение туристу.',
     workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
     everyMin: 30, tier: 'ops', agentId: 'seat-requests-expire', triggerable: false,
+    githubOnly: true,
     endpoint: 'seat-requests-expire',
   },
   {
@@ -247,6 +255,7 @@ export const CRON_REGISTRY: CronEntry[] = [
     description: 'Подписки агентов на изменения заявок (notify_url, 1348): сверка вида заявки и подписанный POST с разницей.',
     workflow: 'cron-safety-heartbeat.yml', cron: '12,42 * * * *', schedule: 'каждые 30 мин',
     everyMin: 30, tier: 'ops', agentId: 'agent-request-notify', triggerable: false,
+    githubOnly: true,
     endpoint: 'agent-request-notify',
   },
   {
@@ -281,14 +290,14 @@ export const CRON_REGISTRY: CronEntry[] = [
     // Общий workflow с просьбой об отзыве: первым шагом завершает, вторым — просит.
     endpoint: 'booking-auto-complete',
     workflow: 'cron-tour-review-request.yml', cron: '0 8 * * *', schedule: 'ежедневно · 08:00 UTC',
-    everyMin: DAY, tier: 'ops', agentId: null, triggerable: false,
+    everyMin: DAY, tier: 'ops', agentId: 'booking-auto-complete', triggerable: false,
   },
   {
     key: 'tour-review-request', label: 'Tour Review Request',
     description: 'Просьба оставить отзыв по завершённым (completed) броням.',
     endpoint: 'tour-review-request',
     workflow: 'cron-tour-review-request.yml', cron: '0 8 * * *', schedule: 'ежедневно · 08:00 UTC',
-    everyMin: DAY, tier: 'ops', agentId: null, triggerable: false,
+    everyMin: DAY, tier: 'ops', agentId: 'tour-review-request', triggerable: false,
   },
   {
     key: 'trip-reminders', label: 'Trip Situation',
@@ -313,7 +322,7 @@ export const CRON_REGISTRY: CronEntry[] = [
     key: 'ssr-sentinel', label: 'SSR-сторож листингов',
     description: 'Проверка SSR листингов /routes, /operators (SEO).',
     workflow: 'cron-ssr-sentinel.yml', cron: '0 5 * * 1', schedule: 'пн · 05:00 UTC',
-    everyMin: WEEK, tier: 'ops', agentId: null, triggerable: false,
+    everyMin: WEEK, tier: 'ops', agentId: 'ssr-sentinel', triggerable: false,
   },
 
   {
@@ -379,11 +388,11 @@ export const CRON_REGISTRY: CronEntry[] = [
   },
   {
     // Аудит агентов 02.11, пробел #5: плохие оценки грейдера — в одно Issue
-    // раз в неделю. Эндпоинт только читает, телеметрии прогона не пишет.
+    // раз в неделю. Эндпоинт только читает и пишет строку прогона.
     key: 'kuzmich-bad-outcomes', label: 'Кузьмич: плохие оценки (свод)',
     description: 'Еженедельный свод плохих оценок Кузьмича по типам в Issue, без ПД.',
     workflow: 'kuzmich-bad-outcomes-digest.yml', cron: '0 6 * * 1', schedule: 'пн · 06:00 UTC',
-    everyMin: WEEK, tier: 'quality', agentId: null, triggerable: false,
+    everyMin: WEEK, tier: 'quality', agentId: 'kuzmich-bad-outcomes', triggerable: false,
     endpoint: 'kuzmich-bad-outcomes',
   },
   {
@@ -398,27 +407,32 @@ export const CRON_REGISTRY: CronEntry[] = [
   {
     // Разбор находок эволюции идёт НА РАННЕРЕ: api.anthropic.com закрыт по
     // гео из России, где стоит прод, а раннер вне РФ — релей не нужен.
-    // В прод ходит только за находками (evo-issues), сам ничего не пишет.
+    // Прод только отдаёт список находок. Строка журнала на этой выдаче
+    // считалась бы прогоном судьи, хотя модель в неё не входит. Расход
+    // виден в книгах по ключу реестра. agentId нет намеренно.
     key: 'evo-judge', label: 'Evo Judge',
     description: 'Разбор находок эволюции сильной моделью на раннере.',
     workflow: 'evo-judge.yml', cron: '20 10 * * *', schedule: 'ежедневно · 10:20 UTC',
+    endpoint: 'evo-issues',
     everyMin: DAY, tier: 'quality', agentId: null, triggerable: false,
   },
   {
     // AI-ревью кода Growth Scan идёт НА РАННЕРЕ той же причиной, что у
     // evo-judge: гео-блок Cloudflare касается только прода в РФ. Прод отдаёт
-    // список файлов (evo-review-job) и принимает готовые находки
-    // (evo-findings) — сам модель не зовёт, telemetry по agentId не пишет.
+    // список файлов и принимает готовые находки — сам модель не зовёт.
+    // Журнал выдачи списка выглядел бы прогоном ревью. Расход — в книгах
+    // по ключу реестра. agentId нет намеренно.
     key: 'evo-review', label: 'Evo Review',
     description: 'AI-ревью кода Growth Scan на раннере (без гео-блока) + запись находок.',
     workflow: 'evo-review.yml', cron: '11 19 * * *', schedule: 'ежедневно · 19:11 UTC (07:11 по Камчатке)',
+    endpoint: 'evo-review-job',
     everyMin: DAY, tier: 'growth', agentId: null, triggerable: false,
   },
   {
     key: 'kb-gap', label: 'KB Gap',
     description: 'Анализ пробелов в знаниях Кузьмича.',
     workflow: 'cron-kb-gap.yml', cron: '0 4 * * *', schedule: 'ежедневно · 04:00 UTC',
-    everyMin: DAY, tier: 'quality', agentId: null, triggerable: false,
+    everyMin: DAY, tier: 'quality', agentId: 'kb-gap', triggerable: false,
   },
 
   // ── Рост ─────────────────────────────────────────────────────────────────
@@ -458,13 +472,13 @@ export const CRON_REGISTRY: CronEntry[] = [
     key: 'engagement', label: 'Engagement',
     description: 'Реэнгейджмент туристов Кузьмичом.',
     workflow: 'cron-engagement.yml', cron: '0 10 * * *', schedule: 'ежедневно · 10:00 UTC',
-    everyMin: DAY, tier: 'growth', agentId: null, triggerable: false,
+    everyMin: DAY, tier: 'growth', agentId: 'engagement', triggerable: false,
   },
   {
     key: 'smart-notify', label: 'Smart Notify',
     description: 'Матч туров под предпочтения пользователя.',
     workflow: 'cron-smart-notify.yml', cron: '0 11 * * *', schedule: 'ежедневно · 11:00 UTC',
-    everyMin: DAY, tier: 'growth', agentId: null, triggerable: false,
+    everyMin: DAY, tier: 'growth', agentId: 'smart-notify', triggerable: false,
   },
   {
     key: 'osm-traces-scout', label: 'OSM Traces Scout',
@@ -514,13 +528,13 @@ export const CRON_REGISTRY: CronEntry[] = [
     // слово владельца (lib/places/model-place-text.ts), отвечает paused.
     description: 'Описания мест моделью по названию. Выключено словом владельца 22.10.',
     workflow: 'cron-enrich-routes.yml', cron: '0 23 * * *', schedule: 'ежедневно · 23:00 UTC (off-peak)',
-    everyMin: DAY, tier: 'content', agentId: null, triggerable: false,
+    everyMin: DAY, tier: 'content', agentId: 'enrich-routes', triggerable: false,
   },
   {
     key: 'routes-cache', label: 'Routes Cache Refresh',
     description: 'Обновление кэша описаний маршрутов.',
     workflow: 'cron-routes-cache.yml', endpoint: 'routes-cache-refresh', cron: '0 13 * * *', schedule: 'ежедневно · 13:00 UTC',
-    everyMin: DAY, tier: 'content', agentId: null, triggerable: false,
+    everyMin: DAY, tier: 'content', agentId: 'routes-cache', triggerable: false,
   },
   {
     // 20.11, слово владельца «Статус открыт/закрыт»: колонка «Статус» страницы
@@ -536,25 +550,25 @@ export const CRON_REGISTRY: CronEntry[] = [
     // перепроверка стоящих идёт дальше и снимает сказанное сверх данных места.
     description: 'Перепроверка заметок Кузьмича о местах. Новых не пишет (слово владельца 22.10).',
     workflow: 'cron-kuzmich-places.yml', cron: '33 0 * * *', schedule: 'ежедневно · 00:33 UTC',
-    everyMin: DAY, tier: 'content', agentId: null, triggerable: false,
+    everyMin: DAY, tier: 'content', agentId: 'kuzmich-places', triggerable: false,
   },
   {
     key: 'import-routes', label: 'Import Route Passports',
     description: 'Паспорта маршрутов visitkamchatka.ru.',
     workflow: 'cron-import-routes.yml', cron: '0 0 * * *', schedule: 'ежедневно · 00:00 UTC',
-    everyMin: DAY, tier: 'content', agentId: null, triggerable: false,
+    everyMin: DAY, tier: 'content', agentId: 'import-routes', triggerable: false,
   },
   {
     key: 'kuzmich-route', label: 'Kuzmich Route Post',
     description: 'Пост о маршруте в канал (TG + MAX).',
     workflow: 'cron-kuzmich-route.yml', cron: '0 9 * * *', schedule: 'ежедневно · 09:00 UTC',
-    everyMin: DAY, tier: 'content', agentId: null, triggerable: false,
+    everyMin: DAY, tier: 'content', agentId: 'kuzmich-route', triggerable: false,
   },
   {
     key: 'kuzmich-tip', label: 'Kuzmich Tip Post',
     description: 'Совет туристу в канал.',
     workflow: 'cron-kuzmich-tip.yml', cron: '0 14 * * 1,3,5', schedule: 'пн/ср/пт · 14:00 UTC',
-    everyMin: 4320, tier: 'content', agentId: null, triggerable: false,
+    everyMin: 4320, tier: 'content', agentId: 'kuzmich-tip', triggerable: false,
   },
   {
     // 05.09: был kuzmich-sezon (вт/сб). Решение владельца — вместо сезонных
@@ -562,7 +576,7 @@ export const CRON_REGISTRY: CronEntry[] = [
     key: 'kuzmich-tour', label: 'Kuzmich Tour Post',
     description: 'Живой тур оператора в канал — текст из карточки, фото оператора.',
     workflow: 'cron-kuzmich-tour.yml', cron: '23 7 * * *', schedule: 'ежедневно · 07:23 UTC',
-    everyMin: DAY, tier: 'content', agentId: null, triggerable: false,
+    everyMin: DAY, tier: 'content', agentId: 'kuzmich-tour', triggerable: false,
   },
   // place-images удалён из реестра 29.07: генерация AI-обложек остановлена
   // решением владельца (issue #878). Запись нельзя было просто оставить с

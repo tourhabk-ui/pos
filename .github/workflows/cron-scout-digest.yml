@@ -141,37 +141,19 @@ jobs:
                   body['x_source'] = {'ok': False, 'reason': f'файл результата не прочитан: {e}'}
           json.dump(body, open('/tmp/digest-body.json', 'w'), ensure_ascii=False)
           PY
-          # Ретрай только шлюзовых 502/503/504 и обрыва соединения (000).
-          # Прогон 44954714899 (22.11 10:03 Камчатка) и 43020712927 (11.11):
-          # curl к vedarai.ru/api/cron/scout-digest вернул HTTP 502 с пустым
-          # телом за ~18 с / ~147 с — это не таймаут curl (потолок 900 с) и
-          # не отказ конкретного RSS: роут приложения отдаёт 401/500, 502
-          # приходит от шлюза или origin. Один вызов без повтора краснил
-          # весь прогон. 401/404/5xx приложения не повторяем.
-          ATTEMPT=1
-          HTTP=""
-          while [ "$ATTEMPT" -le 3 ]; do
-            HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 900 \
-              -X POST "https://vedarai.ru/api/cron/scout-digest" \
-              -H "Authorization: Bearer $CRON_SECRET" \
-              -H "Content-Type: application/json" \
-              --data-binary @/tmp/digest-body.json)
-            echo "попытка $ATTEMPT: HTTP $HTTP"
-            if [ "$HTTP" = "200" ]; then
-              break
-            fi
-            if [ "$HTTP" != "502" ] && [ "$HTTP" != "503" ] && [ "$HTTP" != "504" ] && [ "$HTTP" != "000" ]; then
-              break
-            fi
-            if [ "$ATTEMPT" -lt 3 ]; then
-              SLEEP=$((20 * ATTEMPT))
-              echo "шлюз $HTTP — повтор через ${SLEEP}с"
-              sleep "$SLEEP"
-            fi
-            ATTEMPT=$((ATTEMPT + 1))
-          done
+          # Ретрай только шлюзовых 502/503/504 и обрыва (000). Прогоны
+          # 44954714899 и 43020712927: пустое тело за 18 и 147 с — шлюз,
+          # не роут и не RSS. Скрипт называет адрес в ::error::. 401/429/500
+          # роута не повторяет.
+          node scripts/cron-gateway-retry.mjs \
+            --max-time 900 \
+            --url "https://vedarai.ru/api/cron/scout-digest" \
+            -o /tmp/out.json \
+            --method POST \
+            --data /tmp/digest-body.json \
+            --attempts 3 \
+            --pause 20,40
           cat /tmp/out.json 2>/dev/null || true
-          [ "$HTTP" = "200" ] || { echo "FAIL $HTTP"; exit 1; }
 
           # Молчание подряд краснит прогон.
           #

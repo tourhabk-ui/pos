@@ -16,6 +16,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { enrichDescriptions } from '@/app/api/admin/enrich-routes/route';
 import { withSpendAgent } from '@/lib/ai/usage-context';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -31,12 +32,18 @@ export async function GET(request: NextRequest) {
   if (!timingSafeCompare(secret, cronSecret)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const startedAt = Date.now();
 
   try {
     // Прямой вызов логики обогащения — без HTTP self-call (он падал с "fetch failed":
     // сервер не всегда может дёрнуть собственный публичный домен / hairpin NAT).
-    return await enrichDescriptions(20, false, false);
+    const res = await enrichDescriptions(20, false, false);
+    recordCronRun('enrich-routes', startedAt, res.ok ? 'success' : 'failed', {
+      error: res.ok ? undefined : 'описания не записались',
+    });
+    return res;
   } catch (err) {
+    recordCronRun('enrich-routes', startedAt, 'failed', { error: 'описания не записались' });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Internal error' },
       { status: 500 }

@@ -27,7 +27,6 @@ export async function GET(request: NextRequest) {
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-
   try {
     const { reviewFiles, source, listed } = await computeReviewFileList();
     const learnedLessonsBlock = lessonsPromptBlock(
@@ -41,8 +40,9 @@ export async function GET(request: NextRequest) {
       listed,
     });
   } catch (err) {
+    console.error('[evo-review-job]', err instanceof Error ? err.message : err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Не удалось собрать список файлов на ревью' },
+      { error: 'список файлов не собрался' },
       { status: 500 },
     );
   }

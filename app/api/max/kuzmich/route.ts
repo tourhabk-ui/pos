@@ -39,6 +39,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyCronSecret } from '@/lib/auth/cron';
 import type { Api } from '@maxhub/max-bot-api';
 import { maxBot } from '@/lib/max/max-fetch';
+import { applyChatMemory } from '@/lib/max/bot-chats';
+import { MAX_BOT_UPDATE_TYPES } from '@/lib/max/update-types';
 import { type PendingBooking, cleanupPending, hasLiveBookingFlow, processMessage } from '@/lib/kuzmich/core';
 import { boundChatContext, boundChatLaneFor } from '@/lib/kuzmich/bound-chat-route';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
@@ -2291,6 +2293,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Каждый апдейт — в своей обёртке: сбой одного не съедает остальные.
   for (const update of updates) {
     try {
+      // chat_id — только с заверенного апдейта. Отказ записи не останавливает ответ.
+      await applyChatMemory(update);
       await handleUpdateTracked(update, { verifiedOrigin });
     } catch (err) {
       logFailure(`обработка апдейта ${updateKind(update)}`, err);
@@ -2318,7 +2322,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (pollingMarker) extra.marker = pollingMarker;
 
     const response = await api.getUpdates(
-      ['message_created', 'bot_started', 'message_callback'],
+      [...MAX_BOT_UPDATE_TYPES],
       extra as Parameters<typeof api.getUpdates>[1],
     );
 
@@ -2328,6 +2332,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     for (const update of response.updates) {
       // Long-polling заверен по построению: апдейты забрали мы сами у MAX
       // по токену бота — форжить тут нечего.
+      await applyChatMemory(update);
       await handleUpdateTracked(update as unknown as MaxUpdate, { verifiedOrigin: true });
       processed++;
     }

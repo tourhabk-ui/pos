@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { refreshRoutesWithoutCache } from '@/lib/services/routes/route-description-cache';
 import { verifyCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { withSpendAgent } from '@/lib/ai/usage-context';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export async function POST(req: NextRequest) {
   return withSpendAgent('routes-cache', async () => {
@@ -22,6 +23,7 @@ export async function POST(req: NextRequest) {
   if (!verifyCronSecret(req)) {
     return NextResponse.json({ error: 'Unauthorized', ...diagnoseCronAuth(req) }, { status: 401 });
   }
+  const startedAt = Date.now();
 
   try {
     const limit = parseInt(req.nextUrl.searchParams.get('limit') || '50', 10);
@@ -32,6 +34,7 @@ export async function POST(req: NextRequest) {
       console.info('[routes-cache] ' + message);
     }
 
+    recordCronRun('routes-cache', startedAt, 'success', { items: updated });
     return NextResponse.json({
       success: true,
       updated,
@@ -43,8 +46,9 @@ export async function POST(req: NextRequest) {
       console.error('[routes-cache] ' + message);
     }
 
+    recordCronRun('routes-cache', startedAt, 'failed', { error: 'кэш описаний не обновился' });
     return NextResponse.json(
-      { success: false, error: message },
+      { success: false, error: 'кэш описаний не обновился' },
       { status: 500 }
     );
   }

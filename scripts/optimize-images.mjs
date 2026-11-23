@@ -58,7 +58,7 @@ const MIN_BYTES = 50 * 1024;
 // 320 — для плиток 80–100 px (филмстрип тура, миниатюры): 640 туда шёл
 // в 7 раз больше нужного (аудит 02.10).
 const WIDTHS = [320, 640, 1280];
-const QUALITY = { 320: 70, 640: 72, 1280: 74 };
+const QUALITY = { 320: 70, 640: 72, 768: 73, 1280: 74 };
 
 /**
  * Фото-элементы LCP: кроме 320/640 — WebP в родную ширину исходника, когда
@@ -67,8 +67,12 @@ const QUALITY = { 320: 70, 640: 72, 1280: 74 };
  * 720 px) варианта 640 мало, а следующего не было, и LCP грузился 2 с. Только
  * по списку: родная ширина у всех 150 таких исходников — это сотни файлов и
  * другая цена картинки на десятке поверхностей, отдельное решение.
+ *
+ * 23.11: между 640 и 1024 добавлена ширина 768 — как раз под 721 px
+ * (412 × 1,75). Без неё телефон брал 1024 (84 КБ) вместо ~46 КБ.
  */
 const NATIVE_WIDTH_FOR = new Set(['/images/hero/hero-light.jpeg', '/images/hero/hero-dark.jpeg']);
+const HERO_MID_WIDTH = 768;
 
 /** Наши же сгенерированные варианты — не входы. */
 const VARIANT_RE = /\.(320|640|1280)\.webp$/;
@@ -121,6 +125,19 @@ for await (const file of sources()) {
 
   const native = meta.width ?? 0;
   if (NATIVE_WIDTH_FOR.has(entry.src) && native > 640 && !entry.widths.includes(1280)) {
+    if (native > HERO_MID_WIDTH && !entry.widths.includes(HERO_MID_WIDTH)) {
+      const mid = file.replace(SOURCE_RE, `.${HERO_MID_WIDTH}.webp`);
+      entry.widths.push(HERO_MID_WIDTH);
+      if (existsSync(mid) && statSync(mid).mtimeMs >= st.mtimeMs) kept++;
+      else {
+        await sharp(file)
+          .rotate()
+          .resize({ width: HERO_MID_WIDTH, withoutEnlargement: true })
+          .webp({ quality: QUALITY[HERO_MID_WIDTH] })
+          .toFile(mid);
+        made++;
+      }
+    }
     const out = file.replace(SOURCE_RE, `.${native}.webp`);
     entry.widths.push(native);
     if (existsSync(out) && statSync(out).mtimeMs >= st.mtimeMs) kept++;

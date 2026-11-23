@@ -31,6 +31,7 @@ const m = vi.hoisted(() => ({ maxFetch: vi.fn() }));
 vi.mock('@/lib/max/max-fetch', () => ({ maxFetch: m.maxFetch }));
 
 import { RETRY_DELAYS_MS, ensureMaxSubscriptionOnStart, subscribeMaxOnStart } from '@/lib/max/startup-subscription';
+import { MAX_BOT_UPDATE_TYPES } from '@/lib/max/update-types';
 import { maxWebhookUrl } from '@/lib/max/webhook-url';
 
 const KEY = 'startup-key-never-in-logs';
@@ -76,10 +77,20 @@ describe('подписка MAX при старте', () => {
     expect(logged()).not.toContain(KEY);
   });
 
-  it('подписка с ключом на месте — повторно не ставится', async () => {
-    m.maxFetch.mockResolvedValueOnce(json({ subscriptions: [{ url: KEYED }] }));
+  it('подписка с ключом и полным списком событий — повторно не ставится', async () => {
+    m.maxFetch.mockResolvedValueOnce(json({ subscriptions: [{ url: KEYED, update_types: [...MAX_BOT_UPDATE_TYPES] }] }));
     expect(await ensureMaxSubscriptionOnStart()).toEqual({ outcome: 'present' });
     expect(calls().map((c) => c.method)).toEqual(['GET']);
+  });
+
+  it('адрес на месте, но нет bot_added и bot_removed — подписка ставится заново', async () => {
+    m.maxFetch
+      .mockResolvedValueOnce(json({ subscriptions: [{ url: KEYED, update_types: ['bot_started', 'message_created', 'message_callback'] }] }))
+      .mockResolvedValueOnce(json({ success: true }));
+    expect(await ensureMaxSubscriptionOnStart()).toEqual({ outcome: 'registered' });
+    const posted = calls()[1]!.body as { url: string; update_types: string[] };
+    expect(posted.url).toBe(KEYED);
+    expect(posted.update_types).toEqual([...MAX_BOT_UPDATE_TYPES]);
   });
 
   it('есть только старая подписка без ключа — ставится с ключом', async () => {

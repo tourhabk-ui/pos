@@ -172,18 +172,18 @@ export function parseArticleMarkdown(md: string): Block[] {
       }
       blocks.push({ t: 'ol', items }); continue;
     }
-    if ((m = line.match(/^\*\*(.+\?)\*\*\s*$/))) {
+    if ((m = line.match(/^\*\*(.+[?？])\*\*\s*$/))) {
       const q = parseInline(m[1]);
       i += 1;
       const a: Inline[][] = [];
-      while (i < lines.length && lines[i].trim() && !/^(#|\||\s*[-*]\s|\s*\d+\.\s|\*\*.+\?\*\*\s*$)/.test(lines[i])) {
+      while (i < lines.length && lines[i].trim() && !/^(#|\||\s*[-*]\s|\s*\d+\.\s|\*\*.+[?？]\*\*\s*$)/.test(lines[i])) {
         a.push(parseInline(lines[i].trim())); i += 1;
       }
       blocks.push({ t: 'qa', q, qText: inlineText(q), a }); continue;
     }
     const para: string[] = [];
     while (i < lines.length && lines[i].trim() && !/^(#{1,3}\s|\s*\||\s*[-*]\s+|\s*\d+\.\s+)/.test(lines[i])
-      && !/^\*\*.+\?\*\*\s*$/.test(lines[i])) {
+      && !/^\*\*.+[?？]\*\*\s*$/.test(lines[i])) {
       para.push(lines[i].trim()); i += 1;
     }
     blocks.push({ t: 'p', c: parseInline(para.join(' ')) });

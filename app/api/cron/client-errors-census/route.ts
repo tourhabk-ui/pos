@@ -26,6 +26,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { tgSend } from '@/lib/notifications/tg-send';
 import { escapeHtml } from '@/lib/text/escape-html';
 
@@ -111,6 +112,8 @@ export async function GET(req: NextRequest) {
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const startedAt = Date.now();
+  try {
   const daysRaw = Number(req.nextUrl.searchParams.get('days') ?? '1');
   const days = Number.isFinite(daysRaw) && daysRaw >= 1 && daysRaw <= 30 ? Math.floor(daysRaw) : 1;
   const prune = req.nextUrl.searchParams.get('prune') === '1';
@@ -162,6 +165,11 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  recordCronRun('client-errors-census', startedAt, failed.length === 0 ? 'success' : 'partial', {
+    items: t?.rows ?? 0,
+    error: failed.length ? 'часть переписи не сосчиталась' : undefined,
+  });
+
   return NextResponse.json({
     ok: failed.length === 0,
     window_days: days,
@@ -177,4 +185,10 @@ export async function GET(req: NextRequest) {
     failed_measures: failed,
     note: 'Группы — по отпечатку (род + сообщение без чисел + первый кадр стека). Внешние без своих (cookie vedar_self) и ботов. visitor_days — человеко-дни суточного hash, не люди. ПД в строках нет: чистка на входе.',
   });
+  } catch (err) {
+    const code = (err as { code?: unknown })?.code;
+    console.error('[client-errors-census]', typeof code === 'string' ? code : '', err instanceof Error ? err.message : err);
+    recordCronRun('client-errors-census', startedAt, 'failed', { error: 'перепись ошибок не сосчиталась' });
+    return NextResponse.json({ ok: false, error: 'перепись ошибок не сосчиталась' }, { status: 500 });
+  }
 }

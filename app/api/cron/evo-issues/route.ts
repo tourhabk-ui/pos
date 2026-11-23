@@ -22,7 +22,6 @@ export async function GET(request: NextRequest) {
 
   const daysRaw = parseInt(request.nextUrl.searchParams.get('days') ?? '7', 10);
   const days = Math.min(Math.max(Number.isFinite(daysRaw) ? daysRaw : 7, 1), 90);
-
   try {
     const { rows } = await pool.query<{
       id: string; category: string; severity: string; file_path: string | null;

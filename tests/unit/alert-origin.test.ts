@@ -148,7 +148,8 @@ describe('статус берёт источник у верхней трево�
   });
 
   it('SQL верхней тревоги отдаёт external_id и source_url — по ним и узнаётся происхождение', () => {
-    expect(STATUS).toMatch(/SELECT title, alert_type, external_id, source_url\s*\n\s*FROM external_alerts/);
+    // После source_url могут идти другие колонки (affected_zones — зоны тревоги для шапки /trip, #3690).
+    expect(STATUS).toMatch(/SELECT title, alert_type, external_id, source_url(?:, [a-z_]+)*\s*\n\s*FROM external_alerts/);
     expect(STATUS).toMatch(/alertOrigin\(top\.external_id, top\.source_url\)/);
     expect(STATUS).toMatch(/UNKNOWN_ORIGIN_TEXT/);
   });

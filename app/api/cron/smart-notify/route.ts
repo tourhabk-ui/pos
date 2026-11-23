@@ -16,6 +16,7 @@ import { publicTourSql } from '@/lib/tours/public-visibility';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,6 +51,7 @@ export async function GET(req: NextRequest) {
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const startedAt = Date.now();
 
   try {
     // 1. New/updated published tours in last 24 hours (matches rate-limit window)
@@ -62,6 +64,7 @@ export async function GET(req: NextRequest) {
     );
 
     if (newTours.length === 0) {
+      recordCronRun('smart-notify', startedAt, 'success', { items: 0 });
       return NextResponse.json({ ok: true, matched: 0, reason: 'no new tours' });
     }
 
@@ -114,9 +117,12 @@ export async function GET(req: NextRequest) {
       sent++;
     }
 
+    recordCronRun('smart-notify', startedAt, 'success', { items: sent });
     return NextResponse.json({ ok: true, new_tours: newTours.length, users_checked: users.length, sent });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    recordCronRun('smart-notify', startedAt, 'failed', { error: 'рассылка не выполнилась' });
+    console.error('[smart-notify]', err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: 'рассылка не выполнилась' }, { status: 500 });
   }
 }
 

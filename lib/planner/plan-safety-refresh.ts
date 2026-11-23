@@ -30,10 +30,12 @@ import { applyPlanParkStatus, type PlanParkQuery } from './park-status';
 import { loadActiveWarnings, type ActiveWarningLoad } from '@/lib/safety/active-warnings';
 import {
   isOfferingNote, MCHS_UNREAD_NOTE, notesForPlanDay, offeringSentence, splitWarningsForTrip, warningDigest,
+  warningsForPlanZones,
 } from '@/lib/safety/mchs-bulletin';
 import { dateOfTripDay } from './flow-balance';
 import {
   applyPlanOfficialAlerts, dayZones, isOfficialAlertNote, officialAlertsPlanWarning, OFFICIAL_ALERTS_UNREAD_NOTE,
+  planSafetyScope,
 } from './official-alerts';
 import type { DayPlan } from './engine';
 
@@ -136,7 +138,10 @@ export async function refreshDatedSafety(
         const fresh = notesForPlanDay(`${d.title} ${d.description ?? ''}`, dayZones(d), forTrip);
         d.dayWarnings = [...kept, ...fresh.filter((n) => !kept.includes(n))];
       }
-      const digest = warningDigest(forTrip);
+      // Тот же фильтр по зонам, что у первой сборки плана (engine): иначе
+      // правка дат показала бы сводку, которую план прятал, и наоборот.
+      const scope = planSafetyScope(days);
+      const digest = warningDigest(warningsForPlanZones(forTrip, scope.zones, scope.texts));
       if (digest) warnings.push(digest);
     }
   }

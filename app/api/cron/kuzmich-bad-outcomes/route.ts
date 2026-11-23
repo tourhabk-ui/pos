@@ -13,6 +13,7 @@ import { getCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { clusterOutcomes, type OutcomeRowLite } from '@/lib/kuzmich/bad-outcome-clusters';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -47,6 +48,7 @@ export async function GET(request: NextRequest) {
   }
   const raw = parseInt(request.nextUrl.searchParams.get('days') ?? '7', 10);
   const days = Number.isFinite(raw) ? Math.min(90, Math.max(1, raw)) : 7;
+  const startedAt = Date.now();
   try {
     const [bad, total] = await Promise.all([
       pool.query<OutcomeRowLite>(SQL, [days]),
@@ -54,6 +56,7 @@ export async function GET(request: NextRequest) {
     ]);
     const rows = bad.rows;
     const count = (f: (r: OutcomeRowLite) => string) => rows.reduce<Record<string, number>>((m, r) => { const k = f(r); m[k] = (m[k] ?? 0) + 1; return m; }, {});
+    recordCronRun('kuzmich-bad-outcomes', startedAt, 'success', { items: rows.length });
     return NextResponse.json({
       ok: true,
       days,
@@ -74,6 +77,7 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     const code = (err as { code?: unknown })?.code;
     console.error('[kuzmich-bad-outcomes] чтение не удалось:', typeof code === 'string' ? `SQLSTATE=${code}` : '', err instanceof Error ? err.message : err);
+    recordCronRun('kuzmich-bad-outcomes', startedAt, 'failed', { error: 'свод не прочитался' });
     return NextResponse.json({ ok: false, error: 'свод не прочитался', sqlstate: typeof code === 'string' ? code : null }, { status: 502 });
   }
 }

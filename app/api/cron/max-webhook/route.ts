@@ -10,7 +10,10 @@
  * подписок MAX, и если его нет — регистрирует заново. Прогоняется по расписанию
  * (крон-воркфлоу) и вручную (workflow_dispatch), чтобы поднять бота немедленно.
  *
- * Идемпотентно: если подписка уже на месте — ничего не меняет.
+ * Если адрес на месте и в подписке есть все события из MAX_BOT_UPDATE_TYPES
+ * (в том числе bot_added и bot_removed, без них бот не узнает новые чаты) —
+ * ничего не меняет. Адреса нет или список событий неполный — POST
+ * /subscriptions заново: так документация MAX велит добавлять события.
  *
  * Регистрация и снятие засчитываются по ответу MAX целиком (HTTP-код и поле
  * `success`, `lib/max/subscription-response`), а после любой правки — по
@@ -41,14 +44,15 @@ import { maxWebhookUrl, redactWebhookUrl } from '@/lib/max/webhook-url';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { type MaxActionOutcome, readMaxAction, scrubMaxReason } from '@/lib/max/subscription-response';
 import { syncMaxBotCommands, type MaxBotCommandsOutcome } from '@/lib/max/bot-commands';
+import { MAX_BOT_UPDATE_TYPES, subscriptionCoversBotChats } from '@/lib/max/update-types';
 
 export const dynamic = 'force-dynamic';
 
 // MAX Bot API v2 — старый platform-api.max.ru выведен из эксплуатации.
 const MAX_API_BASE = 'https://platform-api2.max.ru';
-const UPDATE_TYPES = ['bot_started', 'message_created', 'message_callback'];
+const UPDATE_TYPES = [...MAX_BOT_UPDATE_TYPES];
 
-interface MaxSubscription { url?: string }
+interface MaxSubscription { url?: string; update_types?: unknown }
 
 /**
  * Причина сетевого отказа. 223 прогона подряд писали только «fetch failed», и
@@ -313,7 +317,9 @@ export async function GET(req: Request): Promise<NextResponse> {
     );
   }
 
-  const alreadyRegistered = current.some(s => s.url === webhookUrl);
+  const urlMatch = current.some(s => s.url === webhookUrl);
+  const typesOk = current.some(s => s.url === webhookUrl && subscriptionCoversBotChats(s.update_types));
+  const alreadyComplete = urlMatch && typesOk;
 
   // Чужие вебхуки бота — «плохо» при любом исходе остального: копия на чужом
   // хосте получает апдейты людей. Не снимаются: чей хост, решает человек.
@@ -331,10 +337,11 @@ export async function GET(req: Request): Promise<NextResponse> {
     console.error(`[cron/max-webhook] бот подписан на чужой хост ${f.host}: ${f.sign}`);
   }
 
-  // 2. Подписки нет — регистрируем заново (самолечение). Засчитывается по
-  //    ответу MAX: `success: false` при HTTP 200 — отказ, а не «поставлена».
+  // 2. Подписки нет или в ней нет событий чатов — регистрируем заново.
+  //    Засчитывается по ответу MAX: `success: false` при HTTP 200 — отказ,
+  //    а не «поставлена».
   let registerStatus = 0;
-  if (!alreadyRegistered) {
+  if (!alreadyComplete) {
     try {
       const reg = await register(webhookUrl, headers);
       registerStatus = reg.status;
@@ -354,10 +361,13 @@ export async function GET(req: Request): Promise<NextResponse> {
 
   // 3. Снять наши старые подписки — только когда ожидаемая уже стоит.
   const stale = await removeStale(current, webhookUrl, headers);
-  const action = !alreadyRegistered ? 'registered' : stale.removed.length > 0 ? 'removed_stale' : 'noop';
+  const action = !urlMatch ? 'registered' : !typesOk ? 'events_updated' : stale.removed.length > 0 ? 'removed_stale' : 'noop';
   const base = {
     action,
-    ...(alreadyRegistered ? {} : { reason: listOk ? 'subscription_missing' : 'list_unavailable', register_status: registerStatus }),
+    ...(alreadyComplete ? {} : {
+      reason: !listOk ? 'list_unavailable' : urlMatch ? 'events_incomplete' : 'subscription_missing',
+      register_status: registerStatus,
+    }),
     webhook_url: redactWebhookUrl(webhookUrl),
     update_types: UPDATE_TYPES,
     subscriptions: current.length,
@@ -367,14 +377,16 @@ export async function GET(req: Request): Promise<NextResponse> {
   const foreignOk = foreign.length === 0;
 
   // Ничего не меняли — проверять нечего: список только что прочитан.
-  if (alreadyRegistered && stale.attempted === 0) {
+  if (alreadyComplete && stale.attempted === 0) {
     return finish({ ok: foreignOk, ...base, stale_removed: [], stale_failed: [] }, foreignOk ? 200 : 502);
   }
 
   // 4. Сверка повторным списком. Ответ MAX на POST/DELETE — его слово, а не
-  //    состояние: снятая подписка может остаться, а снятие по `?url=` — задеть
-  //    больше, чем этот адрес. Ожидаемой нет — ставим сразу, не дожидаясь
-  //    следующего прогона через 6 ч: без неё бот в MAX молчит.
+  //    состояние: снятая подписка может остаться, снятие по `?url=` — задеть
+  //    больше, чем этот адрес, а POST с новым списком событий — оставить
+  //    прежний. Ожидаемой нет — ставим сразу. Адрес есть, а bot_added и
+  //    bot_removed в списке не появились — прогон красный: иначе каждый заход
+  //    писал бы «события дописаны» и молчащие чаты так и не узнавались бы.
   const after = await listSubscriptions(headers);
   if (!after.ok) {
     return finish({
@@ -393,6 +405,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     console.error(`[cron/max-webhook] старая подписка ${f.url} не снята: ${f.reason}`);
   }
   const verified = { stale_removed: removed, stale_failed: failed, subscriptions_after: after.list.length };
+  const afterCovers = after.list.some((s) => s.url === webhookUrl && subscriptionCoversBotChats(s.update_types));
 
   if (!afterUrls.has(webhookUrl)) {
     let reregister: string;
@@ -406,6 +419,14 @@ export async function GET(req: Request): Promise<NextResponse> {
     return finish({
       ok: false, ...base, ...verified,
       error: `ожидаемой подписки нет в списке после правки; ${reregister}`,
+    }, 502);
+  }
+
+  if (!afterCovers) {
+    console.error(`[cron/max-webhook] подписка ${redactWebhookUrl(webhookUrl)} после правки без событий чатов`);
+    return finish({
+      ok: false, ...base, ...verified,
+      error: 'адрес подписки на месте, но события bot_added и bot_removed в списке не появились',
     }, 502);
   }
 

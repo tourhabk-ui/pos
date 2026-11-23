@@ -40,7 +40,11 @@ describe('kuzmich-bad-outcomes', () => {
     // Публичный репо: ни слова судьи — только числа и id.
     expect(text).not.toMatch(/Выдуманная цена тура|цена без инструмента/);
     expect(json.clusters.find((c: { id: string }) => c.id === 'ungrounded').case_ids).toEqual([12]);
-    for (const c of query.mock.calls) expect(c[1]).toEqual([7]);
+    const census = query.mock.calls.filter((c) => !/INSERT INTO agent_run_history/.test(String(c[0])));
+    expect(census.length).toBeGreaterThan(0);
+    for (const c of census) expect(c[1]).toEqual([7]);
+    const journal = query.mock.calls.filter((c) => /INSERT INTO agent_run_history/.test(String(c[0])));
+    expect(journal.map((c) => c[1]?.[0])).toEqual(['kuzmich-bad-outcomes']);
   });
 
   it('id случаев не больше пяти на тип', () => {

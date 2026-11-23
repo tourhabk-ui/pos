@@ -11,16 +11,22 @@
  * из базы (lib/zh/content). Места — только со свежим переводом описания.
  * Собирает перечень этот же zhPageUrls — у sitemap и IndexNow одна сборка.
  *
- * Ревизия статичных страниц — дата правки китайского текста (25.10), а не
+ * Ревизия статичных страниц — дата правки китайского текста (23.11), а не
  * день первой /zh: иначе lastmod врёт, что страницы не менялись.
  */
-export const ZH_STATIC_REVISION = '2026-10-25';
+export const ZH_STATIC_REVISION = '2026-11-23';
 
 /** Китайский каталог — языковая пара русской /catalog. */
 export const ZH_CATALOG_PATH = '/zh/catalog';
 
 /** Рейс Харбин ↔ Петропавловск-Камчатский. */
 export const ZH_HARBIN_PATH = '/zh/harbin';
+
+/** Зимняя Камчатка: вулканы в снегу, океан, термы. */
+export const ZH_WINTER_PATH = '/zh/kamchatka-zimoj';
+
+/** Безопасность и регистрация в МЧС. Русская пара — /safety. */
+export const ZH_SAFETY_PATH = '/zh/safety';
 
 /** Язык раздела — тот же, что в hreflang и `lang` у <main>; next.config.js ставит его заголовком. */
 export const ZH_CONTENT_LANGUAGE = 'zh-CN';
@@ -33,6 +39,8 @@ export const ZH_PAGE_PATHS: readonly string[] = [
   '/zh/volcano-tours',
   ZH_CATALOG_PATH,
   ZH_HARBIN_PATH,
+  ZH_WINTER_PATH,
+  ZH_SAFETY_PATH,
 ];
 
 /** hreflang каталога: русская витрина и китайская, взаимно. */
@@ -41,6 +49,13 @@ export function catalogHreflang(site: string): { ru: string; 'zh-CN': string; 'x
   // x-default — русская каноническая (Сыщик 21.11, §4.8).
   return { ru: `${root}/catalog`, 'zh-CN': `${root}${ZH_CATALOG_PATH}`, 'x-default': `${root}/catalog` };
 }
+
+/** hreflang безопасности: русская живая страница и китайский разбор. */
+export function safetyHreflang(site: string): { ru: string; 'zh-CN': string; 'x-default': string } {
+  const root = site.replace(/\/+$/, '');
+  return { ru: `${root}/safety`, 'zh-CN': `${root}${ZH_SAFETY_PATH}`, 'x-default': `${root}/safety` };
+}
+
 
 /**
  * Абсолютные адреса китайских страниц — для sitemap и IndexNow: статичные из

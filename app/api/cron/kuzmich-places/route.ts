@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
 import { runKuzmichPlaceEnricher } from '@/lib/agents/kuzmich-place-enricher';
 import { withSpendAgent } from '@/lib/ai/usage-context';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export async function GET(request: NextRequest) {
   return withSpendAgent('kuzmich-places', async () => {
@@ -22,11 +23,17 @@ export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request)) {
     return NextResponse.json({ error: 'Unauthorized', ...diagnoseCronAuth(request) }, { status: 401 });
   }
+  const startedAt = Date.now();
 
   try {
     const result = await runKuzmichPlaceEnricher(20);
+    recordCronRun('kuzmich-places', startedAt, result.recheck_failed ? 'partial' : 'success', {
+      items: result.processed,
+      error: result.recheck_failed ? 'перепроверка заметок не выполнилась' : undefined,
+    });
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
+    recordCronRun('kuzmich-places', startedAt, 'failed', { error: 'перепроверка заметок не выполнилась' });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Internal error' },
       { status: 500 },

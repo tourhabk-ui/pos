@@ -170,12 +170,20 @@ function applySecurityHeaders(response: NextResponse, pathname?: string): NextRe
     // unpkg.com снят 16.11 (аудит 09.11, слово владельца «карт-бланш»): ни один
     // скрипт и ни один стиль сайта с него не грузится, а лишний источник в
     // script-src — лишняя дверь для чужого кода.
-    const scriptSrc = "'self' 'unsafe-inline' https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru";
+    // Метрика / Вебвизор — официальная CSP:
+    // https://yandex.ru/support/metrica/ru/code/install-counter-csp
+    // Берутся хосты из примеров и общего списка, нужные счётчику и Вебвизору:
+    // mc.yandex.ru, mc.yandex.com, yastatic.net, mc.webvisor.com, mc.webvisor.org.
+    // Региональные зоны (kz, by и пр.) не добавляем: счётчик грузится с .ru/.com.
+    // img-src https: уже покрывает пиксель /watch/.
+    const scriptSrc = "'self' 'unsafe-inline' https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru https://mc.yandex.com https://yastatic.net";
     const styleSrc = "'self' 'unsafe-inline' https://*.yandex.ru";
     const imgSrc = "'self' data: https: blob:";
-    const connectSrc = "'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.md wss://mc.yandex.ru https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://s3.twcstorage.ru https://web.telegram.org https://oauth.telegram.org";
+    const connectSrc = "'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.com https://mc.yandex.md https://mc.webvisor.com https://mc.webvisor.org wss://mc.yandex.ru wss://mc.yandex.com wss://mc.webvisor.com wss://mc.webvisor.org https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://s3.twcstorage.ru https://web.telegram.org https://oauth.telegram.org";
     // Виджет входа и страница бота. Без frame-src iframe падает под default-src 'self'.
-    const frameSrc = "'self' https://oauth.telegram.org https://web.telegram.org https://t.me";
+    // blob: и хосты Метрики — Вебвизор и карта кликов (офиц. док., frame-src / child-src).
+    const frameSrc = "'self' blob: https://oauth.telegram.org https://web.telegram.org https://t.me https://mc.yandex.ru https://mc.yandex.com https://mc.webvisor.com https://mc.webvisor.org";
+    const childSrc = "'self' blob: https://mc.yandex.ru https://mc.yandex.com https://mc.webvisor.com https://mc.webvisor.org";
     const fontSrc = "'self' data: https://*.yandex.ru";
     const workerSrc = "'self' blob:";
     // Клипы туров лежат в хранилище (решение владельца 09.10, миграция 1190).
@@ -190,7 +198,7 @@ function applySecurityHeaders(response: NextResponse, pathname?: string): NextRe
     } else {
       response.headers.set(
         'Content-Security-Policy',
-        `default-src 'self'; script-src ${scriptSrc}; style-src ${styleSrc}; img-src ${imgSrc}; media-src ${mediaSrc}; connect-src ${connectSrc}; font-src ${fontSrc}; worker-src ${workerSrc}; frame-src ${frameSrc};`
+        `default-src 'self'; script-src ${scriptSrc}; style-src ${styleSrc}; img-src ${imgSrc}; media-src ${mediaSrc}; connect-src ${connectSrc}; font-src ${fontSrc}; worker-src ${workerSrc}; child-src ${childSrc}; frame-src ${frameSrc};`
       );
     }
   }

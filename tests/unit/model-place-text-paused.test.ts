@@ -123,7 +123,7 @@ describe('ручная партия описаний мест', () => {
 describe('ночной писатель enrich-routes (с 15.10 — только места)', () => {
   const paused = { success: true, paused: true, processed: 0, improved: 0, errors: 0 };
 
-  it('крон: 200 с paused, без базы и без модели', async () => {
+  it('крон: 200 с paused, модель молчит, в базе только строка прогона', async () => {
     const prev = process.env.CRON_SECRET;
     process.env.CRON_SECRET = 'test-cron-secret';
     try {
@@ -135,7 +135,9 @@ describe('ночной писатель enrich-routes (с 15.10 — только
     } finally {
       if (prev === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = prev;
     }
-    expect(queryMock).not.toHaveBeenCalled();
+    expect(queryMock).toHaveBeenCalledTimes(1);
+    expect(String(queryMock.mock.calls[0][0])).toContain('agent_run_history');
+    expect(queryMock.mock.calls[0][1][0]).toBe('enrich-routes');
     expect(qualityMock).not.toHaveBeenCalled();
   });
 

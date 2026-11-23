@@ -97,6 +97,25 @@ export function dayZones(d: { type: string; zone: ZoneId; title: string }): Zone
 }
 
 /**
+ * Что план отдаёт фильтру сводок по зонам (`warningsForPlanZones`): зоны
+ * всех дней (у переезда — обе, у южной — и Западная) и тексты дней —
+ * заголовок, программа, строки дня. Одно правило на первую сборку плана
+ * (engine) и на правку дат (plan-safety-refresh): до ревью #3690 правка дат
+ * показывала сводку, которую первая сборка прятала.
+ */
+export function planSafetyScope(
+  days: ReadonlyArray<{ type: string; zone: ZoneId; title: string; description?: string | null; dayWarnings?: string[] | null }>,
+): { zones: ZoneId[]; texts: string[] } {
+  const zones = new Set<ZoneId>();
+  const texts: string[] = [];
+  for (const d of days) {
+    for (const z of dayZones(d)) zones.add(z);
+    texts.push(d.title, d.description ?? '', ...(Array.isArray(d.dayWarnings) ? d.dayWarnings : []));
+  }
+  return { zones: [...zones], texts: texts.filter((t) => t.length > 0) };
+}
+
+/**
  * Строки дней по предупреждениям (чистая — под тестом без базы). День без
  * даты не судится. Возвращает номера дней со строками.
  */

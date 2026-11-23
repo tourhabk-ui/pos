@@ -20,6 +20,14 @@
  * Ошибка, случившаяся до гидратации, React не доходит (`onError` вешается
  * позже), поэтому после монтирования снимок сверяется сам: загрузка кончилась,
  * а ширины нет — это отказ.
+ *
+ * loading="lazy" обязателен. Без него React 19 при SSR ставит <link rel="preload"
+ * as="image"> для каждой плитки в самое начало <head> — раньше трёх
+ * render-blocking CSS. На проде 23.11 таких прелоадов было десять, и они
+ * делили канал с фото героя (LCP) и со стилями, без которых герой не рисуется.
+ * Ленивая загрузка этот preload не создаёт (у медведя в подвале страницы
+ * lazy уже был — и прелоада у него не было). Ближние к экрану плитки браузер
+ * всё равно запросит сам, уже после героя и CSS.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { photoSrc } from '@/lib/images/variant';
@@ -65,6 +73,7 @@ export function PlatePhoto({ src, fallback, className = 'plate-photo' }: Props) 
       className={className}
       src={current}
       alt=""
+      loading="lazy"
       decoding="async"
       draggable={false}
       style={{ objectPosition: `50% ${y ?? 0}%` }}

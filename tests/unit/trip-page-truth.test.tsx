@@ -13,7 +13,7 @@
  * Проверка — исполнением: share-API на заглушках данных и рендер страницы.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, within } from '@testing-library/react';
+import { render, screen, cleanup, within, waitFor, act } from '@testing-library/react';
 import { NextRequest } from 'next/server';
 import React from 'react';
 
@@ -44,6 +44,7 @@ import { TripShareClient, type Trip } from '@/app/trip/[token]/_TripShareClient'
 import { dayAvailabilityLine } from '@/lib/trips/day-availability';
 import { ZONE_IDS, ZONE_NAMES } from '@/lib/planner/constants';
 import { ZONE_OUTSIDE } from '@/lib/planner/zone-style';
+import { PLAN_HEADER_NO_MATCH } from '@/lib/safety/place-zones';
 
 const TOKEN = '00000000-0000-4000-8000-000000000611';
 /** Даты — от сегодняшнего дня: тест с зашитой датой — бомба с часовым механизмом. */
@@ -233,5 +234,59 @@ describe('страница черновика говорит, откуда он 
     unmount();
     render(<TripShareClient trip={draft()} token={TOKEN} />);
     expect(screen.getByTestId('draft-origin').textContent).toContain('попросите в том же чате');
+  });
+});
+
+describe('шапка страницы плана: недоступная сводка — не «спокойно» (ревью #3749)', () => {
+  // Потребитель, а не только функция: страница сама зовёт сводку и рисует
+  // шапку. Мутация `setStatus(next ?? { title: null, hasAlert: false })`
+  // превратила бы недоступность в зелёную галочку — этот блок её ловит.
+  const CALM = 'На Камчатке спокойно — данные safety-мониторинга платформы';
+  const trip = (): Trip => ({
+    source: 'draft', id: TOKEN, title: 'План', arrival_date: ARRIVAL, departure_date: isoIn(206),
+    places: [], activities: [], transport_by_day: {},
+    days: [day(2, { title: 'Малкинские источники' }) as Trip['days'][number]],
+    day_tours: {}, availability: {},
+  });
+  const stubSafety = (payload: unknown) => {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: unknown) => {
+      calls.push(String(url));
+      if (String(url) === '/api/public/safety-status') return { ok: true, json: async () => payload } as Response;
+      return { ok: false, json: async () => null } as Response;
+    }));
+    return calls;
+  };
+  const settle = async (calls: string[]) => {
+    await waitFor(() => expect(calls).toContain('/api/public/safety-status'));
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  };
+
+  beforeEach(() => { Element.prototype.scrollIntoView = vi.fn(); });
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+  it('источник недоступен — ни зелёной строки, ни «спокойно»', async () => {
+    const calls = stubSafety({ data: { unavailable: true, hasAlert: false } });
+    render(<TripShareClient trip={trip()} token={TOKEN} />);
+    await settle(calls);
+    expect(screen.queryByText(CALM)).toBeNull();
+    expect(document.body.textContent).not.toMatch(/спокойно/i);
+  });
+
+  it('тревог нет — «спокойно»; тревога вне зон плана — тревога, не галочка', async () => {
+    const calm = stubSafety({ data: { hasAlert: false, topTitle: null, feedTitles: [] } });
+    const first = render(<TripShareClient trip={trip()} token={TOKEN} />);
+    await settle(calm);
+    expect(screen.getByText(CALM)).toBeTruthy();
+    first.unmount();
+    vi.unstubAllGlobals();
+
+    const away = stubSafety({ data: {
+      hasAlert: true, topTitle: 'Землетрясение ML 5.1 у побережья', topZones: ['northern'], feedTitles: [], feedZones: [],
+    } });
+    render(<TripShareClient trip={trip()} token={TOKEN} />);
+    await settle(away);
+    expect(screen.getByText(PLAN_HEADER_NO_MATCH)).toBeTruthy();
+    expect(screen.queryByText(CALM)).toBeNull();
   });
 });

@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
 import { maxWebhookUrl, redactWebhookUrl } from '@/lib/max/webhook-url';
 import { scrubMaxSecret } from '@/lib/max/subscription-response';
+import { MAX_BOT_UPDATE_TYPES } from '@/lib/max/update-types';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +25,7 @@ export const dynamic = 'force-dynamic';
 // пакет @maxhub/max-bot-api уже по умолчанию использует platform-api2.max.ru.
 const MAX_API_BASE = 'https://platform-api2.max.ru';
 
-const UPDATE_TYPES = ['bot_started', 'message_created', 'message_callback'];
+const UPDATE_TYPES = [...MAX_BOT_UPDATE_TYPES];
 
 function getToken(): string | null {
   return process.env.MAX_BOT_TOKEN ?? null;

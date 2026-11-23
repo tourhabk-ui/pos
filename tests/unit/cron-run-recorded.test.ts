@@ -22,6 +22,7 @@
  *     на успехе, отказ на отказе, ни одной при пропуске по аренде окна.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { MAX_BOT_UPDATE_TYPES } from '@/lib/max/update-types';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
@@ -70,35 +71,19 @@ const WF_DIR = join(ROOT, '.github', 'workflows');
 
 // ── 1. Данные реестра ─────────────────────────────────────────────────────
 
-const NOT_YET = 'отметку прогона роут не пишет — подключение не сделано (аудит 15.10, P4-07: следующими партиями после первых четырёх)';
-
 /**
  * Записи реестра без отметки прогона и почему. Только сокращать: подключил
  * отметку — проставь agentId и убери строку; тест заставит.
+ *
+ * 23.11 пятнадцать кронов пишут recordCronRun. Двое без отметки — судья и
+ * ревью эволюции: модель работает на раннере, прод только отдаёт список.
+ * Строка «успех» на выдаче списка считалась бы их работой.
  */
 const KNOWN_NO_RUN_RECORD: Record<string, string> = {
-  'client-errors-census': `суточная перепись ошибок браузера и дайджест серверных: ${NOT_YET}`,
-  'booking-auto-complete': `завершение подтверждённых броней после тура: ${NOT_YET}`,
-  'tour-review-request': `просьба об отзыве по завершённым броням: ${NOT_YET}`,
-  'ssr-sentinel': `недельный сторож SSR публичных листингов: ${NOT_YET}`,
-  'kb-gap': `суточный разбор пробелов в знаниях Кузьмича: ${NOT_YET}`,
-  'kuzmich-bad-outcomes': 'еженедельный свод плохих оценок Кузьмича в Issue: только чтение, след прогона — само Issue и прогон Actions',
-  'engagement': `напоминания туристам, смотревшим тур и не забронировавшим: ${NOT_YET}`,
-  'smart-notify': `сопоставление новых туров с предпочтениями: ${NOT_YET}`,
-  'enrich-routes': `писатель описаний мест партией 20: ${NOT_YET}`,
-  'routes-cache': `обновление кэша описаний маршрутов: ${NOT_YET}`,
-  'kuzmich-places': `рецензии Кузьмича для мест партией 20: ${NOT_YET}`,
-  'import-routes': `импорт паспортов маршрутов и статей: ${NOT_YET}`,
   'evo-judge':
-    'судья эволюции считает на раннере GitHub и в прод ходит только читать находки (evo-issues): ' +
-    'отметку на проде писать некому; живость судьи — прогоны самого workflow',
+    'Разбор находок идёт на раннере: модель из России закрыта, прод только отдаёт список. Строка «успех» на выдаче списка считалась бы работой судьи, а модель в неё не входит. Расход виден в книгах по ключу реестра.',
   'evo-review':
-    'AI-ревью идёт на раннере GitHub; прод отдаёт список файлов (evo-review-job) и принимает находки ' +
-    `(evo-findings), но приём отметку прогона не пишет — ${NOT_YET}`,
-  'kuzmich-route': 'одна ручка /api/cron/kuzmich на три поста (?type=route|tip|tour): отметка обязана различать пост, ' +
-    'иначе живость одного читалась бы по прогонам другого — не сделано (аудит 15.10, P4-07)',
-  'kuzmich-tip': 'та же ручка /api/cron/kuzmich, пост-совет (?type=tip): отметка обязана различать пост — не сделано (аудит 15.10, P4-07)',
-  'kuzmich-tour': 'та же ручка /api/cron/kuzmich, пост о туре (?type=tour): отметка обязана различать пост — не сделано (аудит 15.10, P4-07)',
+    'Ревью кода идёт на раннере по той же причине. Прод отдаёт список файлов и принимает находки, модель не зовёт. Журнал выдачи списка выглядел бы прогоном ревью. Расход виден в книгах по ключу реестра.',
 };
 
 /** Эндпоинты записи: своё поле или адреса её workflow вне комментариев. */
@@ -299,7 +284,9 @@ describe('max-webhook — отметка под ключом реестра max-
   it('подписка на месте — success', async () => {
     // Свой ответ на каждый вызов: крон зовёт MAX дважды (команды бота, затем
     // подписки), а тело одного Response читается один раз.
-    maxFetch.mockImplementation(async () => new Response(JSON.stringify({ subscriptions: [{ url: 'https://vedarai.ru/api/max/kuzmich' }] }), { status: 200 }));
+    maxFetch.mockImplementation(async () => new Response(JSON.stringify({
+      subscriptions: [{ url: 'https://vedarai.ru/api/max/kuzmich', update_types: [...MAX_BOT_UPDATE_TYPES] }],
+    }), { status: 200 }));
     const res = await call();
     expect(res.status).toBe(200);
     expect(runRows()).toEqual([{ agentId: agentOf('max-webhook'), status: 'success' }]);

@@ -9,7 +9,7 @@
 import { kamchatkaDate, shiftDate } from '@/lib/analytics/kamchatka-day';
 import { UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety/alert-horizon';
 import { alertOrigin } from '@/lib/safety/alert-origin';
-import { placeTouchesZones, placeZones } from '@/lib/safety/place-zones';
+import { alertTouchesPlanZones, placeZones, recordedPlanZones } from '@/lib/safety/place-zones';
 
 export interface BulletinPeriod {
   /** Как в сводке, без года, если источник год не написал: «06:00 24.10–06:00 25.10». */
@@ -137,6 +137,14 @@ export interface ActiveWarning {
    * «Сводка» (`UNKNOWN_SPEAKER`), а не называет ведомство наугад.
    */
   speaker?: string | null;
+  /**
+   * Районы, которые записала лента (`external_alerts.affected_zones`); у
+   * повторов одного места — объединены. Ими план судит, касается ли сводка
+   * его зон (ревью безопасности #3690): по названию «Усть-Большерецк» —
+   * Западная, а сводка о дороге от Начикинского совхоза записана и на
+   * Авачинскую. Нет поля или пусто — не записаны, и судит название.
+   */
+  zones?: string[] | null;
 }
 
 /** Начало строки, когда источник не узнан: ведомство наугад не называется. */
@@ -187,6 +195,8 @@ export interface AlertWarningRow {
   expires_iso?: string | null;
   /** Дата последней сводки (ISO, UTC). */
   published_iso?: string | null;
+  /** Районы сводки так, как их записала лента (`affected_zones`). */
+  affected_zones?: string[] | null;
 }
 
 /** Камчатка — UTC+12 круглый год. */
@@ -335,8 +345,17 @@ function roadPlace(title: string, description: string): string | null {
  */
 export function warningsFromRows(rows: readonly AlertWarningRow[], nowMs: number = Date.now()): ActiveWarning[] {
   const out: ActiveWarning[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, ActiveWarning>();
+  // Повтор места не добавляет строку, но его районы — добавляет: одну
+  // дорогу в разных записях лента могла отнести к разным районам.
+  const mergeZones = (into: ActiveWarning, zones: string[]): void => {
+    if (zones.length === 0) return;
+    into.zones = [...new Set([...(into.zones ?? []), ...zones])];
+  };
   for (const row of rows) {
+    const zones = Array.isArray(row.affected_zones)
+      ? row.affected_zones.filter((z): z is string => typeof z === 'string' && z.length > 0)
+      : [];
     const type = row.alert_type ?? '';
     const period = parseBulletinPeriod(row.description ?? '')?.label ?? null;
     const sourceUrl = row.source_url?.trim() || null;
@@ -353,20 +372,24 @@ export function warningsFromRows(rows: readonly AlertWarningRow[], nowMs: number
       // источником; одинаковые слова — одна строка (старшая по уровню и дате).
       const statement = volcanoStatement(row.title ?? '', place, row.description ?? '');
       const key = `v:${place.toLowerCase()}|${(statement ?? '').toLowerCase()}`;
-      if (seen.has(key)) continue;
+      const prev = seen.get(key);
+      if (prev) { mergeZones(prev, zones); continue; }
       const stems = stemsOf(place);
       if (stems.length === 0) continue;
-      seen.add(key);
-      out.push({ kind: 'volcano', place, stems, statement, period, sourceUrl, relevantUntil, ended, speaker });
+      const w: ActiveWarning = { kind: 'volcano', place, stems, statement, period, sourceUrl, relevantUntil, ended, speaker, zones };
+      seen.set(key, w);
+      out.push(w);
     } else if (type === 'road_closure') {
       const place = roadPlace(row.title ?? '', row.description ?? '');
       if (!place) continue;
       const key = `r:${place.toLowerCase()}`;
-      if (seen.has(key)) continue;
+      const prev = seen.get(key);
+      if (prev) { mergeZones(prev, zones); continue; }
       const stems = roadStems(place);
       if (stems.length === 0) continue;
-      seen.add(key);
-      out.push({ kind: 'road', place, stems, period, sourceUrl, relevantUntil, ended, speaker });
+      const w: ActiveWarning = { kind: 'road', place, stems, period, sourceUrl, relevantUntil, ended, speaker, zones };
+      seen.set(key, w);
+      out.push(w);
     }
   }
   return out;
@@ -457,22 +480,26 @@ export function notesForOffering(text: string, warnings: readonly ActiveWarning[
   return warnings.filter((w) => offeringMatches(text, w)).map(offeringSentence);
 }
 
+/** Зоны планера сводки: записанные лентой, а без них — по названию места. */
 function plannerZones(warning: ActiveWarning): string[] {
-  return placeZones(warning.place);
+  return recordedPlanZones(warning.zones) ?? placeZones(warning.place);
 }
 
 /**
  * Сводки, которые касаются зон плана (слово владельца 22.11): вулкан или
- * дорога чужой зоны в «Безопасность и разрешения» плана не идут. Место без
+ * дорога чужой зоны в «Безопасность и разрешения» плана не идут. Судят
+ * районы, записанные лентой (`zones`); без них — название места, и место без
  * привязки к зоне остаётся — зону не угадываем и сводку не прячем.
  */
-export function warningsForPlanZones<W extends Pick<ActiveWarning, 'place'>>(
+export function warningsForPlanZones<W extends Pick<ActiveWarning, 'place' | 'stems' | 'zones'>>(
   warnings: readonly W[],
   zones: readonly string[],
-  /** Строки дней плана: место, названное в программе дня, остаётся всегда. */
+  /** Тексты дней плана (программа, строки дня): место, названное в них, остаётся всегда. */
   dayNotes: readonly string[] = [],
 ): W[] {
-  return warnings.filter((w) => placeTouchesZones(w.place, zones) || dayNotes.some((n) => n.includes(w.place)));
+  const hay = dayNotes.join('\n').toLowerCase().replace(/ё/g, 'е');
+  return warnings.filter((w) => alertTouchesPlanZones(w.zones, w.place, zones)
+    || w.stems.some((stem) => hay.includes(stem)));
 }
 
 /**

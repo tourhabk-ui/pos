@@ -78,26 +78,17 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          if [ -z "$CRON_SECRET" ]; then echo "::error::CRON_SECRET не задан в секретах репозитория — эндпоинт не вызван, прогон не состоялся"; exit 1; fi
-          # 502, 503, 504 быстрее 300 с — сайт не ответил: выкат или перезапуск
-          # (прогон 43875975789, 16.11: 502 за 40 с). Один повтор через 120 с.
-          # Второй отказ — красный. Первый вызов успел занять окно расхода —
-          # повтор получит 429 и денег второй раз не потратит.
-          for attempt in 1 2; do
-            T0=$SECONDS
-            HTTP=$(curl -s -o /tmp/out.json -w "%{http_code}" --max-time 540 \
-              "https://vedarai.ru/api/cron/kuzmich-eval" \
-              -H "Authorization: Bearer $CRON_SECRET")
-            case "$HTTP" in
-              502|503|504)
-                if [ "$attempt" = 1 ] && [ $((SECONDS - T0)) -lt 300 ]; then
-                  echo "HTTP $HTTP за $((SECONDS - T0)) с: сайт не ответил, повтор через 120 с"; sleep 120; continue
-                fi ;;
-            esac
-            break
-          done
-          echo "HTTP: $HTTP" && cat /tmp/out.json 2>/dev/null || true
-          [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
+          # 502/503/504/000 быстрее 300 с — шлюз (прогон 43875975789: пустой
+          # 502 за 40 с). Один повтор через 120 с. 429 и 500 роута не повторяем:
+          # первый вызов уже занял окно расхода.
+          node scripts/cron-gateway-retry.mjs \
+            --url "https://vedarai.ru/api/cron/kuzmich-eval" \
+            -o /tmp/out.json \
+            --max-time 540 \
+            --attempts 2 \
+            --pause 120 \
+            --fast-only 300
+          echo "HTTP: 200" && cat /tmp/out.json 2>/dev/null || true
 
       # Вопросы о турах (29.10, шаг 1 разбора «мозг Кузьмича»): назвал ли все
       # предложения к месту, компанию у каждого тура, цены только из данных,
@@ -113,31 +104,20 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          if [ -z "$CRON_SECRET" ]; then echo "::error::CRON_SECRET не задан в секретах репозитория — эндпоинт не вызван, прогон не состоялся"; exit 1; fi
-          # 502, 503, 504 быстрее 300 с — сайт не ответил: выкат или перезапуск
-          # (прогон 43875975789, 16.11: 502 за 40 с). Один повтор через 120 с.
-          # Второй отказ — красный. Первый вызов успел занять окно расхода —
-          # повтор получит 429 и денег второй раз не потратит.
-          for attempt in 1 2; do
-            T0=$SECONDS
-            HTTP=$(curl -s -o /tmp/commercial.json -w "%{http_code}" --max-time 540 \
-              "https://vedarai.ru/api/cron/kuzmich-eval?set=commercial" \
-              -H "Authorization: Bearer $CRON_SECRET")
-            case "$HTTP" in
-              502|503|504)
-                if [ "$attempt" = 1 ] && [ $((SECONDS - T0)) -lt 300 ]; then
-                  echo "HTTP $HTTP за $((SECONDS - T0)) с: сайт не ответил, повтор через 120 с"; sleep 120; continue
-                fi ;;
-            esac
-            break
-          done
-          echo "HTTP: $HTTP" && cat /tmp/commercial.json 2>/dev/null || true
+          node scripts/cron-gateway-retry.mjs \
+            --url "https://vedarai.ru/api/cron/kuzmich-eval?set=commercial" \
+            -o /tmp/commercial.json \
+            --max-time 540 \
+            --attempts 2 \
+            --pause 120 \
+            --fast-only 300
+          echo "HTTP: 200" && cat /tmp/commercial.json 2>/dev/null || true
           # Сводка отдельной строкой (02.11): полный ответ прогона 02.11 в лог
           # не попал, и провалы пришлось искать вслепую.
           echo; jq -c '{pass_rate, wilson_low, asked, judged, judge_unavailable_ratio, commercial: (.commercial | if . then {pass_rate} else null end)}' /tmp/commercial.json 2>/dev/null || true
           jq -c '.cases[]? | select((.score // 5) < 4) | {id, score, context_len, reason: (.reason // "" | .[0:300])}' /tmp/commercial.json 2>/dev/null || true
           jq -c '.cases[]? | select(.commercial.outcome != "pass") | {id, fails: [.commercial.checks[]? | select(.outcome != "pass") | "\(.kind): \(.reason)"]}' /tmp/commercial.json 2>/dev/null || true
-          [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
+          echo "OK"
 
       # Живой сэмпл: реальные вопросы туристов из chat_sessions за 7 дней.
       # Модели различают тестовый и живой контекст (J-Lens) — фикстурный
@@ -157,25 +137,14 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          if [ -z "$CRON_SECRET" ]; then echo "::error::CRON_SECRET не задан в секретах репозитория — эндпоинт не вызван, прогон не состоялся"; exit 1; fi
-          # 502, 503, 504 быстрее 300 с — сайт не ответил: выкат или перезапуск
-          # (прогон 43875975789, 16.11: 502 за 40 с). Один повтор через 120 с.
-          # Второй отказ — красный. Первый вызов успел занять окно расхода —
-          # повтор получит 429 и денег второй раз не потратит.
-          for attempt in 1 2; do
-            T0=$SECONDS
-            HTTP=$(curl -s -o /tmp/live.json -w "%{http_code}" --max-time 540 \
-              "https://vedarai.ru/api/cron/kuzmich-eval?source=live&limit=10" \
-              -H "Authorization: Bearer $CRON_SECRET")
-            case "$HTTP" in
-              502|503|504)
-                if [ "$attempt" = 1 ] && [ $((SECONDS - T0)) -lt 300 ]; then
-                  echo "HTTP $HTTP за $((SECONDS - T0)) с: сайт не ответил, повтор через 120 с"; sleep 120; continue
-                fi ;;
-            esac
-            break
-          done
-          echo "HTTP: $HTTP"
+          node scripts/cron-gateway-retry.mjs \
+            --url "https://vedarai.ru/api/cron/kuzmich-eval?source=live&limit=10" \
+            -o /tmp/live.json \
+            --max-time 540 \
+            --attempts 2 \
+            --pause 120 \
+            --fast-only 300
+          echo "HTTP: 200"
           jq -c '{ok, source, asked, judged, pass_rate, wilson_low, judge_unavailable_ratio, alerts_sent, skip_reason, skipped, note, error}' /tmp/live.json 2>/dev/null || echo "тело ответа не разобрано как JSON"
           jq -c '.cases[]? | {id, score, context_len, answered}' /tmp/live.json 2>/dev/null || true
-          [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
+          echo "OK"

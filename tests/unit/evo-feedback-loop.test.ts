@@ -165,6 +165,39 @@ describe('precision: цена ошибки', () => {
     expect(out.at(-1)?.severity).toBe('critical');
   });
 
+  it('код и разведка под своими тормозами получают по пробнику', () => {
+    const held = decidePublish({ accepted: 2, rejected: 8 });
+    const findings = [
+      { category: 'bug', severity: 'medium' },
+      { category: 'bug', severity: 'critical' },
+      { category: 'intel', severity: 'medium' },
+      { category: 'intel', severity: 'high' },
+      { category: 'security', severity: 'low' },
+    ];
+    const out = applyPublishDecision(findings, held, held);
+    expect(out.map((f) => `${f.category}:${f.severity}`)).toEqual([
+      'bug:critical',
+      'intel:high',
+      'security:low',
+    ]);
+  });
+
+  it('малая выборка кода пускает код-находки, даже если разведка под тормозом', () => {
+    const code = decidePublish({ accepted: 3, rejected: 2 });
+    const intel = decidePublish({ accepted: 2, rejected: 10 });
+    expect(code.allowGuesses).toBe(true);
+    expect(intel.allowGuesses).toBe(false);
+    const findings = [
+      { category: 'bug', severity: 'medium' },
+      { category: 'bug', severity: 'low' },
+      { category: 'intel', severity: 'high' },
+      { category: 'intel', severity: 'medium' },
+    ];
+    const out = applyPublishDecision(findings, code, intel);
+    expect(out.filter((f) => f.category === 'bug')).toHaveLength(2);
+    expect(out.filter((f) => f.category === 'intel')).toHaveLength(1);
+  });
+
   it('пробник ровно один — плохая модель не зальёт трекер', () => {
     const d = decidePublish({ accepted: 0, rejected: MIN_SAMPLE + 2 });
     const findings = Array.from({ length: 10 }, () => ({ category: 'bug', severity: 'high' }));

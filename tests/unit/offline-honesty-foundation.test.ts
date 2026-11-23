@@ -93,10 +93,19 @@ describe('safety-status: «нет данных» не выглядит как «
 
   it.each([
     'app/catalog/tours/[id]/_TourDetailClient.tsx',
-    'app/trip/[token]/_TripShareClient.tsx',
     'components/map/MapThreatChip.tsx',
   ])('потребитель %s не рисует спокойствие из недоступности', (p) => {
     expect(read(p)).toMatch(/unavailable/);
+  });
+
+  it('шапка /trip не рисует спокойствие из недоступности', async () => {
+    // С #3690 шапка /trip берёт статус у planHeaderStatus; правило — вызовом.
+    // Потребитель (страница рисует шапку из ответа) — рендером в
+    // tests/unit/trip-page-truth.test.tsx, блок «недоступная сводка — не «спокойно»».
+    expect(read('app/trip/[token]/_TripShareClient.tsx')).toMatch(/planHeaderStatus\(/);
+    const { planHeaderStatus } = await import('@/lib/safety/place-zones');
+    expect(planHeaderStatus({ data: { unavailable: true, hasAlert: false } }, ['avachinsky'])).toBeNull();
+    expect(planHeaderStatus({ data: { unavailable: true, hasAlert: false } }, [])).toBeNull();
   });
 
   it('десктоп-главная: «предупреждений нет» — только при живых данных', () => {

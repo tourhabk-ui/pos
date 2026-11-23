@@ -48,6 +48,9 @@ async function fetchReportable() {
     precision: data.precision ?? null,
     guessesAllowed: data.guesses_allowed,
     precisionNote: data.precision_note ?? '',
+    intelPrecision: data.intel_precision ?? null,
+    intelGuessesAllowed: data.intel_guesses_allowed,
+    intelPrecisionNote: data.intel_precision_note ?? '',
     rejectedByGuard: data.rejected_by_guard ?? 0,
     guessesHeld: data.guesses_held ?? 0,
     probeSlots: data.probe_slots ?? 0,
@@ -147,6 +150,9 @@ async function main() {
     precision: report.precision,
     guesses_allowed: report.guessesAllowed,
     precision_note: report.precisionNote,
+    intel_precision: report.intelPrecision,
+    intel_guesses_allowed: report.intelGuessesAllowed,
+    intel_precision_note: report.intelPrecisionNote,
     rejected_by_guard: report.rejectedByGuard,
     guesses_held: report.guessesHeld,
     probe_slots: report.probeSlots,
@@ -172,16 +178,21 @@ async function main() {
       by_model: report.precisionByModel,
     });
   }
-  // Сторож самого тормоза (24.08): три прогона подряд без ни одной догадки
-  // модели — это уже не защита, а слепое пятно, и раньше об этом узнавали,
-  // только листая логи джобы вручную. Job краснеет — тот же сигнал, который
-  // уже мониторят на remaining workflow'ах эволюции (evo-judge/evo-review).
-  if (report.publishGateBlockedStreak >= PUBLISH_GATE_STREAK_THRESHOLD) {
-    log('ERROR', `тормоз точности держит запрет ${report.publishGateBlockedStreak} прогонов подряд`, {
+  // Стрик тормоза виден в логе, но job из-за него не краснеет.
+  // 39 красных прогонов из 40 с 18.10 были этим стриком уже после того,
+  // как рука успешно завела issue. Сломанный вынос тогда не отличить.
+  // Вынос того, что тормоз пускает (детерминированное и пробник), идёт дальше.
+  if (report.publishGateBlockedStreak >= PUBLISH_GATE_STREAK_THRESHOLD && report.guessesAllowed === false) {
+    log('WARN', `тормоз точности кода держит запрет ${report.publishGateBlockedStreak} прогонов подряд. Вынос не останавливается: детерминированные и пробник идут. Порог 50% не снижен.`, {
       precision: report.precision,
       precision_note: report.precisionNote,
     });
-    process.exitCode = 1;
+  }
+  if (report.intelGuessesAllowed === false) {
+    log('WARN', 'тормоз точности разведки держит запрет. Код-находки он не глушит.', {
+      intel_precision: report.intelPrecision,
+      intel_precision_note: report.intelPrecisionNote,
+    });
   }
   if (findings.length === 0) return;
 
