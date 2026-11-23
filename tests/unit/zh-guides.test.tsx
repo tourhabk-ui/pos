@@ -20,7 +20,6 @@ import {
   zhGuideArticleJsonLd,
   zhGuideBreadcrumbJsonLd,
   zhGuideHreflang,
-  zhGuideVisibleFaq,
 } from '@/lib/zh/guides';
 
 const PRICE = /₽|руб|¥|\d+\s*元|卢布/;
@@ -105,7 +104,6 @@ describe('китайские гиды: зима и безопасность', ()
         expect(html).toContain(item.answer);
         expect(entities.some((e) => e.name === item.question && e.acceptedAnswer.text === item.answer)).toBe(true);
       }
-      expect(zhGuideVisibleFaq(guide)).toEqual(guide.faq.map((f) => ({ q: f.question, a: f.answer })));
       const crumbs = zhGuideBreadcrumbJsonLd(guide, 'https://vedarai.ru');
       const items = crumbs.itemListElement as Array<{ name: string; item: string }>;
       expect(items[0]).toMatchObject({ name: 'Vedar 堪察加', item: 'https://vedarai.ru/zh' });

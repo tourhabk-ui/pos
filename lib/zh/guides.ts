@@ -382,13 +382,6 @@ export const ZH_SAFETY_GUIDE: ZhGuide = {
   ruPath: '/safety',
 };
 
-export const ZH_GUIDES: readonly ZhGuide[] = [ZH_WINTER_GUIDE, ZH_SAFETY_GUIDE];
-
-export function zhGuideByPath(path: string): ZhGuide {
-  const g = ZH_GUIDES.find((x) => x.path === path);
-  if (!g) throw new Error(`нет китайской посадочной ${path}`);
-  return g;
-}
 
 /** Видимая дата сверки: 2026年11月23日. */
 export function formatZhGuideDate(iso: string): string {
@@ -425,14 +418,15 @@ export function zhGuideArticleJsonLd(guide: ZhGuide, site = SITE_DEFAULT): Recor
     ...(published ? { datePublished: published, dateModified: published } : {}),
   };
   const graph: Record<string, unknown>[] = [article];
-  if (guide.faq.length > 0) {
+  const faq = zhGuideVisibleFaq(guide);
+  if (faq.length > 0) {
     graph.push({
       '@type': 'FAQPage',
       '@id': `${url}#faq`,
-      mainEntity: guide.faq.map((f) => ({
+      mainEntity: faq.map((f) => ({
         '@type': 'Question',
-        name: f.question,
-        acceptedAnswer: { '@type': 'Answer', text: f.answer },
+        name: f.q,
+        acceptedAnswer: { '@type': 'Answer', text: f.a },
       })),
     });
   }
@@ -454,7 +448,7 @@ export function zhGuideBreadcrumbJsonLd(guide: ZhGuide, site = SITE_DEFAULT): Re
  * FAQPage только из видимого блока «常见问题». Если текст вопроса или ответа
  * не совпадёт с faq-массивом, тест это поймает.
  */
-export function zhGuideVisibleFaq(guide: ZhGuide): Array<{ q: string; a: string }> {
+function zhGuideVisibleFaq(guide: ZhGuide): Array<{ q: string; a: string }> {
   const md = [
     `## ${guide.faqHeading}`,
     ...guide.faq.flatMap((f) => [`**${f.question}**`, f.answer, '']),
