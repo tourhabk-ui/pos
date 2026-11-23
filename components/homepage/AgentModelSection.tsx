@@ -84,10 +84,8 @@ export function AgentModelSection() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-16">
+        <div className="grid grid-cols-2 gap-6 mb-16 max-w-2xl mx-auto">
           {[
-            { value: '131', label: 'маршрутов в базе знаний' },
-            { value: '13', label: 'туров в каталоге' },
             { value: '3', label: 'канала привлечения' },
             { value: '0%', label: 'удержаний из оплаты туриста' },
           ].map(({ value, label }) => (
@@ -104,8 +102,7 @@ export function AgentModelSection() {
             Начните получать клиентов уже сегодня
           </h3>
           <p className="text-[var(--text-secondary)] mb-8 max-w-xl mx-auto">
-            Регистрация за 5 минут. Первые 3 месяца Кузьмич и operator tools доступны бесплатно.
-            Условия работы — в публичной оферте для партнёров.
+            Регистрация за 5 минут. Условия работы — в публичной оферте для партнёров.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
             <Link

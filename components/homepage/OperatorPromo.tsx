@@ -108,9 +108,6 @@ export function OperatorPromo({ headingLevel = 'h2' }: { headingLevel?: 'h1' | '
         {/* CTA */}
         <div className="text-center">
           <div className="mb-8 inline-block">
-            <p className="text-sm text-[var(--text-muted)] mb-2">
-              Первые 3 месяца бесплатно
-            </p>
             <h3 className="text-2xl font-bold text-[var(--text-primary)]">
               Попробуйте Кузьмича и operator tools сейчас
             </h3>
