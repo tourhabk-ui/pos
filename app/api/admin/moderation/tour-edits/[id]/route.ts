@@ -82,6 +82,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       error: 'Владелец изменил правку, пока карточка была открыта. Тур не изменён — проверьте новую правку.',
     }, { status: 409 });
   }
+  if (decided.outcome === 'bad_photo') {
+    return NextResponse.json({
+      success: false,
+      code: 'bad_photo',
+      error: 'В правке есть адрес снимка, который снимком не является. Тур не изменён — верните правку владельцу с причиной.',
+    }, { status: 409 });
+  }
   if (decided.outcome === 'already') {
     return NextResponse.json({ success: false, error: 'По этой правке решение уже записано' }, { status: 409 });
   }

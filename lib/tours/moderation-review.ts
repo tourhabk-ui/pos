@@ -24,6 +24,7 @@ import {
   type ModeratedTourColumn, type PendingTourEdit, type TourContentLine, type TourContentPatch,
 } from '@/lib/tours/moderation';
 import { cleanPatch, fieldsOf, isoTime as iso } from '@/lib/tours/moderation-read';
+import { photoAddressesOf, rejectedPhotoAddresses } from '@/lib/tours/photo-address';
 import { LIVE_CONTENT_COLUMNS } from '@/lib/tours/moderation-store';
 
 function sqlState(err: unknown): string {
@@ -122,6 +123,8 @@ export type DecideTourEdit =
     }
   | { outcome: 'already' }
   | { outcome: 'changed' }
+  /** В правке новый адрес снимка, который не снимок: одобрить нельзя, только вернуть. */
+  | { outcome: 'bad_photo' }
   | { outcome: 'not_found' }
   | { outcome: 'db_error' };
 
@@ -219,6 +222,13 @@ export async function decideTourEdit(opts: {
     if (opts.seen === null || opts.seen !== seenToken(live, patch, wantsPublish)) {
       await client.query('ROLLBACK');
       return { outcome: 'changed' };
+    }
+    // Одобрение не ставит на сайт «снимок», который снимком не является
+    // (перепроверка 23.11): черновик мог лечь до правила двери. Адрес, уже
+    // стоящий у тура, одобрение не судит — оно его не добавляет.
+    if (rejectedPhotoAddresses(photoAddressesOf(patch), new Set(photoAddressesOf(live))).length > 0) {
+      await client.query('ROLLBACK');
+      return { outcome: 'bad_photo' };
     }
     const input = { ...patch, ...(wantsPublish ? { is_published: true } : {}) } as TourPatchInput;
     if (Object.keys(input).length > 0) {

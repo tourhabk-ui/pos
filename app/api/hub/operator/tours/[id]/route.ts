@@ -25,6 +25,7 @@ import {
   softDeleteTour,
 } from '@/lib/api/operator-tours';
 import { MainPlaceRejected } from '@/lib/tours/main-place';
+import { PHOTO_ADDRESS_TEXT, photoAddressesOf, rejectedPhotoAddresses } from '@/lib/tours/photo-address';
 import { saveTourChange } from '@/lib/tours/tour-change';
 import { loadOwnTourEdits } from '@/lib/tours/moderation-store';
 import { tourModerationState } from '@/lib/tours/moderation';
@@ -164,16 +165,29 @@ export async function PATCH(
     // Цена сверяется с тем, что форма показала: с витриной плюс правкой на
     // проверке. Иначе менеджер без права цены не смог бы сохранить форму,
     // пока чужая правка цены ждёт администратора.
+    let waitingPatch: Record<string, unknown> = {};
     if (!isAdmin) {
       const edits = await loadOwnTourEdits([String(tourId)], new Map());
       if (edits === null) {
         return NextResponse.json({ error: 'Не удалось прочитать правку на проверке, попробуйте позже' }, { status: 503 });
       }
-      const shown = { ...(tour as Record<string, unknown>), ...(edits.get(String(tourId))?.pending?.patch ?? {}) };
+      waitingPatch = (edits.get(String(tourId))?.pending?.patch ?? {}) as Record<string, unknown>;
+      const shown = { ...(tour as Record<string, unknown>), ...waitingPatch };
       if (changesTourPrice(input, shown)) {
         const denied = await requireTeamPermission(authOrResponse.userId, 'can_edit_prices');
         if (denied) return denied;
       }
+    }
+
+    // Новый адрес снимка обязан быть снимком: путь раздачи картинок сайта или
+    // https:// (lib/tours/photo-address, перепроверка 23.11). Путь вроде
+    // `/api/admin/…` браузер проверяющего запросил бы сам, со своей кукой.
+    // Адреса, которые уже стоят у тура или в правке на проверке, форма
+    // присылает обратно при каждом сохранении — их оставляем как есть, иначе
+    // тур со старым снимком нельзя было бы сохранить вовсе.
+    const knownPhotos = new Set([...photoAddressesOf(tour), ...photoAddressesOf(waitingPatch)]);
+    if (rejectedPhotoAddresses(photoAddressesOf(input), knownPhotos).length > 0) {
+      return NextResponse.json({ error: PHOTO_ADDRESS_TEXT }, { status: 400 });
     }
 
     // Запись — единая дверь владельца (lib/tours/tour-change): содержание

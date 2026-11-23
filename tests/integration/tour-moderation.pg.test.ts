@@ -163,7 +163,7 @@ withPg('модерация правок тура', () => {
     beforeAll(async () => { tour = await addTour(OP, 'Вулкан Горелый', { published: true }); });
 
     it('цена и снимки — черновик; витрина показывает прежнее', async () => {
-      const r = await change(tour, OP, { base_price: 12000, photos: ['/b.jpg', '/c.jpg'] });
+      const r = await change(tour, OP, { base_price: 12000, photos: ['/images/tours/b.jpg', '/images/tours/c.jpg'] });
       expect(r.outcome).toBe('pending');
       if (r.outcome !== 'pending') return;
       expect(r.pending.fields).toEqual(['base_price', 'photos']);
@@ -207,7 +207,7 @@ withPg('модерация правок тура', () => {
         ['base_price', '10 000 ₽', '12 000 ₽'],
         ['photos', 'снимков: 1', 'снимков: 2'],
       ]);
-      expect(edit?.changes[1]).toMatchObject({ beforePhotos: ['/a.jpg'], afterPhotos: ['/b.jpg', '/c.jpg'] });
+      expect(edit?.changes[1]).toMatchObject({ beforePhotos: ['/a.jpg'], afterPhotos: ['/images/tours/b.jpg', '/images/tours/c.jpg'] });
       expect(edit?.seen).toMatch(/^[0-9a-f]{64}$/);
     });
 
@@ -225,8 +225,8 @@ withPg('модерация правок тура', () => {
       expect(r).toMatchObject({ outcome: 'approved', partnerId: OP, tourId: tour, published: false, fields: ['base_price', 'photos'] });
       const live = await liveOf(tour);
       expect(live.base_price).toBe(13000);
-      expect(live.photos).toEqual(['/b.jpg', '/c.jpg']);
-      expect(live.tour_image).toBe('/b.jpg');
+      expect(live.photos).toEqual(['/images/tours/b.jpg', '/images/tours/c.jpg']);
+      expect(live.tour_image).toBe('/images/tours/b.jpg');
       expect(await pendingCount(tour)).toBe(0);
       const kept = (await pool.query(`SELECT moderation_status, live_before, moderated_by::text AS by FROM operator_tour_edits WHERE id = $1`, [shown.id])).rows[0];
       expect(kept.moderation_status).toBe('approved');
@@ -609,6 +609,60 @@ withPg('модерация правок тура', () => {
       expect((await liveOf(tour)).photos).toEqual(before);
     });
 
+    it('«снимок» с адресом ручки сайта дверь не сохраняет; старый снимок тура форму не запирает (перепроверка 23.11)', async () => {
+      const { PHOTO_ADDRESS_TEXT } = await import('@/lib/tours/photo-address');
+      const tour = await addTour(OP, 'Форма: путь сайта вместо снимка', { published: true, price: 10000 });
+      // У тура — старая запись, которая новому правилу не отвечает: `/a.jpg` не из каталога картинок.
+      const before = (await liveOf(tour)).photos as string[];
+      expect(before).toEqual(['/a.jpg']);
+      // Браузер проверяющего запросил бы такой «снимок» сам, со своей кукой.
+      for (const body of [
+        { photos: ['/a.jpg', '/api/admin/evo?action=rescue-scan'] },
+        { tour_image: '/api/auth/magic?token=abc' },
+        { photos: ['//evil.example/a.jpg'] },
+        { photos: ['https:evil.example/a.jpg'] },
+        { photos: ['/images/../api/admin/evo'] },
+        { photos: ['javascript://x y/%0Aalert(1)'] },
+      ]) {
+        const r = await saveForm(tour, body);
+        expect(r.status, JSON.stringify(body)).toBe(400);
+        expect(JSON.stringify(r.body)).toContain(PHOTO_ADDRESS_TEXT);
+      }
+      expect(await waitingPatch(tour)).toBeNull();
+      expect((await liveOf(tour)).photos).toEqual(before);
+
+      // Форма прислала старый снимок обратно и добавила настоящий — правка принята.
+      const added = await saveForm(tour, { photos: ['/a.jpg', '/images/tours/new.jpg'] });
+      expect(added.status, JSON.stringify(added.body)).toBe(200);
+      expect(await waitingPatch(tour)).toEqual({ photos: ['/a.jpg', '/images/tours/new.jpg'] });
+      // Снимок из правки на проверке — тоже снимок тура: форма шлёт его обратно без отказа.
+      const again = await saveForm(tour, { photos: ['/a.jpg', '/images/tours/new.jpg'], base_price: 11000 });
+      expect(again.status).toBe(200);
+      expect(await waitingPatch(tour)).toEqual({ photos: ['/a.jpg', '/images/tours/new.jpg'], base_price: 11000 });
+      // Администратор той же дверью чужой путь тоже не запишет.
+      const admin = await asAdmin(() => saveForm(tour, { photos: ['/api/admin/evo?action=rescue-scan'] }));
+      expect(admin.status).toBe(400);
+      expect((await liveOf(tour)).photos).toEqual(before);
+    });
+
+    it('новый тур: «снимок» с адресом ручки сайта не создаётся', async () => {
+      const { POST } = await import('@/app/api/hub/operator/tours/route');
+      const { PHOTO_ADDRESS_TEXT } = await import('@/lib/tours/photo-address');
+      const body = {
+        title: 'Новый тур с чужим адресом', location_type: 'volcano', activity_type: 'trekking', location_name: 'Вулкан Горелый',
+        base_price: 10000, price_unit: 'per_person', max_participants: 6,
+      };
+      const count = async () => Number((await pool.query(
+        `SELECT COUNT(*)::int AS n FROM operator_tours WHERE operator_id = $1::uuid AND title = $2`, [OP, body.title],
+      )).rows[0].n);
+      for (const photos of [['/api/admin/evo?action=rescue-scan'], ['photo.jpg'], ['//evil.example/a.jpg']]) {
+        const res = await POST(new NextRequest('http://localhost/api/hub/operator/tours', { method: 'POST', body: JSON.stringify({ ...body, photos }) }));
+        expect(res.status, JSON.stringify(photos)).toBe(400);
+        expect(JSON.stringify(await res.json())).toContain(PHOTO_ADDRESS_TEXT);
+      }
+      expect(await count()).toBe(0);
+    });
+
     it('чужой тур форма не открывает и не сохраняет', async () => {
       const foreign = await addTour(OTHER, 'Форма: чужой тур', { published: true, price: 10000 });
       expect((await openForm(foreign)).status).toBe(404);
@@ -635,7 +689,7 @@ withPg('модерация правок тура', () => {
 
     it('одобрение одним действием: правка на витрине, черновик закрыт; канала нет — запрос не падает', async () => {
       const tour = await addTour(OP, 'Дверь админа: одобрение', { published: true, price: 10000 });
-      await change(tour, OP, { base_price: 12500, photos: ['/x.jpg'] });
+      await change(tour, OP, { base_price: 12500, photos: ['/images/tours/x.jpg'] });
       const card = (await adminGet()).data.edits.find((e) => e.tourId === tour)!;
       expect(card.kind).toBe('edit');
       expect(card.changes.map((c) => c.field)).toEqual(['base_price', 'photos']);
@@ -648,8 +702,8 @@ withPg('модерация правок тура', () => {
       expect(r.body.message).toBe('«Дверь админа: одобрение»: правка на сайте');
       const live = await liveOf(tour);
       expect(live.base_price).toBe(12500);
-      expect(live.photos).toEqual(['/x.jpg']);
-      expect(live.tour_image).toBe('/x.jpg');
+      expect(live.photos).toEqual(['/images/tours/x.jpg']);
+      expect(live.tour_image).toBe('/images/tours/x.jpg');
       const closed = (await pool.query(
         `SELECT moderation_status, moderated_by::text AS moderated_by, live_before FROM operator_tour_edits WHERE id = $1::uuid`, [card.id],
       )).rows[0];
@@ -662,6 +716,31 @@ withPg('модерация правок тура', () => {
       expect(pings.tours).toEqual([tour]);
       // Повторное решение не применяется.
       expect((await adminPost(card.id, { action: 'approve', seen: card.seen })).status).toBe(409);
+    });
+
+    it('черновик с адресом, который не снимок, одобрить нельзя — только вернуть (перепроверка 23.11)', async () => {
+      const tour = await addTour(OP, 'Дверь админа: чужой адрес в черновике', { published: true, price: 10000 });
+      // Черновик лёг мимо роута (до правила двери или другой дверью): в нём путь ручки сайта.
+      await change(tour, OP, { photos: ['/a.jpg', '/api/admin/evo?action=rescue-scan'] });
+      const card = (await adminGet()).data.edits.find((e) => e.tourId === tour)!;
+      pings.tours.length = 0;
+      const r = await adminPost(card.id, { action: 'approve', seen: card.seen });
+      expect(r.status).toBe(409);
+      expect(r.body.code).toBe('bad_photo');
+      expect(r.body.error).toContain('Тур не изменён');
+      expect((await liveOf(tour)).photos).toEqual(['/a.jpg']);
+      expect(await pendingCount(tour)).toBe(1);
+      expect(pings.tours).toEqual([]);
+      // Вернуть правку с причиной можно.
+      const back = await adminPost(card.id, { action: 'reject', reason: 'Второй адрес — не снимок, загрузите фото.' });
+      expect(back.status).toBe(200);
+      expect((await liveOf(tour)).photos).toEqual(['/a.jpg']);
+
+      // Старый адрес, уже стоящий у тура, одобрению не мешает: оно его не добавляет.
+      await change(tour, OP, { photos: ['/a.jpg', '/images/tours/ok.jpg'] });
+      const next = (await adminGet()).data.edits.find((e) => e.tourId === tour)!;
+      expect((await adminPost(next.id, { action: 'approve', seen: next.seen })).status).toBe(200);
+      expect((await liveOf(tour)).photos).toEqual(['/a.jpg', '/images/tours/ok.jpg']);
     });
 
     it('отказ с причиной: витрина прежняя, владельцу — сообщение в его канал без ПД, поисковикам ничего', async () => {
