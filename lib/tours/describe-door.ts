@@ -39,9 +39,9 @@ export async function proposeRewrittenDescription(tourId: string, text: string):
   return transaction(async (client) => {
     const tour = await readTourForAutomaton(client, tourId);
     if (!tour) return 'not_found';
-    if (tour.ownerPending.includes('description')) return 'skipped_owner_pending';
     // Тот же текст уже стоит — на витрине или в правке на проверке: повтор
     // прогона не должен отчитываться «записано» о том, чего не менял.
+    // Описание владельца на проверке дверь не перебьёт сама (`kept_owner`).
     if (tour.effective.description === text) return 'unchanged';
     const change = await proposeTourChange(client, {
       tourId, source: 'initiative-rewrite', input: { description: text }, tour,

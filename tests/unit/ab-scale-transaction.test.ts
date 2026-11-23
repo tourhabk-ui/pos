@@ -152,6 +152,18 @@ describe('executeABScaleWinner: одна транзакция под замко�
     expect(told).not.toMatch(/Применена скидка/);
   });
 
+  it('цена считается от того, что выйдет на сайт: витрина плюс правка на проверке', async () => {
+    clientHandler = async (sql) => {
+      if (/FOR UPDATE SKIP LOCKED/.test(sql)) return { rows: [EXP], rowCount: 1 };
+      if (/UNION ALL/.test(sql)) return { rows: [{ variant: 'a', bookings: 1 }, { variant: 'b', bookings: 5 }], rowCount: 2 };
+      return { rows: [], rowCount: 1 };
+    };
+    // На витрине 10 000, а на проверке уже ждёт прежнее предложение автомата — 9 000.
+    door.view = { ...viewOf('10000.00'), effective: { base_price: '9000.00' } };
+    await executeABScaleWinner(task);
+    expect(door.proposals.map((p) => p.input)).toEqual([{ base_price: 7650, price_old: 9000 }]);
+  });
+
   it('тур не на сайте — «записано», а не «на проверке»; исходы считаются порознь', async () => {
     clientHandler = async (sql) => {
       if (/FOR UPDATE SKIP LOCKED/.test(sql)) return { rows: [{ ...EXP, variant_b: { label: 'B', tour_ids: [2, 3], discount_pct: 10 } }], rowCount: 1 };
