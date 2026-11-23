@@ -49,6 +49,22 @@ const re = (pattern: string) => new RegExp(`${B}(?:${pattern})${E}`, 'i');
 // китайского, где предложение кончается своими знаками 。！？
 const ZP = '[^。！？.!?\\n]';
 
+// Английское «help us …» и «need help …» — беда, если дальше НЕ дело: бронь,
+// выбор, план. Исключается именно связка дела, а не голый предлог: ревью
+// 23.11 показало, что исключения `get|to|with|on|in` выбрасывали «help us get
+// out of here», «need help on the trail», «need help finding our group».
+// Спорное остаётся бедой: «help us find the route down» — блок 112 лишним не
+// будет, а «tour guide» после «with our» — человек, не тур.
+const BIZ_VERB = '(choos(e|ing)|plan(ning)?|book(ing)?|decid(e|ing)|pick(ing)?|select(ing)?|compar(e|ing)|organi[sz](e|ing)|arrang(e|ing)|understand(ing)?|figur(e|ing) out|buy(ing)?|rent(ing)?|pay(ing)?|reserv(e|ing)|chang(e|ing)|cancel(l?ing)?|reschedul(e|ing))';
+const BIZ_NOUN = '(tours?(?! (guide|leader|group|bus))|trips?(?! (leader|group|member))|hotels?|hostels?|rooms?|accommodation|place to stay|transfers?|tickets?|flights?|visas?|permits?|payment|refund|prices?|discount|bookings?|reservations?|itinerary|schedule|dates?|plans?|website|account|order|questions?|information|info|advice)';
+const BIZ_DET = '((a|an|the|our|my|your|some|this|that|good|best|cheap|nice|new) )*';
+const BIZ_AFTER_HELP = `(to )?((in |on |with |about |for )?${BIZ_VERB}|(with |find |finding |get |getting |on |about |for )${BIZ_DET}${BIZ_NOUN})${E}`;
+
+// «Не могу идти в поход в субботу» — планы; «не могу идти на ногу», «не могу
+// идти по снегу» — беда. Исключается связка плана, а не голый предлог
+// (ревью 23.11): выезд, день недели, число, «завтра».
+const GO_PLAN = `( (в|во|на) ((эт|т|ваш|наш|сво|следующ)[а-яё]* )?(поход|тур|экскурси|восхождени|маршрут|тр(е|э)кк?инг|прогулк|рыбалк|сплав|выезд|суббот|воскресень|понедельник|вторник|сред[уы]|четверг|пятниц|выходн)[а-яё]*| (в|на|до|после) \\d| (завтра|сегодня|послезавтра)${E})`;
+
 // Что переворачивается в поле: «машина перевернулась», «перевернулся рафт».
 const VEHICLE = '(машина|джип|автомобиль|авто|вездеход|снегоход|квадроцикл|автобус|микроавтобус|вахтовка|уазик|лодка|рафт|катамаран|байдарка|каяк|катер)';
 
@@ -102,7 +118,7 @@ const CATEGORY_PATTERNS: Record<EmergencyCategory, RegExp[]> = {
     re('(потерял[аи]?|теряет|теряю) сознание'),
     re('(упал[аи]?|падает) в обморок|в обмороке'),
     // «не могу идти в поход в субботу» и «не могу встать рано» — планы.
-    re(`не (могу|может|можем|могут) идти(?! (в|во|на|с|со|к|по|за|завтра|сегодня|послезавтра|туда)${E})`),
+    re(`не (могу|может|можем|могут) идти(?!${GO_PLAN})`),
     re(`не (могу|может|можем|могут) (встать|двигаться|пошевелиться)(?! (рано|так рано|раньше|утром|в \\d|на (доску|лыжи|с(ё|е)рф|сноуборд|сап|коньки)))`),
     re('отравил(ся|ась|ись)'),
     re('анафила[а-яё]*'),
@@ -243,10 +259,10 @@ const CATEGORY_PATTERNS: Record<EmergencyCategory, RegExp[]> = {
     // Голый крик о помощи — всё сообщение, а не «помогите выбрать тур».
     /^\s*(?:please[\s,]+)?(?:помогите|help|нужна помощь)(?:[\s,!.]+(?:пожалуйста|срочно|нам|мне|нас|me|us|please|now|urgently))*[\s!.]*$/i,
     // «I need help with booking» — дело, не беда (как у русского правила).
-    re('(i|we) need help(?! (with|to|on|in|for|choosing|booking|finding|planning|deciding|picking|understanding|getting))'),
+    re(`(i|we) need help(?! ${BIZ_AFTER_HELP})`),
     // en / zh
     // «Can you help us plan a trip» — дело, не беда (ложная тревога до 23.11).
-    re('help us(?! (choose|plan|find|book|decide|pick|understand|get|with|to|organi[sz]e|arrange))|need (urgent|emergency) help'),
+    re(`help us(?! ${BIZ_AFTER_HELP})|need (urgent|emergency) help`),
     re('call (rescue|rescuers|an ambulance|112)'),
     re('救命|求救|紧急求助|需要(紧急)?救援'),
     re(`(请|快)${ZP}{0,2}(叫|呼叫)(救援|救护车)`),
