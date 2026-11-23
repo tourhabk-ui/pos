@@ -33,7 +33,9 @@ type Kind =
   /** Показывает правила владельцу или администратору — все, с их статусом. */
   | 'listing'
   /** Перепись: считает правила по своим определениям и называет их в ответе. */
-  | 'census';
+  | 'census'
+  /** Очередь проверки: читает правила, ждущие решения, и решает их под замком. */
+  | 'review';
 
 const READERS: Record<string, { kind: Kind; why: string }> = {
   'lib/tours/honest-price.ts': { kind: 'price', why: 'цена карточки и цена брони' },
@@ -42,6 +44,7 @@ const READERS: Record<string, { kind: Kind; why: string }> = {
   'app/api/hub/operator/pricing-rules/route.ts': { kind: 'listing', why: 'экран «скидки» у владельца' },
   'app/api/admin/pricing-rules/route.ts': { kind: 'listing', why: 'список правил у администратора' },
   'app/api/cron/pricing-rules-census/route.ts': { kind: 'census', why: 'перепись правил цены' },
+  'lib/tours/pricing-rule-review.ts': { kind: 'review', why: 'очередь скидок и наценок у администратора и решение по правилу' },
 };
 
 describe('условие «правило действует» — одно', () => {
