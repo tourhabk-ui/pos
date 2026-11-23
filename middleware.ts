@@ -59,6 +59,10 @@ type AuthRole =
   // они не значились ни в одном правиле, и потому `normalizeRole` отвечал о
   // них null. Молчание читалось как «роли нет» (§4.0).
   | 'stay' | 'gear'
+  // Прокат автомобилей (23.11, миграция 1506). Правила доступа по роли для
+  // него на Edge нет — кабинет проверяет роль сам (requireCarrier); здесь
+  // роль названа, чтобы `normalizeRole` не отвечал о ней null.
+  | 'cars'
   | 'admin';
 
 const API_ROLE_REQUIREMENTS: Record<string, AuthRole> = {
@@ -107,6 +111,7 @@ function normalizeRole(role: string | null | undefined): AuthRole | null {
     'agent',
     'stay',
     'gear',
+    'cars',
     'admin',
   ]);
 

@@ -22,6 +22,7 @@ vi.mock('@/lib/stats/platform-counts', () => ({ getPlatformCounts }));
 import GuidesJoin, { metadata as guidesMeta } from '@/app/guides/join/page';
 import StaysJoin, { metadata as staysMeta } from '@/app/stays/join/page';
 import TransfersJoin, { metadata as transfersMeta } from '@/app/transfers/join/page';
+import CarRentalJoin, { metadata as carRentalMeta } from '@/app/car-rental/join/page';
 import { JOIN_COMMON, JOIN_PAGES, ROLE_ENTRY_LINKS } from '@/lib/partners/join-pages';
 import { ROLE_HUB } from '@/lib/auth/role-routes';
 
@@ -31,6 +32,7 @@ const PAGES = [
   { role: 'guide', path: '/guides/join', Page: GuidesJoin, meta: guidesMeta },
   { role: 'stay', path: '/stays/join', Page: StaysJoin, meta: staysMeta },
   { role: 'transfer', path: '/transfers/join', Page: TransfersJoin, meta: transfersMeta },
+  { role: 'cars', path: '/car-rental/join', Page: CarRentalJoin, meta: carRentalMeta },
 ] as const;
 
 /** Обещания, которых у платформы нет: деньги, сроки, тарифы, числа успеха. */
@@ -85,9 +87,20 @@ describe.each(PAGES)('страница роли $path', ({ role, path, Page, met
     for (const promise of PROMISES) expect(description, String(promise)).not.toMatch(promise);
     // Роль ведёт в кабинет, который есть на диске.
     expect(ROLE_HUB[role]).toMatch(/^\/hub\//);
-    expect(existsSync(join(process.cwd(), 'app', ROLE_HUB[role], 'layout.tsx'))).toBe(true);
+    expect(existsSync(join(process.cwd(), 'app', ROLE_HUB[role], 'page.tsx'))).toBe(true);
     // Статическая страница перекрывает динамический сегмент рядом.
     expect(existsSync(join(process.cwd(), 'app', path, 'page.tsx'))).toBe(true);
+  });
+});
+
+describe('прокат автомобилей: страница не обещает того, чего кабинет не даёт', () => {
+  it('названо, что прайс заводит администратор, а ответы из кабинета — у пилота', () => {
+    const text = render(<CarRentalJoin />).container.textContent ?? '';
+    expect(text).toContain('Прайс на сайт сейчас заводит администратор');
+    expect(text).toContain('пока могут участники пилота проката');
+    // Кнопок ответа страница не обещает: они есть только у пилота.
+    expect(text).not.toMatch(/«Беру»|«Не могу»/);
+    expect(text).toContain('цена за сутки');
   });
 });
 
@@ -103,7 +116,7 @@ describe('тексты страниц ролей', () => {
   });
 
   it('входы ролей: туроператор и три страницы, агента нет', () => {
-    expect(ROLE_ENTRY_LINKS.map((l) => l.href)).toEqual(['/operators/join', '/guides/join', '/stays/join', '/transfers/join']);
+    expect(ROLE_ENTRY_LINKS.map((l) => l.href)).toEqual(['/operators/join', '/guides/join', '/stays/join', '/transfers/join', '/car-rental/join']);
     expect(JSON.stringify(ROLE_ENTRY_LINKS)).not.toMatch(/agent|агент/i);
   });
 });
@@ -115,7 +128,7 @@ describe('со страниц туроператора — ссылки на в�
     const c = render(await ForOperators()).container;
     expect(c.textContent).toContain('Не туроператор?');
     const hrefs = [...c.querySelectorAll('a')].map((a) => a.getAttribute('href'));
-    for (const p of ['/guides/join', '/stays/join', '/transfers/join']) expect(hrefs, p).toContain(p);
+    for (const p of ['/guides/join', '/stays/join', '/transfers/join', '/car-rental/join']) expect(hrefs, p).toContain(p);
     expect(c.querySelectorAll('h1')).toHaveLength(1);
   });
 
@@ -124,6 +137,6 @@ describe('со страниц туроператора — ссылки на в�
     const c = render(<JoinClient routesLine={null} />).container;
     expect(c.textContent).toContain('Не туроператор?');
     const hrefs = [...c.querySelectorAll('a')].map((a) => a.getAttribute('href'));
-    for (const p of ['/guides/join', '/stays/join', '/transfers/join']) expect(hrefs, p).toContain(p);
+    for (const p of ['/guides/join', '/stays/join', '/transfers/join', '/car-rental/join']) expect(hrefs, p).toContain(p);
   });
 });

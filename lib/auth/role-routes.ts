@@ -15,8 +15,12 @@ export const ROLE_HUB: Record<string, string> = {
   agent:             '/hub/agent',
   gear:              '/hub/gear',
   stay:              '/hub/stay',
+  // Прокат автомобилей без водителя (23.11, этап 3a): своего хаба нет —
+  // кабинет проката живёт разделом кабинета перевозчика, там же, где им
+  // пользуется «Лагуна Прокат». Пустой хаб ради роли не заводится.
+  cars:              '/hub/carrier/rental',
   admin:             '/hub/admin',
 };
 
 /** Роли, которым при регистрации создаётся партнёрский профиль (partners.category). */
-export const PARTNER_ROLES = ['operator', 'guide', 'transfer', 'agent', 'stay', 'gear'] as const;
+export const PARTNER_ROLES = ['operator', 'guide', 'transfer', 'agent', 'stay', 'gear', 'cars'] as const;

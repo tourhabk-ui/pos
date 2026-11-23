@@ -35,7 +35,7 @@ async function ownsCar(partnerId: string, offerId: string): Promise<boolean | 'd
 }
 
 export async function GET(request: NextRequest) {
-  const carrier = await requireCarrier(request);
+  const carrier = await requireCarrier(request, { rental: true });
   if (carrier instanceof NextResponse) return carrier;
 
   const offer = OfferId.safeParse(request.nextUrl.searchParams.get('offer'));
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const carrier = await requireCarrier(request);
+  const carrier = await requireCarrier(request, { rental: true });
   if (carrier instanceof NextResponse) return carrier;
 
   const parsed = MarkSchema.safeParse(await request.json().catch(() => null));

@@ -45,7 +45,9 @@ describe('3. роль перевозчика', () => {
     expect(existsSync(join(ROOT, 'app/hub/carrier/page.tsx'))).toBe(true);
   });
   it('кабинет требует роль transfer', () => {
-    expect(CABINET_LAYOUT).toMatch(/requiredRole=\{\['transfer', 'transfer_operator', 'admin'\]\}/);
+    // С 23.11 кабинет открыт и прокату автомобилей (роль cars): ему — только
+    // раздел «Прокат»; поведение судит tests/unit/carrier-rental-role.test.tsx.
+    expect(CABINET_LAYOUT).toMatch(/requiredRole=\{\['transfer', 'transfer_operator', 'cars', 'admin'\]\}/);
   });
   it('мёртвый /hub/transfer-operator нигде не назначение', () => {
     for (const f of ['lib/auth/role-routes.ts', 'app/api/roles/route.ts', 'app/profile/_ProfilePageClient.tsx']) {

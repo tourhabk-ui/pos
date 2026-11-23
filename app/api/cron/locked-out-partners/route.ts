@@ -37,7 +37,7 @@ export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
 
 /** Те же роли, что считает партнёрскими сама регистрация. */
-export const PARTNER_ROLES = ['operator', 'guide', 'transfer', 'agent', 'stay', 'gear'] as const;
+export const PARTNER_ROLES = ['operator', 'guide', 'transfer', 'agent', 'stay', 'gear', 'cars'] as const;
 
 /** Ветка с VALUES — её дефект не касался. Служит контролем, не исключением. */
 export const CONTROL_ROLE = 'operator';

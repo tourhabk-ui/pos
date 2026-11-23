@@ -3,17 +3,10 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-
-const ROLE_HUB: Record<string, string> = {
-  tourist:           '/hub/tourist',
-  operator:          '/hub/operator',
-  guide:             '/hub/guide',
-  // Кабинет перевозчика на схеме 926 (02.09): парк, поездки, запросы мест.
-  transfer:          '/hub/carrier',
-  transfer_operator: '/hub/carrier',
-  agent:             '/hub/agent',
-  admin:             '/hub/admin',
-};
+// Карта «роль → кабинет» — одна на платформу. Своя копия здесь не знала
+// жилья, проката снаряжения и проката автомобилей: /profile уводил этих
+// партнёров в кабинет туриста (23.11).
+import { ROLE_HUB } from '@/lib/auth/role-routes';
 
 /**
  * /profile — перенаправляет авторизованного пользователя в его личный кабинет (хаб).

@@ -28,6 +28,7 @@ export const PARTNER_CATEGORY_LABELS: Record<PartnerCategory, string> = {
   agent:    'Турагент',
   stay:     'Жильё — база, гостевой дом, глэмпинг',
   gear:     'Прокат снаряжения',
+  cars:     'Прокат автомобилей',
 };
 
 export const PARTNER_CATEGORIES: readonly PartnerCategory[] = PARTNER_ROLES;

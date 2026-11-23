@@ -7,9 +7,9 @@ import { recordUserSession, SESSION_TTL_DAYS } from '@/lib/auth/session-record';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { agentRoleOpen, requestsAgentRole, AGENT_SIGNUP_CLOSED } from '@/lib/auth/agent-role';
 
-const VALID_ROLES = ['tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear'] as const;
+const VALID_ROLES = ['tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear', 'cars'] as const;
 // Роли, которым нужен партнёрский профиль (partners.category совпадает с ролью)
-const PARTNER_ROLE_SET = new Set(['operator', 'guide', 'transfer', 'agent', 'stay', 'gear']);
+const PARTNER_ROLE_SET = new Set(['operator', 'guide', 'transfer', 'agent', 'stay', 'gear', 'cars']);
 
 const RegisterSchema = z.object({
   email: z.string({ message: 'Email обязателен' }).email('Неверный формат email'),

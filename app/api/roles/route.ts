@@ -8,7 +8,7 @@ import { getClientIp } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
-const validRoles = ['tourist', 'operator', 'guide', 'transfer', 'agent', 'admin', 'stay', 'gear'] as const;
+const validRoles = ['tourist', 'operator', 'guide', 'transfer', 'agent', 'admin', 'stay', 'gear', 'cars'] as const;
 const validLevels = ['L1', 'L2', 'L3'] as const;
 
 const UpdateRoleSchema = z.object({

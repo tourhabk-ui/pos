@@ -68,7 +68,7 @@ withPg('регистрация на настоящем PostgreSQL', () => {
 
   /**
    * Роль со страницы роли (план готовности 23.11, этап 3a): `/guides/join`,
-   * `/stays/join` и `/transfers/join` ведут на общую форму с выбранной ролью,
+   * `/stays/join`, `/transfers/join` и `/car-rental/join` ведут на общую форму с выбранной ролью,
    * а форма шлёт её сюда. Регистрация обязана завести карточку партнёра
    * нужной категории, не поставить её на витрину и привести человека в его
    * кабинет.
@@ -77,6 +77,7 @@ withPg('регистрация на настоящем PostgreSQL', () => {
     ['guide', '/hub/guide'],
     ['stay', '/hub/stay'],
     ['transfer', '/hub/carrier'],
+    ['cars', '/hub/carrier/rental'],
   ])('роль %s: партнёр своей категории, не на витрине, кабинет %s', async (role, hub) => {
     const email = `join.${role}@example.com`;
     const res = await POST(req({ ...base, name: `Тест ${role}`, email, role, roles: [role] }));
