@@ -97,7 +97,7 @@ describe('разметка и дата', () => {
     const l = landingBySlug('medvedi-kamchatki');
     const ld = landingJsonLd(l) as { '@graph': Array<Record<string, unknown>> };
     const article = ld['@graph'].find((n) => n['@type'] === 'Article')!;
-    expect(String(article.dateModified)).toMatch(/^2026-11-21/);
+    expect(String(article.dateModified)).toMatch(new RegExp('^' + l.date));
     const author = article.author as { '@type': string; name: string };
     expect(author['@type']).toBe('Organization');
     expect(author.name).toMatch(/Vedar|Ведар/);
