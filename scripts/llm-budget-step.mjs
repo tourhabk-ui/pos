@@ -35,17 +35,27 @@ export function llmBudgetVerdict(http, bodyText) {
   return { exitCode: 1, measured: false, lines };
 }
 
+function argValue(name, fallback) {
+  const i = process.argv.indexOf(name);
+  const v = i >= 0 ? process.argv[i + 1] : '';
+  return v && !v.startsWith('--') ? v : fallback;
+}
+
 function main() {
   const secret = process.env.CRON_SECRET || '';
   if (!secret) {
     console.log('::error::CRON_SECRET не задан в секретах репозитория — эндпоинт не вызван, прогон не состоялся');
     return 1;
   }
+  // Адрес и --max-time остаются в yaml: сторож второй ноги читает их оттуда,
+  // а не из этого файла. Без адреса он решает, что у крона нет прод-ноги.
+  const url = argValue('--url', 'https://vedarai.ru/api/cron/llm-budget-check');
+  const maxTime = argValue('--max-time', '30');
   const out = '/tmp/out.json';
   const res = spawnSync('curl', [
-    '-sS', '-o', out, '-w', '%{http_code}', '--max-time', '30',
+    '-sS', '-o', out, '-w', '%{http_code}', '--max-time', maxTime,
     '-H', `Authorization: Bearer ${secret}`,
-    'https://vedarai.ru/api/cron/llm-budget-check',
+    url,
   ], { encoding: 'utf8' });
   const raw = (res.stdout || '').trim();
   const http = /^\d{3}$/.test(raw) ? Number(raw) : 0;

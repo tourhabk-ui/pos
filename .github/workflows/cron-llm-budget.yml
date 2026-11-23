@@ -18,4 +18,4 @@ jobs:
       - name: Check LLM daily budget
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-        run: node scripts/llm-budget-step.mjs
+        run: node scripts/llm-budget-step.mjs --url "https://vedarai.ru/api/cron/llm-budget-check" --max-time 30

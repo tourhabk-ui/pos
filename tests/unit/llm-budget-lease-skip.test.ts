@@ -46,6 +46,8 @@ describe('сводка шага бюджета', () => {
   it('workflow зовёт этот шаг и больше не печатает OK на любой 200', () => {
     const wf = readFileSync(join(process.cwd(), '.github/workflows/cron-llm-budget.yml'), 'utf8');
     expect(wf).toContain('node scripts/llm-budget-step.mjs');
+    expect(wf).toContain('/api/cron/llm-budget-check');
+    expect(wf).toContain('--max-time 30');
     expect(wf).not.toContain('echo "OK"');
   });
 });
