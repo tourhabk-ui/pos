@@ -12,7 +12,7 @@
  * Это только владелец: менеджер компании форму не сохраняет и в кабинет входит.
  * Админ без своей компании партнёра не получает: одна фраза, как открыть кабинет.
  */
-import { createContext, useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 
 const ROOT = '/hub/operator';
@@ -26,12 +26,6 @@ type Gate =
   | { kind: 'onboarding'; at: boolean }
   | { kind: 'admin'; at: boolean }
   | { kind: 'failed'; message: string; at: boolean };
-
-/** Факт профиля, который ворота уже прочитали. Дашборд не выдумывает «заполнено». */
-export const OperatorCabinetFacts = createContext<{
-  onboardingCompleted: boolean;
-  viewer: Viewer;
-} | null>(null);
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
@@ -133,16 +127,12 @@ export function OperatorCabinetGate({
 
   // Владелец с незаконченной настройкой на любом разделе, кроме главной,
   // видит раздел: заявку и бронь из уведомления открывают, а не теряют.
-  const facts = gate.kind === 'ready'
-    ? { onboardingCompleted: gate.completed, viewer: gate.viewer }
-    : { onboardingCompleted: false, viewer: 'owner' as const };
-  const body = facts.viewer === 'manager' && onOnboarding
+  // Факты профиля детям больше не раздаются: чек-лист готовности читает их
+  // сам, из базы (lib/partners/readiness), и не зависит от того, что знают ворота.
+  const manager = gate.kind === 'ready' && gate.viewer === 'manager';
+  const body = manager && onOnboarding
     ? <Status>Настройку профиля завершает владелец компании. Разделы кабинета — в меню.</Status>
     : children;
 
-  return (
-    <OperatorCabinetFacts.Provider value={facts}>
-      {ready(body)}
-    </OperatorCabinetFacts.Provider>
-  );
+  return <>{ready(body)}</>;
 }

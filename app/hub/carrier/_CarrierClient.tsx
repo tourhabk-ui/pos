@@ -28,6 +28,7 @@ import { CARRIER_SUMMARY_API, CarrierSummaryCard, type SummaryLoad } from '@/com
 import type { CarrierSummary } from '@/lib/transfers/carrier-summary';
 import type { CharterPriceRow } from '@/lib/transfers/price-edit';
 import type { OwnDraft } from '@/lib/transfers/price-edit-store';
+import { PartnerReadinessCard } from '@/components/hub/PartnerReadinessCard';
 
 interface Vehicle { id: string; kind: string; title: string; seats: number | null; notes: string | null; is_active: boolean }
 interface SeatRequest {
@@ -122,6 +123,8 @@ export default function CarrierClient() {
       <p className="text-sm text-[var(--text-secondary)] mb-5">
         Машину заказывают целиком: направление, даты и сколько человек заказчик пишет в заявке на вашей странице, цена — по прайсу за машину. Заявку подтверждает с вами менеджер Ведара.
       </p>
+
+      <div className="mb-5"><PartnerReadinessCard /></div>
 
       {flash && (
         <p className={`text-sm mb-4 ${flash.kind === 'ok' ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>{flash.text}</p>

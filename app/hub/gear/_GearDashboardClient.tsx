@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { BarChart3, Backpack, ClipboardList, Package, Star, Wallet } from 'lucide-react';
 import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
+import { PartnerReadinessCard } from '@/components/hub/PartnerReadinessCard';
 
 /**
  * Обзор кабинета проката снаряжения. Данные — из /api/gear/profile
@@ -83,6 +84,8 @@ export default function GearDashboardClient() {
           {data.partner?.name ? `Прокат «${data.partner.name}»` : 'Кабинет проката снаряжения'}
         </h1>
       </div>
+
+      <PartnerReadinessCard />
 
       {stats ? (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

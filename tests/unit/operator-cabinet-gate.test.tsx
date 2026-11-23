@@ -15,12 +15,7 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace, push: vi.fn() }),
 }));
 
-import { OperatorCabinetFacts, OperatorCabinetGate } from '@/components/operator/OperatorCabinetGate';
-
-function FactsProbe() {
-  const facts = React.useContext(OperatorCabinetFacts);
-  return <p>{facts ? `профиль ${facts.onboardingCompleted ? 'заполнен' : 'не заполнен'}, ${facts.viewer}` : 'фактов нет'}</p>;
-}
+import { OperatorCabinetGate } from '@/components/operator/OperatorCabinetGate';
 
 function mount() {
   return render(
@@ -160,13 +155,10 @@ describe('ворота кабинета оператора', () => {
           ready={(node) => <div data-testid="ready">{node}</div>}
         >
           <main>экран</main>
-          <FactsProbe />
         </OperatorCabinetGate>,
       );
       expect(await screen.findByText('экран')).toBeTruthy();
       expect(screen.getByTestId('ready')).toBeTruthy();
-      // Дашборд и чек-лист не считают профиль заполненным: факт тот же, что у ворот.
-      expect(screen.getByText('профиль не заполнен, owner')).toBeTruthy();
       await new Promise((r) => setTimeout(r, 20));
       expect(replace).not.toHaveBeenCalled();
     });

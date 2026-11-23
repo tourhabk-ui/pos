@@ -18,7 +18,10 @@ const GATED = [
   'lib/telegram/booking-notify.ts',
   'app/hub/operator/finance/_FinancePageClient.tsx',
   'app/hub/operator/help/_OperatorHelpClient.tsx',
-  'app/hub/operator/_OperatorDashboardClient.tsx',
+  // Главная оператора из списка ушла 23.11: фраза о реквизитах для выплат жила
+  // в панели «Первые шаги», а панель заменена общим чек-листом готовности
+  // (lib/partners/readiness), где слов об оплате нет вовсе — это держит
+  // tests/unit/partner-readiness.test.tsx.
   'app/hub/operator/reports/_ReportsPageClient.tsx',
   'components/operator/AutoConfirmToggle.tsx',
   'lib/telegram/welcome.ts',

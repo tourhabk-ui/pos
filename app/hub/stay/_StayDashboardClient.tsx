@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { BarChart3, Home, ClipboardList, CalendarCheck, Wallet, CalendarDays, PlusCircle } from 'lucide-react';
 import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
+import { PartnerReadinessCard } from '@/components/hub/PartnerReadinessCard';
 
 /**
  * Обзор кабинета владельца жилья. Данные — из /api/stay/stats.
@@ -123,6 +124,8 @@ export default function StayDashboardClient() {
         <BarChart3 className="w-4 h-4 text-[var(--text-muted)]" />
         <h1 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">Кабинет владельца жилья</h1>
       </div>
+
+      <PartnerReadinessCard />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {metrics.map(m => {

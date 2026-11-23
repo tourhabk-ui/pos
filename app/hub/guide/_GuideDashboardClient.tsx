@@ -11,6 +11,7 @@ import { useOnboardingGuard } from '@/components/hub/usePartnerOnboarding';
 import { FEDERATIONS, REATTESTATION_DEADLINE, type ReattestationStatus } from '@/lib/guides/reattestation';
 import GuideTeamPanel from './_GuideTeamPanel';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { PartnerReadinessCard } from '@/components/hub/PartnerReadinessCard';
 
 // Быстрая навигация по разделам прямо на «Обзоре» — тот же формат, что в ЛК
 // туриста: на телефоне сайдбар спрятан под бургер, а отсюда любой раздел в
@@ -238,6 +239,8 @@ export default function GuideDashboardClient() {
         <h1 className="font-playfair text-2xl sm:text-3xl font-bold text-[var(--text-primary)]">Обзор</h1>
         <p className="text-sm text-[var(--text-secondary)] mt-1">Кабинет гида</p>
       </header>
+
+      <PartnerReadinessCard />
 
       {/* Переаттестация до 1 октября — только для тех, кого касается по датам */}
       {reattestation && (reattestation.status === 'needed' || reattestation.status === 'unknown') && (
