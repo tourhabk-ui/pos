@@ -382,9 +382,11 @@ export async function GET(req: Request): Promise<NextResponse> {
   }
 
   // 4. Сверка повторным списком. Ответ MAX на POST/DELETE — его слово, а не
-  //    состояние: снятая подписка может остаться, а снятие по `?url=` — задеть
-  //    больше, чем этот адрес. Ожидаемой нет — ставим сразу, не дожидаясь
-  //    следующего прогона через 6 ч: без неё бот в MAX молчит.
+  //    состояние: снятая подписка может остаться, снятие по `?url=` — задеть
+  //    больше, чем этот адрес, а POST с новым списком событий — оставить
+  //    прежний. Ожидаемой нет — ставим сразу. Адрес есть, а bot_added и
+  //    bot_removed в списке не появились — прогон красный: иначе каждый заход
+  //    писал бы «события дописаны» и молчащие чаты так и не узнавались бы.
   const after = await listSubscriptions(headers);
   if (!after.ok) {
     return finish({
@@ -403,6 +405,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     console.error(`[cron/max-webhook] старая подписка ${f.url} не снята: ${f.reason}`);
   }
   const verified = { stale_removed: removed, stale_failed: failed, subscriptions_after: after.list.length };
+  const afterCovers = after.list.some((s) => s.url === webhookUrl && subscriptionCoversBotChats(s.update_types));
 
   if (!afterUrls.has(webhookUrl)) {
     let reregister: string;
@@ -416,6 +419,14 @@ export async function GET(req: Request): Promise<NextResponse> {
     return finish({
       ok: false, ...base, ...verified,
       error: `ожидаемой подписки нет в списке после правки; ${reregister}`,
+    }, 502);
+  }
+
+  if (!afterCovers) {
+    console.error(`[cron/max-webhook] подписка ${redactWebhookUrl(webhookUrl)} после правки без событий чатов`);
+    return finish({
+      ok: false, ...base, ...verified,
+      error: 'адрес подписки на месте, но события bot_added и bot_removed в списке не появились',
     }, 502);
   }
 
