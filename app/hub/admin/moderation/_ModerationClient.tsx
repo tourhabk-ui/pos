@@ -5,6 +5,7 @@ import { Protected } from '@/components/auth/Protected';
 import { RentalEditQueue, type RentalEditCard } from '@/components/admin/RentalEditQueue';
 import { CharterPriceEditQueue, type CharterPriceEditCard } from '@/components/admin/CharterPriceEditQueue';
 import { TourEditQueue, type TourEditCard } from '@/components/admin/TourEditQueue';
+import { PricingRuleQueue, type PricingRuleCard } from '@/components/admin/PricingRuleQueue';
 import { Shield, Check, X, Loader2, Star, MessageSquare, AlertCircle } from 'lucide-react';
 
 interface PendingReview {
@@ -34,6 +35,12 @@ export default function ModerationClient() {
   const [tourEditsError, setTourEditsError] = useState('');
   const [actingTourEdit, setActingTourEdit] = useState<string | null>(null);
   const [tourEditActionError, setTourEditActionError] = useState('');
+  // Скидки и наценки туров (1512): правило меняет цену только после одобрения.
+  const [pricingRules, setPricingRules] = useState<PricingRuleCard[]>([]);
+  const [pricingRulesLoading, setPricingRulesLoading] = useState(true);
+  const [pricingRulesError, setPricingRulesError] = useState('');
+  const [actingPricingRule, setActingPricingRule] = useState<string | null>(null);
+  const [pricingRuleActionError, setPricingRuleActionError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -110,8 +117,24 @@ export default function ModerationClient() {
     }
   }, []);
 
+  const loadPricingRules = useCallback(async () => {
+    setPricingRulesLoading(true);
+    setPricingRulesError('');
+    try {
+      const res = await fetch('/api/admin/moderation/pricing-rules');
+      const json = await res.json().catch(() => null) as { success?: boolean; error?: string; data?: { rules?: PricingRuleCard[] } } | null;
+      if (!res.ok || !json?.success) throw new Error(json?.error ?? `HTTP ${res.status}`);
+      setPricingRules(Array.isArray(json.data?.rules) ? json.data.rules : []);
+    } catch (e) {
+      setPricingRulesError(e instanceof Error ? e.message : 'Не смог загрузить скидки и наценки');
+    } finally {
+      setPricingRulesLoading(false);
+    }
+  }, []);
+
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadTourEdits(); }, [loadTourEdits]);
+  useEffect(() => { loadPricingRules(); }, [loadPricingRules]);
   useEffect(() => { loadEdits(); }, [loadEdits]);
   useEffect(() => { loadPriceEdits(); }, [loadPriceEdits]);
 
@@ -140,6 +163,32 @@ export default function ModerationClient() {
     }
     // Правка изменилась, решение уже есть или тур удалён — карточка устарела, показать свежую.
     if (stale) await loadTourEdits();
+  }
+
+  async function decidePricingRule(id: string, action: 'approve' | 'reject', reason?: string) {
+    // Одобряется то, что видно в карточке: её отпечаток едет с решением.
+    const shown = pricingRules.find((row) => row.id === id);
+    if (action === 'approve' && !shown) return;
+    setActingPricingRule(id);
+    setPricingRuleActionError('');
+    let stale = false;
+    try {
+      const res = await fetch(`/api/admin/moderation/pricing-rules/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(action === 'reject' ? { action, reason } : { action, seen: shown?.seen }),
+      });
+      const json = await res.json().catch(() => null) as { success?: boolean; error?: string } | null;
+      stale = res.status === 409 || res.status === 404;
+      if (!res.ok || !json?.success) throw new Error(json?.error ?? `HTTP ${res.status}`);
+      setPricingRules((prev) => prev.filter((row) => row.id !== id));
+    } catch (e) {
+      setPricingRuleActionError(e instanceof Error ? e.message : 'Не смог записать решение');
+    } finally {
+      setActingPricingRule(null);
+    }
+    // Правило изменилось, решение уже есть или тур удалён — карточка устарела, показать свежую.
+    if (stale) await loadPricingRules();
   }
 
   async function decidePriceEdit(id: string, action: 'approve' | 'reject', reason?: string) {
@@ -237,6 +286,17 @@ export default function ModerationClient() {
           onRetry={loadTourEdits}
           onApprove={(id) => decideTourEdit(id, 'approve')}
           onReject={(id, reason) => decideTourEdit(id, 'reject', reason)}
+        />
+
+        <PricingRuleQueue
+          loading={pricingRulesLoading}
+          error={pricingRulesError}
+          rules={pricingRules}
+          actingId={actingPricingRule}
+          actionError={pricingRuleActionError}
+          onRetry={loadPricingRules}
+          onApprove={(id) => decidePricingRule(id, 'approve')}
+          onReject={(id, reason) => decidePricingRule(id, 'reject', reason)}
         />
 
         <RentalEditQueue
