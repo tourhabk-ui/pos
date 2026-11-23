@@ -28,8 +28,6 @@ const CHAT_WRITERS: Readonly<Record<string, string>> = {
     'ссылка op_ подписана HMAC без запасного секрета; выдаёт её администратор (requireAdmin) или сам партнёр после входа на свою карточку (requirePartner, решение 09.10); срок 72 часа; перепривязку видят администратор и прежний чат',
   'app/api/admin/operators/[id]/contacts/route.ts':
     'правка карточки партнёра администратором (requireAdmin)',
-  'app/api/hub/operator/profile/route.ts':
-    'оператор правит СВОЙ профиль после входа (requireOperator, строка партнёра по его user_id)',
   'app/api/telegram/webhook/route.ts':
     '/start link_ — токен HMAC, выданный вошедшему пользователю (/api/telegram/connect, requireAuth); пишется по его user_id',
   'app/api/auth/telegram/route.ts':

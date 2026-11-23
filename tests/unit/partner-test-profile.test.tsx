@@ -24,12 +24,20 @@ import { NextRequest, NextResponse } from 'next/server';
 const h = vi.hoisted(() => ({
   query: vi.fn(),
   admin: vi.fn(),
+  gate: vi.fn(),
 }));
 
 vi.mock('@/lib/database', () => ({ query: (...a: unknown[]) => h.query(...a) }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
 vi.mock('@/lib/auth/middleware', () => ({ requireAdmin: (...a: unknown[]) => h.admin(...a) }));
 vi.mock('@/components/admin/TildaPanel', () => ({ default: () => null }));
+// Выклад на витрину сперва спрашивает канал партнёра (этап 3b плана готовности,
+// 23.11). Здесь судится отказ CHECK тестового профиля — он дальше шлюза, поэтому
+// у карточки канал есть. Сам шлюз — tests/unit/storefront-channel-gate.test.tsx.
+vi.mock('@/lib/partners/storefront-gate', async (orig) => ({
+  ...(await orig<typeof import('@/lib/partners/storefront-gate')>()),
+  storefrontChannelGate: (...a: unknown[]) => h.gate(...a),
+}));
 
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import {
@@ -57,6 +65,8 @@ beforeEach(() => {
   h.query.mockReset();
   h.admin.mockReset();
   h.admin.mockResolvedValue({ userId: 'admin-1', role: 'admin' });
+  h.gate.mockReset();
+  h.gate.mockResolvedValue({ outcome: 'ok' });
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
@@ -147,6 +157,17 @@ describe('PUT /api/admin/content/partners/[id]: тестовый профиль 
     const res = await editPartner(req(url, 'PUT', edit), params());
     expect(res.status).toBe(409);
     expect(((await res.json()) as { error: string }).error).toBe(TEST_PROFILE_NOT_PUBLIC_TEXT);
+    // Шлюз канала спрошен об этой карточке — и пропустил: отказ дала база.
+    expect(h.gate).toHaveBeenCalledWith(ID);
+  });
+
+  it('у тестового профиля нет канала — отказ шлюза, до базы запись не доходит', async () => {
+    h.gate.mockResolvedValue({ outcome: 'no_channel' });
+    h.query.mockResolvedValueOnce({ rows: [{ contact: {}, contacts: {}, website: null }] });
+    const res = await editPartner(req(url, 'PUT', edit), params());
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { code?: string }).code).toBe('no_channel');
+    expect(h.query).toHaveBeenCalledTimes(1);
   });
 
   it('чужой отказ CHECK словами тестового профиля не называется', async () => {
