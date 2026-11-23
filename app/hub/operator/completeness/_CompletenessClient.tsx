@@ -315,7 +315,8 @@ export default function CompletenessClient() {
       });
       const result = await res.json();
       if (!result.success) throw new Error(result.error);
-      toast.success(`${FIELD_LABELS[quickFill.field] ?? quickFill.field} обновлено`);
+      // Содержание опубликованного тура уходит на проверку — «обновлено» было бы неправдой.
+      toast.success(typeof result.pending === 'string' ? result.pending : `${FIELD_LABELS[quickFill.field] ?? quickFill.field} обновлено`);
       setQuickFill({ open: false, value: '' });
       await fetchData();
     } catch (err) {
@@ -338,7 +339,9 @@ export default function CompletenessClient() {
       const filled = result.data.filled;
       toast.dismiss(loadingToast);
       if (filled > 0) {
-        toast.success(`AI заполнил полей: ${filled}`);
+        toast.success(typeof result.data.pending === 'string'
+          ? `AI заполнил полей: ${filled}. ${result.data.pending}`
+          : `AI заполнил полей: ${filled}`);
         await fetchData();
       } else {
         toast.error('Нечего заполнять');

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/lib/database';
+import { query, transaction } from '@/lib/database';
+import { saveTourChange } from '@/lib/tours/tour-change';
 import { ApiResponse } from '@/types';
 import { requireOperator } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
@@ -7,13 +8,14 @@ import { OpTourPublishRow } from '@/lib/types/db-rows';
 
 /**
  * POST /api/operator/tours/[id]/publish
- * Публикация тура (перевод из draft в active)
- * 
- * Требования для публикации:
- * - Заполнены все обязательные поля
- * - Есть хотя бы одно фото
- * - Указана цена
- * - Указан сезон
+ * Показать тур и попросить о публикации.
+ *
+ * Публикация — просьба (план готовности 23.11, этап 4): «показать тур»
+ * действует сразу, а на витрину его ставит только одобрение администратора
+ * (lib/tours/tour-change). Тур, уже одобренный и скрытый, возвращается на
+ * витрину сразу — проверять в нём нечего.
+ *
+ * Перед просьбой: название, описание от 20 знаков, цена.
  */
 export async function POST(
   request: NextRequest,
@@ -88,23 +90,28 @@ export async function POST(
       } as ApiResponse<null>, { status: 400 });
     }
 
-    // Публикуем тур
-    await query(
-      // Витрина и бронь требуют is_published (не только is_active): до 25.09
-      // «опубликованный» тур оставался невидимым в каталоге.
-      `UPDATE operator_tours SET is_active = true, is_published = true, updated_at = NOW() WHERE id = $1`,
-      [id]
-    );
+    // Единая дверь владельца: показ — сразу, публикация — просьба на проверку.
+    const saved = await transaction((client) => saveTourChange(client, {
+      tourId: String(tour.id),
+      ownerId: operatorId,
+      userId: userOrResponse.userId,
+      input: { is_active: true, is_published: true },
+      current: {},
+    }));
+    if (saved.outcome === 'not_found') {
+      return NextResponse.json({ success: false, error: 'Тур не найден' } as ApiResponse<null>, { status: 404 });
+    }
+    const pending = saved.outcome === 'pending' ? saved.pending : null;
 
     return NextResponse.json({
       success: true,
       data: {
         id: tour.id,
         name: tour.name,
-        status: 'published',
+        status: pending ? 'pending_review' : 'published',
         isActive: true
       },
-      message: 'Тур успешно опубликован'
+      message: pending ? pending.notice : 'Тур показан на витрине'
     });
 
   } catch (error) {

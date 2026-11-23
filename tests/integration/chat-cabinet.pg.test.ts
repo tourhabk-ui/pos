@@ -729,7 +729,7 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       ]);
       // Описание осталось — гид видит новое «было» и решает сам.
       const last = await gpress(draftOf(all, 'Сохранить: Описание'));
-      expect(last.text).toMatch(/Всё из документа записано/);
+      expect(last.text).toMatch(/Всё из документа принято: на сайте появится после проверки/);
       expect((await full()).description).toBe('Правка на сайте поверх документа.');
       await approveTourEdit(gorely);
       expect((await full()).description).toBe('Вулкан Горелый (1829 м) — действующий вулкан на юге Камчатки.');

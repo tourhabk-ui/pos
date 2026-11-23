@@ -17,11 +17,23 @@
  * пропускается — «не прогнано», а не «прошло».
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { NextRequest } from 'next/server';
 import { createTestDatabase, dropTestDatabase } from '../helpers/pg-schema';
 import type { TourPatchInput } from '@/lib/tours/tour-write';
 import type { TourChange } from '@/lib/tours/tour-change';
 
 vi.mock('next/cache', () => ({ unstable_cache: (fn: () => unknown) => fn }));
+// Вошедший — владелец кабинета оператора (USER ниже): двери судятся целиком,
+// подменён только разбор JWT. Модель подменена ответом-заготовкой.
+vi.mock('@/lib/auth/middleware', async (orig) => ({
+  ...(await orig<typeof import('@/lib/auth/middleware')>()),
+  requireOperator: vi.fn(async () => ({ userId: 'c4000000-0000-4000-8000-000000000201', role: 'operator' })), // = USER
+}));
+const ai = vi.hoisted(() => ({ answer: '{}' }));
+vi.mock('@/lib/ai/providers', async (orig) => ({
+  ...(await orig<typeof import('@/lib/ai/providers')>()),
+  callAIWaterfall: vi.fn(async () => ai.answer),
+}));
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -101,6 +113,8 @@ withPg('модерация правок тура', () => {
         [id, name, !isTest, isTest],
       );
     }
+    // Кабинет вошедшего — карточка OP.
+    await pool.query(`UPDATE partners SET user_id = $2 WHERE id = $1`, [OP, USER]);
   }, 300_000);
 
   afterAll(async () => {
@@ -302,6 +316,135 @@ withPg('модерация правок тура', () => {
       expect(await withdrawTourEdit(tour, OP)).toBe('withdrawn');
       expect(await pendingCount(tour)).toBe(0);
       expect((await change(tour, OP, { base_price: 8000 })).outcome).toBe('written');
+    });
+  });
+
+  describe('прочие двери владельца: мимо очереди не пускает ни одна', () => {
+    const post = (url: string, body: unknown, method = 'POST') => new NextRequest(`http://localhost${url}`, { method, body: JSON.stringify(body) });
+    const pendingPatch = async (tourId: string) => (await pool.query<{ patch: Record<string, unknown>; wants_publish: boolean }>(
+      `SELECT patch, wants_publish FROM operator_tour_edits WHERE tour_id = $1::bigint AND moderation_status = 'pending'`, [tourId],
+    )).rows[0] ?? null;
+
+    it('старая дверь «опубликовать»: тур показан, но на витрину его ставит одобрение', async () => {
+      const tour = await addTour(OP, 'Старая дверь публикации');
+      await pool.query(`UPDATE operator_tours SET is_active = FALSE WHERE id = $1::bigint`, [tour]);
+      const { POST } = await import('@/app/api/operator/tours/[id]/publish/route');
+      const res = await POST(post(`/api/operator/tours/${tour}/publish`, {}), { params: Promise.resolve({ id: tour }) });
+      const body = await res.json();
+      expect(res.status).toBe(200);
+      expect(body.data.status).toBe('pending_review');
+      expect(body.message).toContain('отправлен на проверку');
+      const live = await liveOf(tour);
+      expect(live.is_active).toBe(true);
+      expect(live.is_published).toBe(false);
+      expect(await onStorefront(tour)).toBe(false);
+      expect(await pendingPatch(tour)).toEqual({ patch: {}, wants_publish: true });
+    });
+
+    it('старая дверь «опубликовать»: чужой тур — «не найден», просьбы нет', async () => {
+      const tour = await addTour(OTHER, 'Чужой для публикации');
+      await pool.query(`UPDATE operator_tours SET is_active = FALSE WHERE id = $1::bigint`, [tour]);
+      const { POST } = await import('@/app/api/operator/tours/[id]/publish/route');
+      const res = await POST(post(`/api/operator/tours/${tour}/publish`, {}), { params: Promise.resolve({ id: tour }) });
+      expect(res.status).toBe(404);
+      expect((await liveOf(tour)).is_active).toBe(false);
+      expect(await pendingPatch(tour)).toBeNull();
+    });
+
+    it('быстрое заполнение: описание тура на витрине — на проверку, сложность — сразу', async () => {
+      const tour = await addTour(OP, 'Быстрое заполнение', { published: true });
+      const { PATCH } = await import('@/app/api/operator/tours/quick-fill/route');
+      const text = await PATCH(post('/api/operator/tours/quick-fill', { tourId: tour, field: 'description', value: 'Новое описание из быстрого заполнения.' }, 'PATCH'));
+      const textBody = await text.json();
+      expect(text.status).toBe(200);
+      expect(textBody.pending).toContain('отправлена на проверку (описание)');
+      expect((await liveOf(tour)).description).toBe('Описание тура для проверки модерации правок.');
+      expect((await pendingPatch(tour))?.patch).toEqual({ description: 'Новое описание из быстрого заполнения.' });
+
+      const now = await PATCH(post('/api/operator/tours/quick-fill', { tourId: tour, field: 'difficulty', value: 'hard' }, 'PATCH'));
+      expect((await now.json()).pending).toBeNull();
+      expect((await pool.query(`SELECT difficulty FROM operator_tours WHERE id = $1::bigint`, [tour])).rows[0].difficulty).toBe('hard');
+      // Чужой тур той же дверью не пишется.
+      const foreign = await addTour(OTHER, 'Чужой для быстрого заполнения', { published: true });
+      const denied = await PATCH(post('/api/operator/tours/quick-fill', { tourId: foreign, field: 'description', value: 'Чужая правка.' }, 'PATCH'));
+      expect(denied.status).toBe(404);
+      expect(await pendingPatch(foreign)).toBeNull();
+    });
+
+    it('ИИ-заполнение: текст модели в туре на витрине — на проверку; вписанное оператором в черновик не затирается', async () => {
+      const tour = await addTour(OP, 'ИИ-заполнение', { published: true });
+      await pool.query(`UPDATE operator_tours SET included = NULL, what_to_bring = NULL, difficulty = NULL WHERE id = $1::bigint`, [tour]);
+      // Оператор уже вписал «что взять» и ждёт проверки.
+      await change(tour, OP, { what_to_bring: ['Термос оператора'] });
+      ai.answer = JSON.stringify({
+        short_description: 'Короткое описание от модели.', difficulty: 'medium',
+        included: ['Трансфер от модели'], what_to_bring: ['Список модели'], notes: 'Служебная заметка.',
+      });
+      const { runAutoFillAI } = await import('@/app/api/operator/tours/auto-fill-ai/route');
+      const out = await runAutoFillAI(OP, tour);
+      const data = (out.body as { data: { filled: number; pending: string | null } }).data;
+      expect(out.status).toBe(200);
+      expect(data.filled).toBe(4);
+      expect(data.pending).toContain('отправлена на проверку');
+      const row = (await pool.query(
+        `SELECT short_description, included, what_to_bring, difficulty, notes FROM operator_tours WHERE id = $1::bigint`, [tour],
+      )).rows[0];
+      // Витрина: тексты прежние; сложность и служебная заметка — сразу.
+      expect(row).toEqual({ short_description: null, included: null, what_to_bring: null, difficulty: 'medium', notes: 'Служебная заметка.' });
+      expect((await pendingPatch(tour))?.patch).toEqual({
+        short_description: 'Короткое описание от модели.', included: ['Трансфер от модели'], what_to_bring: ['Термос оператора'],
+      });
+    });
+
+    it('массовая смена цен: тур на витрине — на проверку, черновик — сразу, изменённый после предпросмотра — пропущен', async () => {
+      const live = await addTour(OP, 'Цены: на витрине', { published: true, price: 10000 });
+      const draft = await addTour(OP, 'Цены: черновик', { price: 20000 });
+      const moved = await addTour(OP, 'Цены: менялась', { published: true, price: 30000 });
+      const { createPendingChange, confirmPendingChange } = await import('@/lib/crm/price-change');
+      const { transaction } = await import('@/lib/database');
+      const row = (id: string, before: number) => ({ tourId: Number(id), title: 'Тур', baseBefore: before, baseAfter: before * 1.1, saturdayBefore: before, saturdayAfter: before, tiersOverride: false });
+      const preview = { change: { kind: 'base_price', percent: 10, tourIds: 'all' }, sampleDate: '2026-12-05', tours: [row(live, 10000), row(draft, 20000), row(moved, 30000)] };
+      const id = await createPendingChange(pool, OP, preview as never, Date.now());
+      await pool.query(`UPDATE operator_tours SET base_price = 31000 WHERE id = $1::bigint`, [moved]);
+      const res = await transaction((client) => confirmPendingChange(client, OP, id, USER, Date.now()));
+      expect(res).toEqual({ outcome: 'applied', applied: [Number(draft)], pending: [Number(live)], skipped: [Number(moved)] });
+      expect((await liveOf(live)).base_price).toBe(10000);
+      expect((await pendingPatch(live))?.patch).toEqual({ base_price: 11000 });
+      expect((await liveOf(draft)).base_price).toBe(22000);
+      expect((await liveOf(moved)).base_price).toBe(31000);
+      expect(await pendingPatch(moved)).toBeNull();
+    });
+
+    it('ИИ-чат оператора: цена тура на витрине — на проверку, и модель об этом знает', async () => {
+      const tour = await addTour(OP, 'ИИ-чат: цена', { published: true, price: 10000 });
+      const { getOperatorTools } = await import('@/lib/agents/sdk/operator-tools');
+      const tool = getOperatorTools(OP, 'seed-price').find((t) => t.name === 'update_tour_price')!;
+      const out = JSON.parse(await tool.execute({ tour_id: tour, new_price: '11000' }));
+      expect(out.success).toBe(true);
+      expect(out.pending_review).toBe(true);
+      expect(out.note).toContain('На витрине пока прежняя версия');
+      expect((await liveOf(tour)).base_price).toBe(10000);
+      expect((await pendingPatch(tour))?.patch).toEqual({ base_price: 11000 });
+    });
+
+    it('ИИ-чат оператора: «опубликуй» — просьба; «сними с публикации» — сразу', async () => {
+      const tour = await addTour(OP, 'ИИ-чат: публикация');
+      const { getOperatorTools } = await import('@/lib/agents/sdk/operator-tools');
+      const publish = getOperatorTools(OP, 'seed-pub-1').find((t) => t.name === 'set_tour_published')!;
+      const asked = JSON.parse(await publish.execute({ tour_id: tour, published: true }));
+      expect(asked.success).toBe(true);
+      expect(asked.is_published).toBe(false);
+      expect(asked.pending_review).toBe(true);
+      expect(asked.message).toContain('отправлен на проверку');
+      expect(await onStorefront(tour)).toBe(false);
+      expect(await pendingPatch(tour)).toEqual({ patch: {}, wants_publish: true });
+
+      const shownTour = await addTour(OP, 'ИИ-чат: снять', { published: true });
+      const hide = getOperatorTools(OP, 'seed-pub-2').find((t) => t.name === 'set_tour_published')!;
+      const hidden = JSON.parse(await hide.execute({ tour_id: shownTour, published: false }));
+      expect(hidden).toMatchObject({ success: true, is_published: false, message: 'Тур снят с публикации' });
+      expect(hidden.pending_review).toBeUndefined();
+      expect(await onStorefront(shownTour)).toBe(false);
     });
   });
 

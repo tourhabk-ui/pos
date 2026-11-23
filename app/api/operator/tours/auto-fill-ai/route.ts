@@ -5,6 +5,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
+import { transaction } from '@/lib/database';
+import { saveTourChange } from '@/lib/tours/tour-change';
+import { loadOwnTourEdits } from '@/lib/tours/moderation-store';
+import type { TourPatchInput } from '@/lib/tours/tour-write';
 import { requireOperator } from '@/lib/auth/middleware';
 import { accessFailure, operatorAccess } from '@/lib/operators/team-access';
 import { callAIWaterfall } from '@/lib/ai/providers';
@@ -176,7 +180,14 @@ export async function runAutoFillAI(operatorId: string, tourId: string | number)
     return { status: 404, body: { error: 'Tour not found' } };
   }
 
-  const tour = tours[0];
+  // Пустоту поля судим по тому, что оператор видит в редакторе: витрина плюс
+  // правка на проверке. Иначе модель «заполнила» бы поле, которое оператор
+  // уже вписал и отправил на проверку, — и затёрла бы его текст в черновике.
+  const edits = await loadOwnTourEdits([String(tours[0].id)], new Map());
+  if (edits === null) {
+    return { status: 503, body: { error: 'Не удалось прочитать правку на проверке, попробуйте позже' } };
+  }
+  const tour = { ...tours[0], ...(edits.get(String(tours[0].id))?.pending?.patch ?? {}) } as TourData;
 
   // Validate required fields exist
   if (!tour.title || !tour.description) {
@@ -189,79 +200,68 @@ export async function runAutoFillAI(operatorId: string, tourId: string | number)
   // Update tour with AI-generated data — ТОЛЬКО поля, которые были пусты
   // ДО вызова. AI мог проигнорировать инструкцию не трогать заполненное
   // (модели это делают) — второй барьер здесь, а не только в промпте.
-  const updates: Record<string, string> = {};
-  const values: (string | number | boolean | null | string[])[] = [];
-  let paramIndex = 1;
+  const updates: Record<string, unknown> = {};
 
-  if (fills.short_description && !tour.short_description) {
-    updates.short_description = `$${paramIndex++}`;
-    values.push(fills.short_description);
-  }
-  if (fills.difficulty && !tour.difficulty) {
-    updates.difficulty = `$${paramIndex++}`;
-    values.push(fills.difficulty);
-  }
+  if (fills.short_description && !tour.short_description) updates.short_description = fills.short_description;
+  if (fills.difficulty && !tour.difficulty) updates.difficulty = fills.difficulty;
   // Состав, снаряжение и заметки — только в пустое (как остальные поля): до
   // 25.09 модель перезаписывала то, что оператор вписал руками, в уже
   // опубликованном туре.
   const isEmptyList = (v: unknown) => v == null || (Array.isArray(v) && v.length === 0);
-  if (fills.included && isEmptyList(tour.included)) {
-    updates.included = `$${paramIndex++}`;
-    values.push(fills.included);
-  }
-  if (fills.not_included && isEmptyList(tour.not_included)) {
-    updates.not_included = `$${paramIndex++}`;
-    values.push(fills.not_included);
-  }
-  if (fills.what_to_bring && isEmptyList(tour.what_to_bring)) {
-    updates.what_to_bring = `$${paramIndex++}`;
-    values.push(fills.what_to_bring);
-  }
-  if (fills.duration_hours && !tour.duration_hours) {
-    updates.duration_hours = `$${paramIndex++}`;
-    values.push(fills.duration_hours);
-  }
+  if (fills.included && isEmptyList(tour.included)) updates.included = fills.included;
+  if (fills.not_included && isEmptyList(tour.not_included)) updates.not_included = fills.not_included;
+  if (fills.what_to_bring && isEmptyList(tour.what_to_bring)) updates.what_to_bring = fills.what_to_bring;
+  if (fills.duration_hours && !tour.duration_hours) updates.duration_hours = fills.duration_hours;
   // Схема тура знает только day/multi_day; «half_day» ломал каждое следующее
   // сохранение в редакторе (400).
   if (fills.duration_type && !tour.duration_type && (fills.duration_type === 'day' || fills.duration_type === 'multi_day')) {
-    updates.duration_type = `$${paramIndex++}`;
-    values.push(fills.duration_type);
+    updates.duration_type = fills.duration_type;
   }
-  if (fills.location_name && !tour.location_name) {
-    updates.location_name = `$${paramIndex++}`;
-    values.push(fills.location_name);
-  }
+  if (fills.location_name && !tour.location_name) updates.location_name = fills.location_name;
   // Координаты модель не пишет вовсе (§4.0): «реалистичные координаты
   // Камчатки» из промпта — это выдуманная точка, по которой пойдёт человек.
-  if (fills.notes && !tour.notes) {
-    updates.notes = `$${paramIndex++}`;
-    values.push(fills.notes);
-  }
+  // Заметки — служебное поле, на витрину не выходит: пишется отдельно.
+  const notes = fills.notes && !tour.notes ? fills.notes : null;
 
-  if (Object.keys(updates).length === 0) {
+  const filled = Object.keys(updates).length + (notes === null ? 0 : 1);
+  if (filled === 0) {
     return { status: 200, body: { success: true, data: { filled: 0, fills: {} } } };
   }
 
-  const setClause = Object.entries(updates)
-    .map(([key, val]) => `${key} = ${val}`)
-    .join(', ');
-
-  values.push(tourId);
-  const updateQuery = `
-    UPDATE operator_tours
-    SET ${setClause}, updated_at = NOW()
-    WHERE id = $${paramIndex}
-    RETURNING short_description, difficulty, included, not_included, what_to_bring, duration_hours, duration_type, location_name, latitude, longitude, notes
-  `;
-
-  await pool.query(updateQuery, values);
+  // Запись — единая дверь владельца (lib/tours/tour-change, план готовности
+  // 23.11, этап 4): текст модели в опубликованном туре выходит на витрину
+  // только после проверки администратором; сложность, длительность и место —
+  // сразу, как у формы. Прежде модель писала прямо в живую строку.
+  const saved = await transaction(async (client) => {
+    const w = Object.keys(updates).length > 0
+      ? await saveTourChange(client, {
+        tourId: String(tourId), ownerId: operatorId, userId: null,
+        input: updates as TourPatchInput, current: {},
+      })
+      : null;
+    if (w?.outcome === 'not_found') return w;
+    if (notes !== null) {
+      await client.query(
+        `UPDATE operator_tours SET notes = $1, updated_at = NOW()
+          WHERE id = $2 AND operator_id = $3 AND deleted_at IS NULL`,
+        [notes, tourId, operatorId],
+      );
+    }
+    return w;
+  });
+  if (saved?.outcome === 'not_found') {
+    return { status: 404, body: { error: 'Tour not found' } };
+  }
+  const pending = saved?.outcome === 'pending' ? saved.pending.notice : null;
 
   return {
     status: 200,
     body: {
       success: true,
       data: {
-        filled: Object.keys(updates).length,
+        filled,
+        // Тексты ушли на проверку: что сказать оператору. null — записано сразу.
+        pending,
         fills: {
           short_description: fills.short_description,
           difficulty: fills.difficulty,

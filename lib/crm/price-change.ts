@@ -8,10 +8,16 @@
  * Подтверждение применяет ТО, ЧТО ПОКАЗАНО: базовая цена ставится из
  * предпросмотра и лишь там, где она не менялась с тех пор (иначе «+10%»
  * дважды или поверх чужой правки). Такие туры возвращаются как пропущенные.
+ *
+ * Запись базовой цены — единая дверь владельца (lib/tours/tour-change, план
+ * готовности 23.11, этап 4): у тура на витрине новая цена уходит на проверку
+ * администратору и возвращается отдельным списком `pending`. Наценка на
+ * выходные (tour_pricing_rules) — второй канал цены, очередь её не касается.
  */
 import type { PoolClient } from 'pg';
 import type { PriceChange, PricePreview } from '@/lib/crm/price-preview';
 import { setWeekendMarkup } from '@/lib/tours/operator-markup';
+import { saveTourChange } from '@/lib/tours/tour-change';
 
 export const CHANGE_TTL_MS = 24 * 3600_000;
 const SITE = process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru';
@@ -51,7 +57,11 @@ export async function loadPendingChange(db: Db, operatorId: string, id: string, 
 }
 
 export type ConfirmResult =
-  | { outcome: 'applied'; applied: number[]; skipped: number[] }
+  /**
+   * `applied` — цена записана сразу; `pending` — ушла на проверку, на витрине
+   * пока прежняя; `skipped` — цена менялась после предпросмотра.
+   */
+  | { outcome: 'applied'; applied: number[]; pending: number[]; skipped: number[] }
   | { outcome: 'not_found' | 'used' | 'expired' };
 
 /** Вызывать в транзакции. Строка гасится тем же запросом, что проверяет срок — второй клик не пройдёт. */
@@ -70,16 +80,26 @@ export async function confirmPendingChange(db: Db, operatorId: string, id: strin
   const ids = cur.preview.tours.map((t) => t.tourId);
   if (c.kind === 'weekend_markup') {
     const applied = await setWeekendMarkup(db, operatorId, ids, c.percent);
-    return { outcome: 'applied', applied, skipped: ids.filter((i) => !applied.includes(i)) };
+    return { outcome: 'applied', applied, pending: [], skipped: ids.filter((i) => !applied.includes(i)) };
   }
   const applied: number[] = [];
+  const pending: number[] = [];
   for (const t of cur.preview.tours) {
-    const res = await db.query(
-      `UPDATE operator_tours SET base_price = $3, updated_at = NOW()
-        WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL AND base_price = $4`,
-      [t.tourId, operatorId, t.baseAfter, t.baseBefore],
+    // Цена на витрине та же, что в предпросмотре, — под замком строки: иначе
+    // «+10%» легло бы поверх чужой правки.
+    const same = await db.query(
+      `SELECT 1 FROM operator_tours
+        WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL AND base_price = $3
+        FOR UPDATE`,
+      [t.tourId, operatorId, t.baseBefore],
     );
-    if (res.rowCount) applied.push(t.tourId);
+    if (!same.rowCount) continue;
+    const w = await saveTourChange(db, {
+      tourId: String(t.tourId), ownerId: operatorId, userId,
+      input: { base_price: t.baseAfter }, current: {},
+    });
+    if (w.outcome === 'written') applied.push(t.tourId);
+    else if (w.outcome === 'pending') pending.push(t.tourId);
   }
-  return { outcome: 'applied', applied, skipped: ids.filter((i) => !applied.includes(i)) };
+  return { outcome: 'applied', applied, pending, skipped: ids.filter((i) => !applied.includes(i) && !pending.includes(i)) };
 }

@@ -43,6 +43,12 @@ export interface ChatTour extends EditTour {
   slug: string | null;
   isActive: boolean;
   isPublished: boolean;
+  /**
+   * Содержание тура идёт через проверку администратора (план готовности
+   * 23.11, этап 4): тур уже опубликован или ждёт одобрения. Иначе правка
+   * пишется прямо в строку — туристы тура не видят.
+   */
+  throughReview: boolean;
   basePrice: number | null;
   priceUnit: string | null;
   maxParticipants: number | null;
@@ -56,12 +62,16 @@ export interface ChatTour extends EditTour {
 
 const TOUR_COLUMNS = `t.id::text AS id, t.title, NULLIF(btrim(t.slug), '') AS slug,
        COALESCE(t.is_active, FALSE) AS is_active, COALESCE(t.is_published, FALSE) AS is_published,
+       (COALESCE(t.is_published, FALSE) OR EXISTS (
+          SELECT 1 FROM operator_tour_edits pe
+           WHERE pe.tour_id = t.id AND pe.moderation_status = 'pending')) AS through_review,
        t.base_price, t.price_unit, t.max_participants,
        t.schedule_kind, t.season_start::text AS season_start, t.season_end::text AS season_end,
        t.short_description, t.description, t.program, t.included, t.not_included, t.what_to_bring, t.safety_notes`;
 
 interface TourRowDb {
   id: string; title: string; slug: string | null; is_active: boolean; is_published: boolean;
+  through_review?: boolean | null;
   base_price: string | number | null; price_unit: string | null; max_participants: number | null;
   schedule_kind: string | null; season_start: string | null; season_end: string | null;
   short_description: string | null; description: string | null; program: unknown;
@@ -77,6 +87,7 @@ function toTour(r: TourRowDb): ChatTour {
     slug: r.slug,
     isActive: r.is_active === true,
     isPublished: r.is_published === true,
+    throughReview: r.through_review === true || r.is_published === true,
     basePrice: r.base_price === null ? null : Number(r.base_price),
     priceUnit: r.price_unit,
     maxParticipants: r.max_participants,

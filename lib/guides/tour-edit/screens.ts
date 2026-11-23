@@ -206,6 +206,17 @@ function renderValue(field: EditField, v: unknown, max: number, unit: string | n
   return { text: out, clipped };
 }
 
+/**
+ * Что будет с правкой после «Сохранить» (план готовности 23.11, этап 4).
+ * «Сразу на сайте» было правдой, пока правка писалась в живую строку; теперь
+ * содержание опубликованного тура выходит на витрину только после одобрения.
+ */
+export function afterSaveWords(tour: { throughReview: boolean }): string {
+  return tour.throughReview
+    ? 'Правка уйдёт на проверку администратору: на сайте до одобрения — прежняя версия.'
+    : 'Тур не на витрине: правка запишется сразу, туристы увидят её после публикации.';
+}
+
 export function previewScreen(args: {
   draftId: string;
   tour: ChatTour;
@@ -231,7 +242,7 @@ export function previewScreen(args: {
     lines.push('<b>Было:</b>', was.text, '', '<b>Станет:</b>', next.text);
     if (was.clipped || next.clipped) lines.push('(Здесь сокращено для чата — сохранится полностью.)');
   }
-  lines.push('', `Ничего не записано, пока вы не нажмёте «Сохранить». После него — сразу на сайте. Черновик ждёт ${DRAFT_TTL_HOURS} часа.`);
+  lines.push('', `Ничего не записано, пока вы не нажмёте «Сохранить». ${afterSaveWords(tour)} Черновик ждёт ${DRAFT_TTL_HOURS} часа.`);
   return screen(lines, [[
     { text: 'Сохранить', payload: cabinetPayload.editSave(args.draftId), intent: 'positive' },
     { text: 'Отмена', payload: cabinetPayload.editCancel(args.draftId), intent: 'negative' },
