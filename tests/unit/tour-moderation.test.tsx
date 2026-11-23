@@ -60,6 +60,7 @@ import {
   mainPlaceIdsOf, tourCabinetPath, tourDayKey, tourEditChanges, tourModerationState, tourReviewMark,
 } from '@/lib/tours/moderation';
 import { LIVE_CONTENT_COLUMNS } from '@/lib/tours/moderation-store';
+import { loadPlaceNames } from '@/lib/tours/moderation-read';
 import { TOUR_PATCH_COLUMNS } from '@/lib/tours/tour-write';
 import { TourEditQueue, type TourEditCard } from '@/components/admin/TourEditQueue';
 import { TourModerationStatus, type TourModerationView } from '@/components/tours/TourModerationStatus';
@@ -214,6 +215,26 @@ describe('правило: что идёт через проверку, а что
     expect(mainPlaceIdsOf({ main_place_id: 'a' }, { main_place_id: 'b' }, { main_place_id: 'a' }, { main_place_id: null }, {}, null, undefined, { main_place_id: ' ' }, { main_place_id: 7 }))
       .toEqual(['a', 'b']);
     expect(mainPlaceIdsOf()).toEqual([]);
+  });
+
+  it('имена мест: сбой чтения — «не прочитано» (null), а не «мест нет»; без адресов база не спрашивается', async () => {
+    const asked: unknown[][] = [];
+    const answers = { query: async (_sql: string, params: unknown[]) => { asked.push(params); return { rows: [{ id: 'place-a', name: 'Вулкан Горелый' }] }; } };
+    expect(await loadPlaceNames([], answers as never)).toEqual(new Map());
+    expect(asked).toHaveLength(0);
+    expect(await loadPlaceNames(['place-a', 'place-x'], answers as never)).toEqual(new Map([['place-a', 'Вулкан Горелый']]));
+    expect(asked).toEqual([[['place-a', 'place-x']]]);
+
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const broken = { query: async () => { throw Object.assign(new Error('нет связи'), { code: '08006' }); } };
+    const names = await loadPlaceNames(['place-a'], broken as never);
+    expect(names).toBeNull();
+    // Отказ не глушится: имя проверки и SQLSTATE — в лог.
+    expect(errors).toHaveBeenCalledWith('[tour-edit] имена мест не прочитаны, SQLSTATE', '08006');
+    errors.mockRestore();
+    // И дифф говорит об этом словами, а не выдаёт место за ненайденное.
+    expect(tourEditChanges({ main_place_id: null }, { main_place_id: 'place-a' }, { placeNames: names })[0].after)
+      .toBe('место place-a (название не прочитано)');
   });
 
   it('день календаря не съезжает на сутки в поясе Камчатки (UTC+12)', () => {

@@ -852,6 +852,8 @@ withPg('модерация правок тура', () => {
       expect(await linkOf(tour)).toEqual({ main_place_id: null, main_place_source: null });
       const card = (await adminGet()).data.edits.find((e) => e.tourId === tour)!;
       expect(card.changes.map((c) => [c.field, c.before, c.after])).toEqual([['main_place_id', 'не записано', 'Вулкан Горелый']]);
+      // Полная карточка («что выйдет на сайт») тоже называет место именем, а не адресом записи.
+      expect(card.content.find((line) => line.field === 'main_place_id')?.text).toBe('Вулкан Горелый');
       const ok = await adminPost(card.id, { action: 'approve', seen: card.seen });
       expect(ok.status, JSON.stringify(ok.body)).toBe(200);
       expect(await linkOf(tour)).toEqual({ main_place_id: 'mod-place-a', main_place_source: 'operator' });
