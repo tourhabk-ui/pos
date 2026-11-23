@@ -16,13 +16,10 @@
  * Третий не равен первому — карточка не меняется, дверь отвечает 503.
  */
 import { reachForPartner } from '@/lib/partners/reach';
+import { receivesRequests } from '@/lib/partners/categories';
 
-/** Категории, которым приходят заявки туристов: им канал обязателен. */
-export const REQUEST_RECEIVING_CATEGORIES = ['operator', 'guide', 'transfer', 'stay', 'gear', 'cars'] as const;
-
-export function receivesRequests(category: string | null | undefined): boolean {
-  return typeof category === 'string' && (REQUEST_RECEIVING_CATEGORIES as readonly string[]).includes(category);
-}
+/** Категории, которым канал обязателен, — в чистом справочнике категорий. */
+export { REQUEST_RECEIVING_CATEGORIES, receivesRequests } from '@/lib/partners/categories';
 
 /** Отказ двери: канала нет. Называет, что делать администратору. */
 export const NO_CHANNEL_TEXT =

@@ -99,6 +99,55 @@ describe('экран очереди: отказ одобрения виден', 
   });
 });
 
+describe('админка: карточка без канала помечена «Нет канала»', () => {
+  const card = async (over: Record<string, unknown>) => {
+    const { OperatorCard } = await import('@/app/hub/admin/operators/_OperatorsClient');
+    const op = {
+      id: 'p1', company_name: 'Тест', category: 'operator', profile_status: 'approved', email: 'x@example.com',
+      has_telegram: false, has_max: false, has_account: true, is_test: false, widget_enabled: false, widget_domains: [],
+      ...over,
+    } as unknown as Parameters<typeof OperatorCard>[0]['op'];
+    return render(
+      <OperatorCard op={op} onApprove={() => {}} onReject={() => {}} onAccountCreated={() => {}} acting={null} />,
+    );
+  };
+
+  it('ни MAX, ни Telegram — пометка есть, и она говорит о заявках', async () => {
+    const view = await card({});
+    const badge = screen.getByText('Нет канала');
+    expect(badge.getAttribute('title')).toContain('заявки до партнёра не дойдут');
+    view.unmount();
+  });
+
+  it('пометка стоит у каждой категории, которой приходят заявки', async () => {
+    for (const category of REQUEST_RECEIVING_CATEGORIES) {
+      const view = await card({ category });
+      expect(screen.queryByText('Нет канала'), category).not.toBeNull();
+      view.unmount();
+    }
+  });
+
+  it('есть MAX или Telegram — пометки нет', async () => {
+    for (const over of [{ has_max: true }, { has_telegram: true }]) {
+      const view = await card(over);
+      expect(screen.queryByText('Нет канала')).toBeNull();
+      view.unmount();
+    }
+  });
+
+  it('агенту канал не нужен — пометки нет', async () => {
+    const view = await card({ category: 'agent' });
+    expect(screen.queryByText('Нет канала')).toBeNull();
+    view.unmount();
+  });
+
+  it('канал не прочитан — пометки нет: «не знаю» не выдаётся за «нет»', async () => {
+    const view = await card({ has_telegram: undefined, has_max: undefined });
+    expect(screen.queryByText('Нет канала')).toBeNull();
+    view.unmount();
+  });
+});
+
 describe('справка: шаг подключения — одними словами у всех ролей', () => {
   it('оператор и гид читают одну и ту же фразу', () => {
     expect(JSON.stringify(OPERATORS)).toContain(CONNECT_CHANNEL_HELP);

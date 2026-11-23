@@ -8,7 +8,7 @@ import {
   Send, Pencil, Check, Globe, Copy, Database, RefreshCw, Play,
   UserPlus, KeyRound, AlertTriangle,
 } from 'lucide-react';
-import { PARTNER_CATEGORIES, PARTNER_CATEGORY_LABELS } from '@/lib/partners/categories';
+import { PARTNER_CATEGORIES, PARTNER_CATEGORY_LABELS, receivesRequests } from '@/lib/partners/categories';
 import { PARTNER_GROUP_LABELS, PARTNER_GROUP_HINTS } from '@/lib/partners/partner-groups';
 import type { PartnerGroup } from '@/lib/partners/partner-groups';
 import type { PartnerCategory } from '@/lib/partners/categories';
@@ -366,6 +366,9 @@ export function OperatorCard({
 }) {
   const [expanded, setExpanded] = useState(op.profile_status === 'pending');
   const [isTest, setIsTest] = useState(op.is_test === true);
+  // Канала нет — заявка туриста до партнёра не дойдёт (lib/partners/storefront-gate).
+  // Пометка только там, где заявки приходят: агенту канал не нужен.
+  const noChannel = receivesRequests(op.category) && op.has_telegram === false && op.has_max === false;
 
   const [widgetEnabled, setWidgetEnabled] = useState(op.widget_enabled ?? false);
   const [widgetDomains, setWidgetDomains] = useState((op.widget_domains ?? []).join('\n'));
@@ -424,6 +427,14 @@ export function OperatorCard({
           {isTest && (
             <span className="text-[10px] px-2 py-0.5 rounded-full font-medium text-[var(--warning)] border border-[var(--warning)]">
               Тест
+            </span>
+          )}
+          {noChannel && (
+            <span
+              className="text-[10px] px-2 py-0.5 rounded-full font-medium text-[var(--danger)] border border-[var(--danger)]"
+              title="Не подключён ни MAX, ни Telegram: заявки до партнёра не дойдут"
+            >
+              Нет канала
             </span>
           )}
           <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_CLS[op.profile_status] ?? STATUS_CLS.none}`}>
