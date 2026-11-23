@@ -807,7 +807,9 @@ describe('шлюз по прямой ссылке — только у читат
     const stale = Object.keys(BY_LINK_READERS).filter((f) => !callers.includes(f));
     expect(stale, 'запись реестра больше не зовёт tourOpenByLinkSql — удалите её').toEqual([]);
     for (const [f, why] of Object.entries(BY_LINK_READERS)) expect(why.length, f).toBeGreaterThan(10);
-  });
+    // Обход всех исходников app/lib/components: на нагруженном раннере CI
+    // дольше 5 с (прогон PR 3799 — 5,4 с).
+  }, 60_000);
 
   it('витрина отсекает паузу оператора, прямая ссылка — нет; флаги тура у обоих', () => {
     for (const a of ['ot', '']) {
