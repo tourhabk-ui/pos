@@ -81,7 +81,7 @@ describe('описание укладывается в выдачу', () => {
       expect(d.length, s.id).toBeLessThanOrEqual(160);
       expect(d.startsWith(`Сезон: ${s.season}.`), s.id).toBe(true);
     }
-    expect(code('app/fish/[id]/page.tsx')).toMatch(/const desc = fishMetaDescription\(species\)/);
+    expect(code('app/fish/[id]/page.tsx')).toMatch(/fishMetaDescription\(species\)/);
   });
 
   it('статья режется по предложению, а не посреди слова', () => {

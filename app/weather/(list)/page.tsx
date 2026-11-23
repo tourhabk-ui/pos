@@ -19,9 +19,9 @@ import { defaultOgImages } from '@/lib/seo/og-image';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Погода на Камчатке — прогноз на 7 дней по местам',
+  title: 'Погода на Камчатке — 7 дней по местам маршрутов',
   description:
-    'Прогноз погоды на Камчатке на неделю: Петропавловск, Авачинский и Мутновский вулканы, Налычево, Эссо, Ключи. Осадки, ветер и предупреждения.',
+    'Прогноз на 7 дней: Петропавловск, Авачинский, Мутновский, Налычево, Эссо, Ключи. По дням и частям дня — осадки, ветер, предупреждения Росгидромета.',
   alternates: { canonical: 'https://vedarai.ru/weather' },
   openGraph: {
     images: defaultOgImages(),
