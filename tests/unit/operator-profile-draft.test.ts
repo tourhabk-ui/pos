@@ -23,7 +23,11 @@ vi.mock('@/lib/auth/partner-profile', () => ({
   ensurePartnerForRole: (...a: unknown[]) => ensure(...a),
 }));
 vi.mock('@/lib/database', () => ({ query: (...a: unknown[]) => query(...a) }));
-vi.mock('@/lib/partners/reach', () => ({ reachForPartner: (...a: unknown[]) => reach(...a) }));
+// Подменяется только чтение адреса; правило статуса заявок — настоящее.
+vi.mock('@/lib/partners/reach', async (orig) => ({
+  ...(await orig<typeof import('@/lib/partners/reach')>()),
+  reachForPartner: (...a: unknown[]) => reach(...a),
+}));
 
 import { GET } from '@/app/api/hub/operator/profile/route';
 

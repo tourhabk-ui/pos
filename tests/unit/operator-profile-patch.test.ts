@@ -20,7 +20,10 @@ vi.mock('@/lib/database', () => ({
   query: (...args: unknown[]) => queryMock(...args),
 }));
 const reachMock = vi.fn();
-vi.mock('@/lib/partners/reach', () => ({
+// Подменяется только чтение адреса из базы; правило статуса
+// (requestsChannelStatus: MAX или Telegram) — настоящее.
+vi.mock('@/lib/partners/reach', async (orig) => ({
+  ...(await orig<typeof import('@/lib/partners/reach')>()),
   reachForPartner: (...args: unknown[]) => reachMock(...args),
 }));
 vi.mock('@/lib/auth/middleware', () => ({
