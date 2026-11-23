@@ -104,7 +104,13 @@ function mentions(route: string, ownFile: string): { ui: string[]; other: string
     // Посадочные Сыщика (20.11): тексты и связки месяцев лежат данными в
     // lib/landings и рисуются целиком LandingContent / MonthsNav — ссылки в
     // них такие же экранные, как в футере.
-    const UI_REGISTRIES = new Set(['lib/navigation/platform-links.ts', 'lib/landings/texts.ts', 'lib/landings/texts-batch2.ts', 'lib/landings/texts-batch3.ts', 'lib/landings/texts-batch4.ts', 'lib/landings/landings.ts']);
+    //
+    // Входы ролей и кабинеты (23.11, план готовности, этап 3a): страницы входа
+    // партнёров лежат данными в lib/partners/join-pages и рисуются целиком
+    // RoleJoinPage / RoleEntryLinks; карта «роль → кабинет» (lib/auth/role-routes)
+    // — ссылка «в кабинет» на странице профиля. До этого дня профиль держал
+    // свою копию карты, и в ней не было ни проката автомобилей, ни жилья.
+    const UI_REGISTRIES = new Set(['lib/navigation/platform-links.ts', 'lib/landings/texts.ts', 'lib/landings/texts-batch2.ts', 'lib/landings/texts-batch3.ts', 'lib/landings/texts-batch4.ts', 'lib/landings/landings.ts', 'lib/partners/join-pages.ts', 'lib/auth/role-routes.ts']);
     const isUi = ((f.startsWith('app/') || f.startsWith('components/') || f.startsWith('hooks/'))
       && !f.includes('/api/') && !f.startsWith('tests/')) || UI_REGISTRIES.has(f);
     (isUi ? ui : other).push(f);
