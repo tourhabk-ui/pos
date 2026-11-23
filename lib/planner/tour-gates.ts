@@ -25,6 +25,7 @@
  */
 import { ACTIVITY_CONSTRAINTS } from '@/lib/planner/constants';
 import { monthOfIsoDate } from '@/lib/planner/trip-season';
+import { isSeasonalClosureRow } from '@/lib/services/safety/park-season';
 import { isSeasonalClosure } from '@/lib/safety/park-closure';
 
 export type TourGateReason = 'park_and_off_season' | 'park' | 'place' | 'age';
@@ -54,6 +55,12 @@ export interface TourGateInput {
   placeLevel?: PlaceCardLevel | null;
   /** Место отмечено закрытым администратором. false красный park_closure не отменяет. */
   placeClosed?: boolean;
+  /**
+   * Среди тревог дня есть закрытие, которое не межсезонье (в том числе
+   * обрезанный текст: слово опасности могло остаться за обрезом). Одна
+   * сезонная строка это закрытие не отменяет.
+   */
+  operationalClosure?: boolean;
   /**
    * Сводка карточки или текст тревоги park_closure. Слово опасности снимает
    * межсезонье (`isSeasonalClosure`). Сезонный текст красным закрытием не считается.
@@ -167,8 +174,25 @@ export function liveCardCoversDate(todayIso: string, dateIso: string): boolean {
   return open.has(todayMonth) === open.has(dateMonth);
 }
 
+/**
+ * Какую тревогу дня видят ворота. Оперативное закрытие берётся раньше
+ * сезонного: первая строка ответа базы не задана, и сезонная сводка не
+ * должна гасить циклон, который пришёл второй. Обрезанный текст сезоном
+ * не считается — слово опасности могло остаться за обрезом.
+ */
+export function gateClosureFromAlerts(
+  alerts: readonly { title: string | null; description: string | null }[],
+): { summary: string | null; operational: boolean } {
+  if (alerts.length === 0) return { summary: null, operational: false };
+  const operational = alerts.filter((a) => !isSeasonalClosureRow({ title: a.title, description: a.description }));
+  const pick = operational[0] ?? alerts[0]!;
+  const summary = `${pick.title ?? ''} ${pick.description ?? ''}`.trim();
+  return { summary: summary || null, operational: operational.length > 0 };
+}
+
 /** Красное закрытие: карточка или тревога, которая не межсезонье. */
 export function parkIsRed(input: TourGateInput): boolean {
+  if (input.operationalClosure) return true;
   const summary = input.parkSummary ?? null;
   const seasonal = Boolean(summary && isSeasonalClosure(summary));
   if (seasonal) return false;

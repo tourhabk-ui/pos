@@ -10,7 +10,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { ACTIVITY_CONSTRAINTS } from '@/lib/planner/constants';
 import { outingCap, varietyAdmit, varietyKey } from '@/lib/planner/day-variety';
-import { liveCardCoversDate, recordedMinAge } from '@/lib/planner/tour-gates';
+import { gateClosureFromAlerts, liveCardCoversDate, recordedMinAge, tourGate } from '@/lib/planner/tour-gates';
+import { TITLE_CLIP } from '@/lib/services/safety/park-closure-hold';
 import { buildRefusal } from '@/lib/kuzmich/trip-plan-tool';
 import { assignCatalogFreeDays, type SelfPlace } from '@/lib/planner/self-fill';
 import { NO_TOUR_DAY_TITLE } from '@/lib/planner/honest-days';
@@ -40,6 +41,7 @@ let TOURS: Record<string, Tour[]> = {};
 let KEEPS: Record<string, boolean | null> = {};
 let SLOTS: Record<string, string[]> = {};
 let PARK_CLOSED = new Set<string>();
+let PARK_EXTRA: Array<{ ref_id: string; title: string; description: string }> = [];
 
 const KLYU = 'Ключевской — маршруты закрыты на зимний сезон: Передвижение в районах вулканов крайне опасно';
 const SEASONAL = 'Маршруты природного парка «Налычево» закрыты на период межсезонья';
@@ -92,14 +94,18 @@ vi.mock('@/lib/db-pool', () => ({
     query: vi.fn(async (sql: string, params: unknown[]) => {
       if (sql.includes('external_alerts') && Array.isArray(params?.[1])) {
         const ids = (params[1] as string[]).filter((id) => PARK_CLOSED.has(id));
-        return {
-          rows: ids.map((id) => ({
-            ref_kind: 'tour', ref_id: id, alert_id: 'a-klyu', alert_type: 'park_closure',
-            title: 'Природный парк «Ключевской» — маршруты закрыты на зимний сезон',
-            description: 'Передвижение в районах вулканов крайне опасно',
-            published_iso: '2026-11-12T00:00:00Z', expires_iso: '2099-01-01T00:00:00Z',
-          })),
-        };
+        const closed = ids.map((id) => ({
+          ref_kind: 'tour', ref_id: id, alert_id: 'a-klyu', alert_type: 'park_closure',
+          title: 'Природный парк «Ключевской» — маршруты закрыты на зимний сезон',
+          description: 'Передвижение в районах вулканов крайне опасно',
+          published_iso: '2026-11-12T00:00:00Z', expires_iso: '2099-01-01T00:00:00Z',
+        }));
+        const extra = PARK_EXTRA.map((row, i) => ({
+          ref_kind: 'tour', ref_id: row.ref_id, alert_id: `a-extra-${i}`, alert_type: 'park_closure',
+          title: row.title, description: row.description,
+          published_iso: '2026-11-12T00:00:00Z', expires_iso: '2099-01-01T00:00:00Z',
+        }));
+        return { rows: [...extra, ...closed] };
       }
       return { rows: [] };
     }),
@@ -139,6 +145,7 @@ beforeEach(() => {
   KEEPS = {};
   SLOTS = {};
   PARK_CLOSED = new Set();
+  PARK_EXTRA = [];
 });
 
 const tourIds = (rec: Awaited<ReturnType<typeof recommendTrip>>) => rec.days.map((d) => d.realTour?.tourId).filter(Boolean);
@@ -204,6 +211,41 @@ describe('красное закрытие парка в плане', () => {
     expect(text).toMatch(/парк у места тура закрыт/);
     expect(text).toMatch(/не сезон/);
     expect(text).not.toMatch(/Облёт Авачинской бухты[\s\S]{0,80}Ключевск/);
+  });
+
+  it('сезонная сводка не гасит другое закрытие парка, в любом порядке строк', async () => {
+    const seasonal = { title: 'Маршруты природного парка «Налычево» закрыты на период межсезонья', description: '' };
+    const storm = { title: 'Маршруты парка закрыты из-за циклона', description: 'Порывы до 32 м/с' };
+    for (const alerts of [[seasonal, storm], [storm, seasonal]]) {
+      const got = gateClosureFromAlerts(alerts);
+      expect(got.operational).toBe(true);
+      expect(got.summary).toMatch(/циклон/);
+    }
+    expect(gateClosureFromAlerts([seasonal]).operational).toBe(false);
+    const clipped = { title: `${seasonal.title}${' '.repeat(TITLE_CLIP)}`.slice(0, TITLE_CLIP), description: '' };
+    expect(gateClosureFromAlerts([clipped]).operational).toBe(true);
+    const gate = tourGate({
+      kind: 'request', youngest: null, activityMinAge: 0, activityName: 'вертолётные экскурсии',
+      placeOpenFrom: null, placeOpenTo: null, offOrientation: true, parkClosed: true,
+      ageText: '', date: `${Y}-11-24`, parkSummary: seasonal.title, operationalClosure: true,
+    });
+    expect(gate?.reason).toBe('park_and_off_season');
+    const plain: Tour = {
+      tourId: 't-both', title: 'Налычево без высадки', zone: 'avachinsky', activityType: 'helicopter',
+    };
+    for (const alerts of [[seasonal, storm], [storm, seasonal]]) {
+      PARK_EXTRA = alerts.map((a) => ({ ref_id: 't-both', ...a }));
+      TOURS = { 'avachinsky:helicopter': [plain] };
+      KEEPS = { 't-both': false };
+      const rec = await recommendTrip({
+        interests: ['helicopter'],
+        arrivalDate: `${Y}-11-24`, departureDate: `${Y}-11-28`,
+        adults: 2, children: [], fitnessLevel: 'moderate', budgetTier: 'comfort', travelStyle: 'mixed',
+        tripOrigin: 'visitor',
+      }, { itinerary: 'plain' });
+      expect(tourIds(rec)).not.toContain('t-both');
+      expect(warnings(rec)).toMatch(/Налычево без высадки[\s\S]{0,200}парк у места тура закрыт по сводке/);
+    }
   });
 
   it('зимняя карточка не снимает летний тур без тревоги на эту дату', async () => {

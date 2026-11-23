@@ -84,7 +84,7 @@ import {
 } from '@/lib/planner/day-variety';
 import { placePoint } from '@/lib/planner/place-point';
 import { assignCatalogFreeDays, fetchSelfFillPlaces } from '@/lib/planner/self-fill';
-import { liveCardCoversDate, tourGate, type TourGate } from '@/lib/planner/tour-gates';
+import { gateClosureFromAlerts, liveCardCoversDate, tourGate, type TourGate } from '@/lib/planner/tour-gates';
 import {
   appendOfferingFlags, appendUnreadSafety, MCHS_UNREAD_NOTE, mchsBeforeTripNote, notesForPlanDay,
   splitWarningsForTrip, warningDigest, warningsForPlanZones, type ActiveWarning,
@@ -1482,20 +1482,15 @@ async function generateDayPlans(
   const offSeasonRequest = new Map<string, string>();
   const gated = new Map<string, { reason: TourGate['reason']; clause: string; line: string; type: 'children' | 'season' }>();
   const parkAlertsOfTour = new Map<string, PlanParkAlert[]>();
-  const parkClosedOn = (tourId: string, date: string): boolean =>
-    (parkAlertsOfTour.get(tourId) ?? []).some((a) => a.alert_type === 'park_closure' && parkNoteForDay(a, date, today) !== null);
-  const parkSummaryOn = (tourId: string, date: string | null): string | null => {
-    if (!date) return null;
-    const alert = (parkAlertsOfTour.get(tourId) ?? []).find((a) => a.alert_type === 'park_closure' && parkNoteForDay(a, date, today) !== null);
-    if (!alert) return null;
-    return `${alert.title} ${alert.description ?? ''}`.trim();
-  };
+  const coveringClosures = (tourId: string, date: string) =>
+    (parkAlertsOfTour.get(tourId) ?? []).filter((a) => a.alert_type === 'park_closure' && parkNoteForDay(a, date, today) !== null);
+  const parkClosedOn = (tourId: string, date: string): boolean => coveringClosures(tourId, date).length > 0;
   const gateOf = (t: RealTour, date: string | null): TourGate | null => {
     const act = interestOfTour.get(t.tourId) ?? t.activityType;
     const months = ACTIVITY_CONSTRAINTS[act]?.months;
     const m = monthOfIsoDate(date);
     const kind = tourDates.get(t.tourId)?.kind;
-    const fromAlert = date ? parkSummaryOn(t.tourId, date) : null;
+    const closure = date ? gateClosureFromAlerts(coveringClosures(t.tourId, date)) : { summary: null, operational: false };
     // Карточка места — про сегодняшний сезон. На дату другого сезона она не
     // свидетель: зимнее «закрыто, опасно» не снимает июльский тур без
     // тревоги на этот день. Тревога с окном дат по-прежнему про этот день.
@@ -1509,9 +1504,10 @@ async function generateDayPlans(
       placeOpenTo: t.place?.openTo ?? null,
       offOrientation: Boolean(date && months && m !== null && !months.includes(m)),
       parkClosed: date !== null && parkClosedOn(t.tourId, date),
+      operationalClosure: closure.operational,
       placeLevel: cardNow ? (t.place?.level ?? null) : null,
       placeClosed: cardNow ? t.place?.closed === true : false,
-      parkSummary: fromAlert ?? (cardNow ? (t.place?.parkSummary ?? null) : null),
+      parkSummary: closure.summary ?? (cardNow ? (t.place?.parkSummary ?? null) : null),
       ageText: [t.shortDescription, ...(t.included ?? [])].filter((x): x is string => typeof x === 'string').join('\n'),
       date,
     });
