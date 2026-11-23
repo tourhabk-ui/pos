@@ -43,6 +43,21 @@ export function initialPartnerRating(category: string): 0 | null {
   return category === 'stay' ? null : 0;
 }
 
+/**
+ * Роли, которым заявки туристов приходят по самой роли: туры, машина, жильё,
+ * снаряжение. Список чистый, без базы — его читает и карточка партнёра в
+ * админке (клиентский код).
+ *
+ * Это не список «кому нужен канал»: форма заявки стоит на странице карточки
+ * ЛЮБОЙ категории с витрины, поэтому канал перед витриной спрашивается у всех
+ * (lib/partners/storefront-gate).
+ */
+export const REQUEST_RECEIVING_CATEGORIES = ['operator', 'guide', 'transfer', 'stay', 'gear', 'cars'] as const;
+
+export function receivesRequests(category: string | null | undefined): boolean {
+  return typeof category === 'string' && (REQUEST_RECEIVING_CATEGORIES as readonly string[]).includes(category);
+}
+
 export function isPartnerCategory(v: unknown): v is PartnerCategory {
   return typeof v === 'string' && (PARTNER_ROLES as readonly string[]).includes(v);
 }

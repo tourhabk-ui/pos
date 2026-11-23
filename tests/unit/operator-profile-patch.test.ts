@@ -20,7 +20,10 @@ vi.mock('@/lib/database', () => ({
   query: (...args: unknown[]) => queryMock(...args),
 }));
 const reachMock = vi.fn();
-vi.mock('@/lib/partners/reach', () => ({
+// Подменяется только чтение адреса из базы; правило статуса
+// (requestsChannelStatus: MAX или Telegram) — настоящее.
+vi.mock('@/lib/partners/reach', async (orig) => ({
+  ...(await orig<typeof import('@/lib/partners/reach')>()),
   reachForPartner: (...args: unknown[]) => reachMock(...args),
 }));
 vi.mock('@/lib/auth/middleware', () => ({
@@ -112,6 +115,21 @@ describe('три исхода поля: записать / очистить / н
 
     const locIdx = Number(/location = \$(\d+)/.exec(sql)?.[1]) - 1;
     expect(JSON.parse(String(params[locIdx]))).toEqual({ address: 'ул. 2' });
+  });
+
+  it('канал уведомлений из профиля не пишется: chat id в запросе не доходит до базы', async () => {
+    // Ревью 23.11: оператор вписывал любой id, и шлюз «канал до витрины»
+    // принимал его за подключённый Telegram. Канал привязывает только бот.
+    for (const sent of [-1, 0, 123456789, null]) {
+      queryMock.mockClear();
+      const res = await PATCH(patchReq({ phone: '+7 900', telegram_chat_id: sent, max_chat_id: sent }));
+      expect(res.status, String(sent)).toBe(200);
+      const [sql, params] = updateCall();
+      expect(sql, String(sent)).not.toMatch(/telegram_chat_id|max_chat_id/);
+      // Ни в одном параметре записи присланного id нет (в contacts — тоже).
+      expect(JSON.stringify(params)).not.toMatch(/telegram_chat_id|max_chat_id/);
+      if (typeof sent === 'number' && sent !== 0) expect(params).not.toContain(sent);
+    }
   });
 
   it('клиент профиля шлёт пустую строку, а не undefined', () => {

@@ -9,6 +9,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { query } from '@/lib/database';
 import { z } from 'zod';
 import { emailService } from '@/lib/notifications/email-service';
+import { storefrontChannelGate, NO_CHANNEL_TEXT, CHANNEL_UNKNOWN_TEXT } from '@/lib/partners/storefront-gate';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,6 +43,7 @@ export async function PATCH(
   // Получаем данные партнёра + пользователя
   const partnerRes = await query(`
     SELECT p.id, p.name AS company_name, p.profile_status, p.category,
+           p.is_public, p.is_test,
            u.id AS user_id, u.email, u.name AS contact_name
     FROM partners p
     JOIN users u ON u.id = p.user_id
@@ -54,6 +56,7 @@ export async function PATCH(
 
   const partner = partnerRes.rows[0] as {
     id: string; company_name: string; profile_status: string; category: string;
+    is_public: boolean | null; is_test: boolean | null;
     user_id: string; email: string; contact_name: string;
   };
 
@@ -71,6 +74,22 @@ export async function PATCH(
   };
 
   if (action === 'approve') {
+    // Канал уведомлений до витрины (23.11, этап 3b): одобрение ставит
+    // карточку на витрину, а заявка туриста уходит партнёру в MAX или
+    // Telegram. Без привязанного чата она до него не дойдёт. Правило — только
+    // для тех, кого это одобрение ВПЕРВЫЕ ставит на витрину: агента и
+    // тестовый профиль оно туда не ставит, а уже стоящих не запирает.
+    const publishesNow = !isAgent && partner.is_test !== true && partner.is_public !== true;
+    if (publishesNow) {
+      const gate = await storefrontChannelGate(id);
+      if (gate.outcome === 'no_channel') {
+        return NextResponse.json({ success: false, error: NO_CHANNEL_TEXT, code: 'no_channel' }, { status: 409 });
+      }
+      if (gate.outcome === 'unknown') {
+        return NextResponse.json({ success: false, error: CHANNEL_UNKNOWN_TEXT, code: 'channel_unknown' }, { status: 503 });
+      }
+    }
+
     await query(`
       UPDATE partners
       SET profile_status = 'approved',

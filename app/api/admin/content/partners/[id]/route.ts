@@ -5,6 +5,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { z } from 'zod';
 import { adminContactView, websiteWrite } from '@/lib/partners/admin-contact';
 import { isTestProfileNotPublicViolation, TEST_PROFILE_NOT_PUBLIC_TEXT } from '@/lib/partners/test-profile';
+import { needsChannelCheck, storefrontChannelGate, NO_CHANNEL_TEXT, CHANNEL_UNKNOWN_TEXT } from '@/lib/partners/storefront-gate';
 
 export const dynamic = 'force-dynamic';
 
@@ -148,8 +149,8 @@ export async function PUT(
 
     // Сайт пишется, только если администратор его поменял (ревью 23.10):
     // сравнение — с тем, что форма показала при открытии, по текущей строке.
-    const currentRes = await query<{ contact: unknown; contacts: unknown; website: string | null }>(
-      'SELECT contact, contacts, website FROM partners WHERE id = $1',
+    const currentRes = await query<{ contact: unknown; contacts: unknown; website: string | null; is_public: boolean | null; category: string | null }>(
+      'SELECT contact, contacts, website, is_public, category FROM partners WHERE id = $1',
       [id],
     );
     if (currentRes.rows.length === 0) {
@@ -159,6 +160,24 @@ export async function PUT(
       );
     }
     const site = websiteWrite(currentRes.rows[0], contact.website);
+
+    // Канал уведомлений до витрины (23.11, этап 3b): карточку нельзя ВПЕРВЫЕ
+    // поставить на витрину без MAX или Telegram — любой категории, потому что
+    // форма заявки есть на странице каждой. «Впервые» — это и выклад, и смена
+    // категории уже стоящей карточки на роль с заявками. Правка карточки,
+    // которая уже на витрине и уже принимает заявки, и снятие с витрины
+    // правилом не задеты.
+    const before = { isPublic: currentRes.rows[0].is_public === true, category: currentRes.rows[0].category };
+    const after = { isPublic: isPublic ?? before.isPublic, category: category || before.category };
+    if (needsChannelCheck(before, after)) {
+      const gate = await storefrontChannelGate(id);
+      if (gate.outcome === 'no_channel') {
+        return NextResponse.json({ success: false, error: NO_CHANNEL_TEXT, code: 'no_channel' }, { status: 409 });
+      }
+      if (gate.outcome === 'unknown') {
+        return NextResponse.json({ success: false, error: CHANNEL_UNKNOWN_TEXT, code: 'channel_unknown' }, { status: 503 });
+      }
+    }
 
     // Build dynamic SET clause
     const setClauses: string[] = [];

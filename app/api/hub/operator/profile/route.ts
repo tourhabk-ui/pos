@@ -8,7 +8,7 @@ import { requireOperatorOwner, requireOperatorTeam, type OperatorTeamContext } f
 import { requireOperator } from '@/lib/auth/middleware';
 import { ensurePartnerForRole } from '@/lib/auth/partner-profile';
 import { query } from '@/lib/database';
-import { reachForPartner } from '@/lib/partners/reach';
+import { reachForPartner, requestsChannelStatus } from '@/lib/partners/reach';
 import { isCleared, mergeClearable } from '@/lib/operator/profile-patch';
 import { z } from 'zod';
 
@@ -20,7 +20,13 @@ export const dynamic = 'force-dynamic';
 // них — оператор мог править профиль своей же гидовской записи.
 
 /**
- * Статус уведомлений о бронях в Telegram — по РЕАЛЬНОМУ источнику.
+ * Статус уведомлений о заявках — по РЕАЛЬНОМУ источнику.
+ *
+ * «Подключены» — когда заявка дойдёт: привязан MAX ИЛИ Telegram (то же
+ * правило достижимости, что у доставки и у двери «на витрину»,
+ * lib/partners/reach). До 23.11 статус считался по одному Telegram: оператор
+ * с одним MAX видел «Не подключены» в блоке «Заявки в Telegram и MAX» — при
+ * том что справка просит добиться там «Подключены».
  *
  * Уведомления читают `partners.telegram_chat_id` или `users.telegram_id`
  * (lib/partners/reach.ts), а поле «Telegram» профиля пишет
@@ -33,11 +39,7 @@ async function telegramNotifications(partnerId: string): Promise<{
   source: 'partner' | 'user' | null;
 }> {
   const reach = await reachForPartner(partnerId);
-  if (!reach) return { status: 'unknown', source: null };
-  return {
-    status: reach.telegramChatId ? 'connected' : 'not_connected',
-    source: reach.telegramSource,
-  };
+  return { status: requestsChannelStatus(reach), source: reach?.telegramSource ?? null };
 }
 
 const ADMIN_NO_COMPANY = {
@@ -146,7 +148,12 @@ const PatchSchema = z.object({
     city:    clearable(100),
   }).optional(),
   complete_onboarding: z.boolean().optional(),
-  telegram_chat_id:    z.number().int().nullable().optional(),
+  // Поля `telegram_chat_id` здесь нет намеренно (ревью 23.11). Оно стояло в
+  // схеме и писалось как есть: оператор мог вписать любой id — выдуманный
+  // или чужой, — а шлюз «канал до витрины» (lib/partners/storefront-gate) и
+  // доставка заявок читали его как подключённый Telegram. Форма профиля это
+  // поле не слала никогда. Канал привязывает только бот: ссылка, код или
+  // вход через Telegram (lib/partners/bind-channel, bind-code).
 });
 
 export async function PATCH(request: NextRequest) {
@@ -170,7 +177,7 @@ export async function PATCH(request: NextRequest) {
     description, short_description,
     website, phone, telegram,
     services, features, location,
-    complete_onboarding, telegram_chat_id,
+    complete_onboarding,
   } = parsed.data;
 
   const existingRes = await query(
@@ -206,7 +213,6 @@ export async function PATCH(request: NextRequest) {
     setClauses.push(`applied_at = CASE WHEN profile_status = 'none' THEN NOW() ELSE applied_at END`);
     setClauses.push(`profile_status = CASE WHEN profile_status = 'none' THEN 'pending' ELSE profile_status END`);
   }
-  if (telegram_chat_id !== undefined)  p('telegram_chat_id', telegram_chat_id);
   p('contacts', JSON.stringify(newContacts));
 
   params.push(partnerId);

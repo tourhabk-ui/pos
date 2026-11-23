@@ -8,7 +8,7 @@ import {
   Send, Pencil, Check, Globe, Copy, Database, RefreshCw, Play,
   UserPlus, KeyRound, AlertTriangle,
 } from 'lucide-react';
-import { PARTNER_CATEGORIES, PARTNER_CATEGORY_LABELS } from '@/lib/partners/categories';
+import { PARTNER_CATEGORIES, PARTNER_CATEGORY_LABELS, receivesRequests } from '@/lib/partners/categories';
 import { PARTNER_GROUP_LABELS, PARTNER_GROUP_HINTS } from '@/lib/partners/partner-groups';
 import type { PartnerGroup } from '@/lib/partners/partner-groups';
 import type { PartnerCategory } from '@/lib/partners/categories';
@@ -354,15 +354,24 @@ export function OperatorCard({
   onReject,
   onAccountCreated,
   acting,
+  actionError = null,
 }: {
   op: OperatorRow;
   onApprove: (id: string) => void;
   onReject: (id: string, name: string) => void;
   onAccountCreated: (id: string, email: string) => void;
   acting: string | null;
+  /** Почему одобрение не прошло — словами двери (например, не подключён канал уведомлений). */
+  actionError?: string | null;
 }) {
   const [expanded, setExpanded] = useState(op.profile_status === 'pending');
   const [isTest, setIsTest] = useState(op.is_test === true);
+  // Канала нет — заявка туриста до партнёра не дойдёт (lib/partners/storefront-gate).
+  // Пометка только там, где заявки приходят: агенту канал не нужен.
+  // Роль с заявками — или любая карточка на витрине: форма заявки есть на
+  // странице каждой, и без канала заявка до партнёра не дойдёт.
+  const noChannel = (receivesRequests(op.category) || op.is_public === true)
+    && op.has_telegram === false && op.has_max === false;
 
   const [widgetEnabled, setWidgetEnabled] = useState(op.widget_enabled ?? false);
   const [widgetDomains, setWidgetDomains] = useState((op.widget_domains ?? []).join('\n'));
@@ -421,6 +430,14 @@ export function OperatorCard({
           {isTest && (
             <span className="text-[10px] px-2 py-0.5 rounded-full font-medium text-[var(--warning)] border border-[var(--warning)]">
               Тест
+            </span>
+          )}
+          {noChannel && (
+            <span
+              className="text-[10px] px-2 py-0.5 rounded-full font-medium text-[var(--danger)] border border-[var(--danger)]"
+              title="Не подключён ни MAX, ни Telegram: заявки до партнёра не дойдут"
+            >
+              Нет канала
             </span>
           )}
           <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_CLS[op.profile_status] ?? STATUS_CLS.none}`}>
@@ -603,6 +620,11 @@ export function OperatorCard({
                 Отклонить
               </button>
             </div>
+          )}
+          {/* Отказ двери одобрения — словами. До 23.11 неудача была немой:
+              кнопка отпускалась, карточка оставалась в очереди без объяснения. */}
+          {actionError && (
+            <p role="alert" className="mt-3 text-sm text-[var(--danger)]">{actionError}</p>
           )}
         </div>
       )}
@@ -1459,6 +1481,7 @@ export default function OperatorsClient() {
   const [search, setSearch]       = useState('');
   const [acting, setActing]       = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<{ id: string; name: string } | null>(null);
+  const [approveError, setApproveError] = useState<{ id: string; text: string } | null>(null);
   const [counts, setCounts]       = useState<Record<string, number>>({});
   /** Сколько партнёров подходит под группу, вкладку и поиск — по ответу сервера; null — не знаем. */
   const [total, setTotal]         = useState<number | null>(null);
@@ -1541,6 +1564,7 @@ export default function OperatorsClient() {
 
   async function approve(id: string) {
     setActing(id);
+    setApproveError(null);
     try {
       const res = await fetch(`/api/admin/operators/${id}`, {
         method: 'PATCH',
@@ -1552,7 +1576,12 @@ export default function OperatorsClient() {
         setOperators(prev => prev.filter(o => o.id !== id));
         setTotal(prev => (prev === null ? prev : Math.max(0, prev - 1)));
         setCounts(prev => ({ ...prev, pending: (prev.pending ?? 1) - 1, approved: (prev.approved ?? 0) + 1 }));
+      } else {
+        const said = typeof j === 'object' && j !== null && 'error' in j ? (j as { error?: unknown }).error : null;
+        setApproveError({ id, text: typeof said === 'string' && said ? said : 'Одобрить не удалось — карточка не изменена.' });
       }
+    } catch {
+      setApproveError({ id, text: 'Сервер не ответил — карточка не изменена.' });
     } finally {
       setActing(null);
     }
@@ -1713,6 +1742,7 @@ export default function OperatorsClient() {
                 onAccountCreated={(id, email) =>
                   setOperators(prev => prev.map(o => (o.id === id ? { ...o, has_account: true, email } : o)))}
                 acting={acting}
+                actionError={approveError?.id === op.id ? approveError.text : null}
               />
             ))}
             {/* Обрезка названа словами: «вот все» и «вот первые сто» — разные ответы. */}

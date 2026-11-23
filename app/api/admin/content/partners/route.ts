@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { slugify } from '@/lib/text/slugify';
 import { safeMsg } from '@/lib/errors/sanitize';
 import { PARTNER_GROUP_SQL, isPartnerGroup } from '@/lib/partners/partner-groups';
+import { NEW_CARD_NOT_PUBLIC_TEXT } from '@/lib/partners/storefront-gate';
 
 export const dynamic = 'force-dynamic';
 const ALLOWED_SORT_FIELDS = new Set(['created_at', 'updated_at', 'name', 'category', 'rating', 'review_count', 'is_verified']);
@@ -242,6 +243,13 @@ export async function POST(request: NextRequest) {
 
   const { name, category, description, shortDescription, isPublic } = parsed.data;
   const contact = parsed.data.contact;
+
+  // Канал уведомлений до витрины (23.11, этап 3b): у новой карточки ни MAX,
+  // ни Telegram быть не может — сразу на витрину её ставить нельзя. Категория
+  // исключения не даёт: форма заявки есть на странице каждой карточки.
+  if (isPublic) {
+    return NextResponse.json({ success: false, error: NEW_CARD_NOT_PUBLIC_TEXT, code: 'no_channel' }, { status: 409 });
+  }
   const slug = (parsed.data.slug || slugify(name)).trim();
   if (!slug) {
     return NextResponse.json(

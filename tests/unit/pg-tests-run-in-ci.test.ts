@@ -607,7 +607,15 @@ describe('pg-тесты доходят до CI', () => {
     // закрытия (CTE, LEFT JOIN по путям, json справочника парков) — мок
     // ответил бы на любой SQL. Четыре теста, одна копия шаблона; локальный
     // прогон файла на PostgreSQL 16 — около 5 с: размен честен.
-    const SEQUENTIAL_BUDGET = 60;
+    // Шестьдесят первый (23.11, план готовности, этап 3b — канал уведомлений
+    // до витрины) — `storefront-channel-gate`: три двери администратора
+    // спрашивают настоящий `reachForPartner` (колонки `partners.max_chat_id`,
+    // `partners.telegram_chat_id` и `users.telegram_id` через JOIN) и только
+    // потом пишут `is_public`; отказ обязан оставить строку прежней, а новая
+    // карточка — не появиться в базе. Мок ответил бы на любой SQL и не
+    // показал бы, что карточка не изменена. Пятнадцать тестов, одна копия
+    // шаблона; локальный прогон файла на PostgreSQL 16 — около 6 с: размен честен.
+    const SEQUENTIAL_BUDGET = 61;
     const count = readdirSync(INTEGRATION).filter((f) => f.endsWith('.pg.test.ts')).length;
     expect(
       count,
