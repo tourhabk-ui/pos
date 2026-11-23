@@ -587,6 +587,28 @@ withPg('модерация правок тура', () => {
       await pool.query(`DELETE FROM operator_tour_edits WHERE tour_id = $1::bigint`, [foreign]);
     });
 
+    it('адрес снимка с чужой схемой дверь не сохраняет: ни в черновик, ни в тур', async () => {
+      const { PHOTO_ADDRESS_TEXT } = await import('@/lib/tours/photo-address');
+      const tour = await addTour(OP, 'Форма: адрес снимка', { published: true, price: 10000 });
+      const before = (await liveOf(tour)).photos;
+      for (const body of [
+        { photos: ['/images/tours/ok.jpg', 'javascript:alert(1)'] },
+        { tour_image: 'data:text/html,<script>alert(1)</script>' },
+        { photos: ['java\tscript:alert(1)'] },
+      ]) {
+        const r = await saveForm(tour, body);
+        expect(r.status, JSON.stringify(body)).toBe(400);
+        expect(JSON.stringify(r.body)).toContain(PHOTO_ADDRESS_TEXT);
+      }
+      expect(await waitingPatch(tour)).toBeNull();
+      expect((await liveOf(tour)).photos).toEqual(before);
+      // Ссылка на снимок со своего сайта — обычная правка: черновик, витрина прежняя.
+      const ok = await saveForm(tour, { photos: ['https://example.com/photo.jpg'] });
+      expect(ok.status).toBe(200);
+      expect(await waitingPatch(tour)).toEqual({ photos: ['https://example.com/photo.jpg'] });
+      expect((await liveOf(tour)).photos).toEqual(before);
+    });
+
     it('чужой тур форма не открывает и не сохраняет', async () => {
       const foreign = await addTour(OTHER, 'Форма: чужой тур', { published: true, price: 10000 });
       expect((await openForm(foreign)).status).toBe(404);

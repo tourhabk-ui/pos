@@ -1,24 +1,42 @@
 import type { TourEditChange } from '@/lib/tours/moderation';
+import { openablePhotoAddress } from '@/lib/tours/photo-address';
 
-/** Снимки поля — превью; открываются целиком по нажатию. */
+/**
+ * Снимки поля — превью; открываются целиком по нажатию.
+ *
+ * Адрес — строка от партнёра. Ссылкой и картинкой становится только путь
+ * нашего сайта или http(s); всё остальное показано текстом, без ссылки:
+ * `javascript:` в ссылке очереди выполнился бы от имени администратора.
+ */
 export function TourEditPhotos({ urls, label }: { urls: string[]; label: string }) {
   if (urls.length === 0) return <p className="text-sm text-[var(--text-muted)]">снимков нет</p>;
   return (
     <ul className="flex flex-wrap gap-2" aria-label={label}>
-      {urls.map((url, i) => (
-        <li key={`${url}-${i}`}>
-          <a href={url} target="_blank" rel="noopener noreferrer" className="block">
-            {/* Снимок партнёра по адресу из его правки: превью без оптимизатора, как в редакторе тура. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={url}
-              alt={`${label}, снимок ${i + 1}`}
-              loading="lazy"
-              className="h-20 w-28 rounded-lg border border-[var(--border)] object-cover"
-            />
-          </a>
-        </li>
-      ))}
+      {urls.map((url, i) => {
+        const address = openablePhotoAddress(url);
+        if (address === null) {
+          return (
+            <li key={`${url}-${i}`} data-testid="photo-not-openable" className="max-w-full rounded-lg border border-[var(--warning)] p-2">
+              <p className="text-xs font-medium text-[var(--warning)]">Адрес снимка не открывается</p>
+              <p className="text-xs text-[var(--text-muted)] break-all">{url}</p>
+            </li>
+          );
+        }
+        return (
+          <li key={`${url}-${i}`}>
+            <a href={address} target="_blank" rel="noopener noreferrer" className="block">
+              {/* Снимок партнёра по адресу из его правки: превью без оптимизатора, как в редакторе тура. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={address}
+                alt={`${label}, снимок ${i + 1}`}
+                loading="lazy"
+                className="h-20 w-28 rounded-lg border border-[var(--border)] object-cover"
+              />
+            </a>
+          </li>
+        );
+      })}
     </ul>
   );
 }
