@@ -381,10 +381,13 @@ describe('запреты', () => {
   it('журнал акцепта пишет один файл; стирание аккаунта снимает только адрес и связь с человеком', () => {
     expect(touching.sort()).toEqual([
       'lib/account/erase.ts',
+      'lib/admin/partner-queues.ts', // отчёт очередей администратора: считает карточки без акцепта (этап 6)
       'lib/agents/compliance/pd-db-tables.ts', // реестр таблиц с ПД: запись о журнале, SQL к нему нет
       'lib/legal/offer-acceptance.ts',
     ]);
     expect(read('lib/agents/compliance/pd-db-tables.ts')).not.toMatch(/(INSERT INTO|UPDATE|DELETE FROM)\s+partner_offer_acceptances/i);
+    // Отчёт журнал только читает.
+    expect(read('lib/admin/partner-queues.ts')).not.toMatch(/\b(INSERT INTO|UPDATE|DELETE FROM)\b/);
     const journal = read('lib/legal/offer-acceptance.ts');
     // Журнал только пополняется: строк акцепта никто не правит и не удаляет.
     expect(journal).not.toMatch(/UPDATE\s+partner_offer_acceptances|DELETE\s+FROM\s+partner_offer_acceptances/i);

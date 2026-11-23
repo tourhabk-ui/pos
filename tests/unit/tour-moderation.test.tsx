@@ -744,6 +744,7 @@ describe('запреты', () => {
     const readers = SOURCES.filter((f) => /\boperator_tour_edits\b/.test(read(f))).sort();
     expect(readers).toEqual([
       'lib/account/erase.ts',            // удаление аккаунта: таблица названа в ERASE_KEEP с причиной, SQL к ней нет
+      'lib/admin/partner-queues.ts',     // отчёт очередей администратора: счёт ждущих, только чтение (этап 6)
       'lib/guides/tour-edit/store.ts',   // «тур идёт через проверку» — слова чата гида перед сохранением
       'lib/partners/readiness-store.ts', // счёт «на проверке» в чек-листе готовности
       'lib/tours/moderation-read.ts',    // правки владельца для его кабинета — только чтение
@@ -751,8 +752,10 @@ describe('запреты', () => {
       'lib/tours/moderation-store.ts',   // черновик: положить и отозвать
       'lib/tours/moderation.ts',         // упоминание в шапке правила
     ]);
-    // Читающий модуль не пишет: ни INSERT, ни UPDATE, ни DELETE.
-    expect(read('lib/tours/moderation-read.ts')).not.toMatch(/\b(INSERT INTO|UPDATE|DELETE FROM)\b/);
+    // Читающие модули не пишут: ни INSERT, ни UPDATE, ни DELETE.
+    for (const reader of ['lib/tours/moderation-read.ts', 'lib/admin/partner-queues.ts']) {
+      expect(read(reader), reader).not.toMatch(/\b(INSERT INTO|UPDATE|DELETE FROM)\b/);
+    }
   });
 
   it('склад черновиков и единую дверь подключают только кабинеты владельца и админка', () => {
