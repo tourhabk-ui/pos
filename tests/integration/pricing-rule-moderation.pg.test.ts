@@ -26,6 +26,7 @@ vi.mock('next/cache', () => ({ unstable_cache: (fn: () => unknown) => fn }));
 vi.mock('@/lib/auth/middleware', async (orig) => ({
   ...(await orig<typeof import('@/lib/auth/middleware')>()),
   requireAdmin: vi.fn(async () => ({ userId: 'c6000000-0000-4000-8000-0000000002ad', role: 'admin' })), // = ADMIN
+  requireOperator: vi.fn(async () => ({ userId: 'c6000000-0000-4000-8000-000000000301', role: 'operator' })), // = USER
 }));
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
@@ -37,15 +38,19 @@ if (!PG_URL) {
 const TEST_DB = 'pricing_rule_moderation_test';
 const OP = 'c6000000-0000-4000-8000-000000000101';
 const ADMIN = 'c6000000-0000-4000-8000-0000000002ad';
+/** Владелец карточки OP: от его имени идут просьбы из кабинета. */
+const USER = 'c6000000-0000-4000-8000-000000000301';
+/** Чужая карточка: её туры и правила владельцу OP недоступны. */
+const OP2 = 'c6000000-0000-4000-8000-000000000102';
 
 withPg('правила цены: действует только проверенное', () => {
   let pool: import('pg').Pool;
   let soon = '';
 
-  const addTour = async (title: string) => {
+  const addTour = async (title: string, o: { owner?: string; published?: boolean } = {}) => {
     const id = (await pool.query<{ id: string }>(
       `INSERT INTO operator_tours (operator_id, title, base_price, price_unit, is_active, is_published, max_participants)
-       VALUES ($1, $2, 20000, 'per_person', TRUE, TRUE, 10) RETURNING id::text AS id`, [OP, title],
+       VALUES ($1, $2, 20000, 'per_person', TRUE, $3, 10) RETURNING id::text AS id`, [o.owner ?? OP, title, o.published !== false],
     )).rows[0].id;
     await pool.query(
       `INSERT INTO tour_availability (operator_tour_id, date, available_slots, booked_slots) VALUES ($1::bigint, $2::date, 10, 0)`,
@@ -87,6 +92,14 @@ withPg('правила цены: действует только провере�
     await pool.query(
       `INSERT INTO partners (id, name, category, contact, profile_status, is_public) VALUES ($1, 'Оператор', 'operator', '{}'::jsonb, 'approved', TRUE)`,
       [OP],
+    );
+    // Владелец карточки OP и чужая карточка — для дверей кабинета.
+    await pool.query(`INSERT INTO users (id, email, name, password_hash, role) VALUES ($1, 'rule-owner@example.test', 'Тест', 'x', 'operator')`, [USER]);
+    await pool.query(`UPDATE partners SET user_id = $2 WHERE id = $1`, [OP, USER]);
+    await pool.query(
+      `INSERT INTO partners (id, name, category, contact, profile_status, is_public)
+       VALUES ($1, 'Другой оператор', 'operator', '{}'::jsonb, 'approved', TRUE)`,
+      [OP2],
     );
   }, 300_000);
 
@@ -171,5 +184,49 @@ withPg('правила цены: действует только провере�
     const row = (await pool.query(`SELECT moderation_status, rule_type FROM tour_pricing_rules WHERE operator_tour_id = $1::bigint AND is_active = TRUE`, [tour])).rows[0];
     expect(row).toEqual({ moderation_status: 'approved', rule_type: 'weekend_sat_sun' });
     expect((await listWeekendMarkups(pool, OP)).find((m) => m.tourId === Number(tour))?.percent).toBe(15);
+    // Чужой тур наценка не трогает.
+    const foreign = await addTour('Чужая наценка на выходные', { owner: OP2 });
+    expect(await setWeekendMarkup(pool, OP, [Number(foreign)], 15)).toEqual([]);
+    expect((await pool.query(`SELECT 1 FROM tour_pricing_rules WHERE operator_tour_id = $1::bigint`, [foreign])).rowCount).toBe(0);
+  });
+
+  // Пока двери владельца не переведены на «на проверку», скидка из кабинета
+  // обязана действовать сразу: умолчание колонки — «на проверке», и правило,
+  // записанное без статуса, молча перестало бы менять цену.
+  it('скидка из кабинета владельца — действующая сразу; новая заменяет прежнюю; снятие — сразу', async () => {
+    const tour = await addTour('Скидка из кабинета');
+    const route = await import('@/app/api/hub/operator/pricing-rules/route');
+    const ask = async (tourId: string, percent: number) => {
+      const res = await route.POST(new NextRequest('http://localhost/api/hub/operator/pricing-rules', {
+        method: 'POST', body: JSON.stringify({ tourId: Number(tourId), ruleType: 'last_minute', percent, daysBefore: 7 }),
+      }));
+      return { status: res.status, body: (await res.json()) as { id?: string } };
+    };
+    const drop = async (id: string) => (await route.DELETE(
+      new NextRequest(`http://localhost/api/hub/operator/pricing-rules?id=${id}`, { method: 'DELETE' }),
+    )).status;
+    const rows = async (tourId: string) => (await pool.query(
+      `SELECT pr.multiplier::float8 AS m, pr.moderation_status AS status, pr.is_active AS active
+         FROM tour_pricing_rules pr WHERE pr.operator_tour_id = $1::bigint ORDER BY pr.id`, [tourId],
+    )).rows;
+
+    const first = await ask(tour, 15);
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    expect(await rows(tour)).toEqual([{ m: 0.85, status: 'approved', active: true }]);
+    expect(await multipliers(tour)).toEqual([0.85]);
+    // Вторая скидка того же рода не перемножается с первой.
+    const second = await ask(tour, 25);
+    expect(await rows(tour)).toEqual([{ m: 0.85, status: 'approved', active: false }, { m: 0.75, status: 'approved', active: true }]);
+    expect(await multipliers(tour)).toEqual([0.75]);
+    expect(await drop(second.body.id!)).toBe(200);
+    expect(await multipliers(tour)).toEqual([]);
+
+    // Чужой тур: скидка не записана, чужое правило не снято.
+    const foreign = await addTour('Чужая скидка', { owner: OP2 });
+    expect((await ask(foreign, 15)).status).toBe(404);
+    expect(await rows(foreign)).toEqual([]);
+    const theirs = await addRule(foreign, 0.9, { status: 'approved' });
+    expect(await drop(theirs.id)).toBe(404);
+    expect(await rows(foreign)).toEqual([{ m: 0.9, status: 'approved', active: true }]);
   });
 });
