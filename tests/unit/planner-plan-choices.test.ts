@@ -89,7 +89,7 @@ describe('цена стоянки на группу — правилом бро�
   });
 });
 
-describe('ночь дома у местного — жильё не подбирается (то же правило, что у сметы)', () => {
+describe('ночь дома у местного — жильё предлагается, смета его не считает', () => {
   // День в Восточной зоне — ночь вне дома. Не день переезда: его ночь с
   // 07.11 считается в зоне следующего дня (nightZoneOf, E11).
   const plan: ExtrasDay[] = [
@@ -99,11 +99,10 @@ describe('ночь дома у местного — жильё не подбир
     { day: 4, type: 'departure', zone: 'avachinsky' },
   ];
 
-  it('приезжему — все ночи; местному — только вне дома', () => {
-    expect(lodgingStays(plan, '2030-08-03', '2030-08-06').stays.map((s) => s.zone)).toEqual(['avachinsky', 'eastern', 'avachinsky']);
-    expect(lodgingStays(plan, '2030-08-03', '2030-08-06', 'local').stays).toEqual([
-      { zone: 'eastern', checkIn: '2030-08-04', checkOut: '2030-08-05', nights: 1 },
-    ]);
+  it('приезжему и местному — все ночи поездки, включая Авачинскую зону', () => {
+    const zones = ['avachinsky', 'eastern', 'avachinsky'];
+    expect(lodgingStays(plan, '2030-08-03', '2030-08-06').stays.map((s) => s.zone)).toEqual(zones);
+    expect(lodgingStays(plan, '2030-08-03', '2030-08-06', 'local').stays.map((s) => s.zone)).toEqual(zones);
   });
 
   it('роут передаёт «откуда едут» и состав группы', async () => {
@@ -123,7 +122,7 @@ describe('ночь дома у местного — жильё не подбир
       return (await res.json() as { data: { lodging: { stays: unknown[] } } }).data.lodging.stays.length;
     };
     expect(await call()).toBe(3);
-    expect(await call('local')).toBe(1);
+    expect(await call('local')).toBe(3);
   });
 });
 
@@ -160,6 +159,16 @@ describe('смета: выбранное — пунктом плана с цен
     // Итог — только цены с источником: туров здесь нет, стоянка — 20 000 ₽.
     expect([e.fromTours[0] + e.fromOffers[0], e.fromTours[1] + e.fromOffers[1]]).toEqual(e.total);
     expect(e.total).toEqual([20000, 20000]);
+  });
+
+  it('местный: авачинские ночи сами в сумму не входят, выбранный вариант входит', () => {
+    const local: EstimateProfile = { ...PROFILE, tripOrigin: 'local' };
+    const plain = estimateGroup(DAYS, local);
+    expect(plain.lines.filter((l) => l.kind === 'lodging')).toEqual([]);
+    expect(plain.total).toEqual([0, 0]);
+    const chosen = estimateGroup(DAYS, local, choices({ stays: [STAY] }));
+    expect(line(chosen, /Жильё «Гостиница»/)).toMatchObject({ total: [20000, 20000], source: 'offer' });
+    expect(chosen.total).toEqual([20000, 20000]);
   });
 
   it('стоянка в другой зоне чужих ночей не вынимает; без даты прилёта выбранное не ставится вовсе', () => {

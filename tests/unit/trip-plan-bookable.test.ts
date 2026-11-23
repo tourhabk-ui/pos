@@ -28,9 +28,10 @@ describe('план ведёт к брони', () => {
     // С 07.11 ссылку строит planDayTourHref: карточка тура, #booking, дата
     // этого дня и вся группа (путь человека: форма открывалась с одним
     // участником и без даты).
-    expect(PLANNER).toMatch(/href=\{planDayTourHref\(topTour,/);
+    expect(PLANNER).toMatch(/planDayTourHref\(topTour,/);
     expect(planDayTourHref({ id: 5, slug: 'gorely' }, '2027-07-10', 0, 2))
       .toBe('/catalog/tours/gorely?date=2027-07-10&guests=2#booking');
+    expect(planDayTourHref({ id: '98d0607d-8547-40a3-8b71-e981b59a31df', slug: null }, '2027-07-10', 0, 2)).toBeNull();
     expect(PLANNER).not.toMatch(/href=\{`\/operators\/\$\{topTour\.operator_slug\}`\}/);
   });
 

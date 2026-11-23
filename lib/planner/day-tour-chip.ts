@@ -40,7 +40,7 @@ export interface ChipDay {
   title: string;
   realPrice?: number;
   priceMissing?: string;
-  realTour?: { tourId: string; operatorSlug?: string; priceUnit?: string };
+  realTour?: { tourId: string; operatorSlug?: string; priceUnit?: string; slug?: string | null };
 }
 
 /**
@@ -52,7 +52,7 @@ export function planTourChip(day: ChipDay): DayTourChip | null {
   if (!day.realPrice && !day.priceMissing) return null;
   return {
     id: day.realTour.tourId,
-    slug: null,
+    slug: day.realTour.slug ?? null,
     title: day.title,
     base_price: day.realPrice ? String(day.realPrice) : '',
     price_unit: day.realTour.priceUnit ?? null,

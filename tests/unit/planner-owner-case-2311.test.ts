@@ -16,11 +16,17 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-interface Tour { tourId: string; title: string; zone: string; activityType: string; durationHours?: number; lat?: number; lng?: number; place?: { name: string; zone: string | null; lat: number | null; lng: number | null } }
+interface Tour {
+  tourId: string; title: string; zone: string; activityType: string; durationHours?: number;
+  lat?: number; lng?: number; coordsKnown?: boolean; seasonStart?: string | null; seasonEnd?: string | null;
+  shortDescription?: string | null; slug?: string | null;
+  place?: { name: string; zone: string | null; lat: number | null; lng: number | null; openFrom?: string | null; openTo?: string | null } | null;
+}
 let TOURS: Record<string, Tour[]> = {};
 let KEEPS: Record<string, boolean | null> = {};
 let SLOTS: Record<string, string[]> = {};
 let PARK_CLOSED = new Set<string>();
+let MUSEUM_ROWS: Array<Record<string, string | null>> = [];
 const forecastAt: Array<[number, number]> = [];
 
 function realTour(t: Tour) {
@@ -29,8 +35,9 @@ function realTour(t: Tour) {
     operatorName: 'Оператор', operatorSlug: 'op', operatorRating: null, operatorReviewCount: 0,
     operatorVerified: false, tourRating: null, tourReviewCount: 0, basePrice: 20000, priceUnit: 'per_person',
     maxParticipants: 10, minParticipants: 1, durationHours: t.durationHours ?? 10, difficulty: null,
-    weatherDependent: false, seasonStart: null, seasonEnd: null, included: null,
-    lat: t.lat ?? 53, lng: t.lng ?? 158, coordsKnown: true, zone: t.zone, activityType: t.activityType,
+    weatherDependent: false, seasonStart: t.seasonStart ?? null, seasonEnd: t.seasonEnd ?? null, included: null,
+    shortDescription: t.shortDescription ?? null, slug: t.slug ?? null,
+    lat: t.lat ?? 53, lng: t.lng ?? 158, coordsKnown: t.coordsKnown ?? true, zone: t.zone, activityType: t.activityType,
     place: t.place ?? null,
   };
 }
@@ -67,6 +74,7 @@ vi.mock('@/lib/ai/agent-models', () => ({ getModelForAgent: () => null }));
 vi.mock('@/lib/db-pool', () => ({
   pool: {
     query: vi.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes('111.0 * sqrt')) return { rows: MUSEUM_ROWS };
       if (sql.includes('external_alerts') && Array.isArray(params?.[1])) {
         const ids = (params[1] as string[]).filter((id) => PARK_CLOSED.has(id));
         return {
@@ -111,6 +119,7 @@ beforeEach(() => {
   KEEPS = { 't-thermal5': false, 't-tolb': false, 't-mut': true, 't-ava': true };
   SLOTS = { 't-mut': NOV(24, 30), 't-ava': NOV(24, 30) };
   PARK_CLOSED = new Set(['t-tolb']);
+  MUSEUM_ROWS = [];
   forecastAt.length = 0;
 });
 
@@ -135,6 +144,7 @@ describe('PDF владельца 24.11–04.12 (23.11)', () => {
       if (origin === 'local') expect(tourIds(rec)).toContain('t-ava');
       // Пустого дня с летним туром нет, и старого заголовка тоже.
       expect(rec.days.map((d) => d.title)).not.toContain('Подходящего тура на эти даты нет');
+      expect(rec.days.every((d) => !d.title.startsWith('Подходящего тура'))).toBe(true);
       expect(rec.days.filter((d) => d.title === NO_TOUR_DAY_TITLE).length).toBeLessThanOrEqual(1);
     });
   }
@@ -152,8 +162,52 @@ describe('PDF владельца 24.11–04.12 (23.11)', () => {
     expect(day!.weatherPoint).toEqual([55.818, 160.39]);
   });
 
+  it('пустой день ноября занимает место каталога со slug, а не выдуманную прогулку', async () => {
+    TOURS = {};
+    MUSEUM_ROWS = [{ id: '1', slug: 'kraevedchesky-muzey', ark_id: null, name: 'Краеведческий музей', location_type: 'museum', lat: '53.02', lng: '158.65' }];
+    const rec = await recommendTrip({ ...CASE, interests: ['helicopter'], tripOrigin: 'local' }, { itinerary: 'plain' });
+    const self = rec.days.filter((d) => d.title.startsWith('Самостоятельно:'));
+    expect(self.length).toBeGreaterThan(0);
+    expect(self.every((d) => d.placeHref === '/places/kraevedchesky-muzey')).toBe(true);
+    expect(rec.days.every((d) => !d.title.startsWith('Подходящего тура'))).toBe(true);
+    expect(JSON.stringify(rec.days)).not.toContain('98d0607d');
+  });
+
   it('день без тура — нормальный заголовок', () => {
     expect(NO_TOUR_DAY_TITLE).toBe('День на своё усмотрение');
+  });
+
+  it('место подписано авачинским, а точка — Толбачик: зона и погода по координате', async () => {
+    PARK_CLOSED = new Set();
+    TOURS['avachinsky:helicopter'] = [{
+      ...TOLBACHIK,
+      place: { name: 'Вулкан Толбачик', zone: 'avachinsky', lat: 55.818, lng: 160.39 },
+    }];
+    const rec = await recommendTrip({ ...CASE, tripOrigin: 'local' }, { itinerary: 'plain' });
+    const day = rec.days.find((d) => d.realTour?.tourId === 't-tolb');
+    expect(day, 'Толбачик не встал').toBeDefined();
+    expect(day!.zoneShown).toBe('northern');
+    expect(day!.weatherPoint).toEqual([55.818, 160.39]);
+  });
+
+  it('окно места закрыто на ноябрь — тур без календаря не встаёт', async () => {
+    PARK_CLOSED = new Set();
+    TOURS['avachinsky:helicopter'] = [{
+      ...TOLBACHIK,
+      place: { name: 'Вулкан Толбачик', zone: 'northern', lat: 55.818, lng: 160.39, openFrom: `${Y}-06-01`, openTo: `${Y}-09-30` },
+    }];
+    const rec = await recommendTrip({ ...CASE, tripOrigin: 'visitor' }, { itinerary: 'plain' });
+    expect(tourIds(rec)).not.toContain('t-tolb');
+    expect(text(rec)).toMatch(/Не ставили: «Вулкан Толбачик \(вертолёт\)» — дата вне окна, когда место открыто по карточке места/);
+  });
+
+  it('в тексте тура «от 12 лет», в группе ребёнок 5 лет — тур не встаёт', async () => {
+    PARK_CLOSED = new Set();
+    TOURS['avachinsky:helicopter'] = [{ ...TOLBACHIK, shortDescription: 'Облёт вулкана, программа от 12 лет' }];
+    const rec = await recommendTrip({ ...CASE, tripOrigin: 'visitor' }, { itinerary: 'plain' });
+    expect(tourIds(rec)).not.toContain('t-tolb');
+    expect(text(rec)).toMatch(/ребёнок 5 лет/);
+    expect(text(rec)).toMatch(/от 12 лет/);
   });
 });
 
@@ -170,9 +224,20 @@ describe('PDF: безопасность, допущение о доме, ссы�
     expect(same[0].severity).toBe('critical');
   });
 
+  it('точка и хвост в конце строки не делают вторую запись', () => {
+    const base = 'Закрытие парка по сводке от 12.11: маршруты природного парка закрыты на зимний сезон';
+    const items = safetyBlock(
+      [{ day: 8, type: 'activity', title: 'Толбачик', dayWarnings: [`${base}.`] }],
+      [{ type: 'safety', severity: 'important', message: `${base} Перед выходом уточните у дирекции.` }],
+    );
+    expect(items.filter((it) => it.text.includes('маршруты природного парка'))).toHaveLength(1);
+  });
+
   it('«ночуете дома» называет выбор и путь к «Прилетаю»', () => {
     expect(HOME_NIGHTS_ASSUMPTION).toMatch(/Вы выбрали «Живу на Камчатке»/);
     expect(HOME_NIGHTS_ASSUMPTION).toMatch(/выберите «Прилетаю»/);
+    expect(HOME_NIGHTS_ASSUMPTION).toMatch(/его цена войдёт в сумму/);
+    expect(HOME_NIGHTS_ASSUMPTION).not.toMatch(/в сумму они не входят/);
     expect(HOME_NIGHTS_ASSUMPTION).not.toMatch(/ночуете у себя/);
   });
 

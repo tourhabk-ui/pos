@@ -69,7 +69,7 @@ import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { EMPTY_SELECTION, resolveChoices, toggleLodging, type ChoiceSelection } from '@/lib/planner/plan-choices';
 import { buildPlanPrintHtml } from '@/lib/planner/print-html';
 import { loadPrintPhotos } from '@/lib/planner/print-photos';
-import { tourPath } from '@/lib/tours/tour-url';
+import { resolvingTourPath } from '@/lib/tours/tour-url';
 import type {
   TransportType, DayType, FitnessLevel, BudgetTier,
   SelectItem, DayPlan, TripWarning, Recommendation,
@@ -697,9 +697,10 @@ function DayCard({
             оператора: id тура в руках, а «план, который бронирует» — наше
             отличие от 84 планировщиков TAAFT, которые только планируют
             (разведка 08.08). Оператор виден на самой карточке. */}
-        {topTour && day.type === 'activity' && (
-          <DayTourChip chip={topTour} href={planDayTourHref(topTour, requestArrival ?? '', day.day - 1, requestGuests ?? 0)} />
-        )}
+        {topTour && day.type === 'activity' && (() => {
+          const href = planDayTourHref(topTour, requestArrival ?? '', day.day - 1, requestGuests ?? 0);
+          return href ? <DayTourChip chip={topTour} href={href} /> : null;
+        })()}
         {/* Свободные места — спросить у оператора (29.09): расписание в базе
             ведут не все, а оператор отвечает одним нажатием в мессенджере. */}
         {topTour && day.type === 'activity' && onAskSeats && (
@@ -2271,7 +2272,12 @@ export function PlannerClient({ initialUserId }: { initialUserId?: string | null
         dayType: d.type,
         tourId: d.type === 'activity' ? d.realTour?.tourId ?? null : null,
         tourTitle: d.type === 'activity' && d.realTour ? d.title : null,
-        tourHref: d.type === 'activity' && d.realTour ? `${origin}${tourPath({ id: d.realTour.tourId })}` : null,
+        tourHref: d.type === 'activity' && d.realTour
+          ? (() => {
+            const path = resolvingTourPath({ id: d.realTour.tourId, slug: d.realTour.slug });
+            return path ? `${origin}${path}` : null;
+          })()
+          : null,
       })),
       estimate: estimate ?? null,
       warnings: recommendation?.warnings ?? [],

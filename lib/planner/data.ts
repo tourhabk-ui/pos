@@ -79,13 +79,25 @@ export interface RealTour {
   coordsKnown?: boolean;
   zone: string;
   activityType: string;
+  /** Адрес карточки (`operator_tours.slug`). Нет — ссылка по числу, если id число; UUID без адреса не публикуется. */
+  slug?: string | null;
   /**
    * Главное место тура (`operator_tours.main_place_id` → `places`), как
    * записано: имя, зона и точка места (PDF владельца 23.11: вертолёт на
    * Толбачик без маршрута считался «городским» и показывался Авачинской
    * зоной с авачинской погодой). Нет поля или `null` — место не записано.
+   * `openFrom` / `openTo` — окно карточки места (`location_safety_profile`),
+   * живое, без кэша. Окна нет — место этим полем не закрыто.
    */
-  place?: { name: string; zone: string | null; lat: number | null; lng: number | null } | null;
+  place?: {
+    name: string;
+    zone: string | null;
+    lat: number | null;
+    lng: number | null;
+    slug?: string | null;
+    openFrom?: string | null;
+    openTo?: string | null;
+  } | null;
 }
 
 export interface SlotInfo {
@@ -204,6 +216,10 @@ export async function fetchRealToursForZone(
         place_zone: string | null;
         place_lat: number | string | null;
         place_lng: number | string | null;
+        tour_slug: string | null;
+        place_slug: string | null;
+        place_open_from: string | null;
+        place_open_to: string | null;
       }>(
         `SELECT
           ot.id AS tour_id, ot.title, ot.short_description,
@@ -215,6 +231,7 @@ export async function fetchRealToursForZone(
           ot.latitude AS lat, ot.longitude AS lng,
           ot.activity_type,
           ot.included,
+          ot.slug AS tour_slug,
           ark.zone,
           ot.rating AS tour_rating,
           COALESCE(ot.review_count, 0) AS tour_review_count,
@@ -223,12 +240,21 @@ export async function fetchRealToursForZone(
           COALESCE(p.review_count, 0) AS operator_review_count,
           COALESCE(p.is_verified, false) AS operator_verified,
           mp.name AS place_name, mp.zone AS place_zone, mp.lat AS place_lat, mp.lng AS place_lng,
+          mp.slug AS place_slug,
+          sp.place_open_from, sp.place_open_to,
           ${inWindow ? nearestFreeDateInWindowSql('ot', '$3', '$4') : nearestFreeDateSql('ot')} AS nearest_free_date,
           ${anyDayOpenSql('ot')} AS any_day_open
         FROM operator_tours ot
         JOIN partners p ON p.id = ot.operator_id
         LEFT JOIN agent_route_knowledge ark ON ark.id = ot.agent_route_id
         LEFT JOIN places mp ON mp.id = ot.main_place_id AND mp.is_visible = TRUE AND mp.merged_into_id IS NULL
+        LEFT JOIN LATERAL (
+          SELECT open_from_date::text AS place_open_from, open_to_date::text AS place_open_to
+            FROM location_safety_profile
+           WHERE agent_route_id = mp.ark_id
+           ORDER BY open_to_date DESC NULLS LAST
+           LIMIT 1
+        ) sp ON TRUE
         WHERE ${zoneMatchSql('ark', '$1')}
           AND ot.activity_type = ANY($2)
           AND ${publicTourSql('ot')}
@@ -267,11 +293,15 @@ export async function fetchRealToursForZone(
           && parseFloat(String(r.lat)) !== 0 && parseFloat(String(r.lng)) !== 0,
         zone: r.zone ?? zone,
         activityType: r.activity_type ?? activityType,
+        slug: r.tour_slug ?? null,
         place: r.place_name ? {
           name: r.place_name,
           zone: r.place_zone ?? null,
           lat: Number.isFinite(parseFloat(String(r.place_lat))) ? parseFloat(String(r.place_lat)) : null,
           lng: Number.isFinite(parseFloat(String(r.place_lng))) ? parseFloat(String(r.place_lng)) : null,
+          slug: r.place_slug ?? null,
+          openFrom: r.place_open_from ?? null,
+          openTo: r.place_open_to ?? null,
         } : null,
       }));
     } catch (err) {

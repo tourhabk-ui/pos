@@ -109,7 +109,8 @@ describe('производители канонических ссылок ст�
   for (const f of PRODUCERS) {
     it(f, () => {
       const src = read(f);
-      expect(src).toMatch(/tourPath\(/);
+      // Планер не публикует UUID: адрес строит resolvingTourPath, а тот — tourPath.
+      expect(src).toMatch(f === 'lib/planner/day-tour-link.ts' ? /resolvingTourPath\(/ : /tourPath\(/);
       // Число допустимо только внутри tourPath и как запас IndexNow.
       const bare = [...src.matchAll(/\/catalog\/tours\/\$\{([^}]+)\}/g)].map((m) => m[1]);
       expect(bare.filter((b) => f !== 'lib/seo/indexnow.ts' || b !== 'tourId')).toEqual([]);

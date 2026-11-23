@@ -13,7 +13,6 @@ import { pool } from '@/lib/db-pool';
 import {
   type ZoneId, type TransportType, type FitnessLevel, type ActivityConstraints, type BudgetTier, type DayType,
   ZONE_NAMES, ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES, nightZoneOf, activityDayNotes, alertZonesOf,
-  SOUTHERN_ZONE_MAX_LAT,
 } from '@/lib/planner/constants';
 import { ZONE_GRAPH, type ZoneEdge } from '@/lib/planner/zone-graph';
 import { weatherKitLine } from '@/lib/planner/weather-kit';
@@ -78,7 +77,10 @@ import { applyPlanParkStatus, loadPlanParkAlerts, parkNoteForDay, type PlanParkA
 import { applyPlanOfficialAlerts, officialAlertsPlanWarning, OFFICIAL_ALERTS_UNREAD_NOTE, planSafetyScope } from '@/lib/planner/official-alerts';
 import { KRONOKI_ESCORT } from '@/lib/seo/query-landings';
 import type { TourCalendar } from '@/lib/planner/item-status';
-import { replaceIdeaDays, NO_TOUR_DAY_TITLE } from '@/lib/planner/honest-days';
+import { replaceIdeaDays, NO_SELF_ROUTE_DAY_TITLE, NO_TOUR_DAY_TITLE } from '@/lib/planner/honest-days';
+import { placePoint } from '@/lib/planner/place-point';
+import { assignCatalogFreeDays, fetchSelfFillPlaces } from '@/lib/planner/self-fill';
+import { tourGate, type TourGate } from '@/lib/planner/tour-gates';
 import {
   appendOfferingFlags, appendUnreadSafety, MCHS_UNREAD_NOTE, mchsBeforeTripNote, notesForPlanDay,
   splitWarningsForTrip, warningDigest, warningsForPlanZones, type ActiveWarning,
@@ -225,6 +227,8 @@ export interface DayPlan {
      * Ночь такого дня не оплачивается отдельно (см. calculatePriceBreakdown).
      */
     lodgingIncluded: boolean | null;
+    /** Адрес карточки. Нет — ссылка по числовому id, UUID без адреса не публикуется. */
+    slug?: string | null;
   };
   /**
    * Цена тура за единицу (`realTour.priceUnit`) — по правилу брони для этой
@@ -1180,6 +1184,8 @@ interface DayPlanResult {
   offDays: Array<{ title: string; dates: string[]; interest?: string; zone?: ZoneId }>;
   /** Туры без календаря вне сезонного ориентира: в план не ставились (23.11). */
   offSeasonSkipped?: string[];
+  /** Закрытие парка, окно места, возраст — почему тур не встал (PDF 23.11). */
+  gateNotes?: Array<{ type: 'children' | 'season'; message: string }>;
   /** Туры с выездами в календаре, не вставшие в план: ими заполняются пустые дни. */
   fillPool?: Array<{ tourId: string; title: string; dates: string[]; interest: string; zone: ZoneId }>;
   /**
@@ -1440,33 +1446,66 @@ async function generateDayPlans(
   const today = kamchatkaToday();
   const planDateOf = (n: number): string | null => (profile.arrivalDate ? dateOfTripDay(profile.arrivalDate, n) : null);
   /**
-   * Тур без календаря в месяц, который по нашему сезонному ориентиру не
-   * сезон его занятия (кейс владельца 23.11: вертолёт на Толбачик 1 декабря
-   * с летней программой при закрытом на зиму парке). Подтверждённого выезда
-   * у такого тура нет — в план он не ставится; встаёт только тур с выездом
-   * в календаре на эту дату (и о «не сезон» сказано честно).
+   * Тур без календаря не ставится, когда на дату есть чем закрыть выезд
+   * (кейс владельца 23.11: вертолёт на Толбачик 1 декабря, летняя программа,
+   * парк «Ключевской» закрыт, в группе ребёнок 5 лет):
+   *   - закрытие парка по сводке и месяц вне ориентира занятия — прежняя
+   *     строка;
+   *   - закрытие парка и в сезон занятия — тоже не ставится, выезда нет;
+   *   - дата вне окна открытия места по карточке места;
+   *   - ребёнок младше минимума занятия или фразы «от N лет» в тексте тура
+   *     (и у тура с календарём тоже).
+   * Сезон `season_start/end` режет `tourFitsDate`. Правило 08.10 остаётся:
+   * нет календаря, нет окна места и нет закрытия — месяц открыт.
+   * Сводку не прочитали — тур ставится, как раньше, а статус парков на днях
+   * плана скажет «проверить не удалось».
    */
   const offSeasonRequest = new Map<string, string>();
-  // Закрытия парков у мест туров без календаря (тем же запросом, что статус
-  // парков на днях плана). Правило 08.10 «месяц открывает тур без календаря»
-  // остаётся: не ставится только тур, у места которого на эту дату записано
-  // закрытие парка. Не прочитали — тур ставится, как раньше, а статус парков
-  // на днях плана скажет «проверить не удалось».
+  const gated = new Map<string, { reason: TourGate['reason']; clause: string; line: string; type: 'children' | 'season' }>();
   const parkAlertsOfTour = new Map<string, PlanParkAlert[]>();
   const parkClosedOn = (tourId: string, date: string): boolean =>
     (parkAlertsOfTour.get(tourId) ?? []).some((a) => a.alert_type === 'park_closure' && parkNoteForDay(a, date, today) !== null);
-  const requestOutOfOrientation = (t: RealTour, date: string): boolean => {
-    if (tourDates.get(t.tourId)?.kind !== 'request') return false;
+  const gateOf = (t: RealTour, date: string | null): TourGate | null => {
     const act = interestOfTour.get(t.tourId) ?? t.activityType;
     const months = ACTIVITY_CONSTRAINTS[act]?.months;
     const m = monthOfIsoDate(date);
-    if (!months || m === null || months.includes(m)) return false;
-    if (!parkClosedOn(t.tourId, date)) return false;
-    offSeasonRequest.set(t.tourId, t.title);
-    return true;
+    const kind = tourDates.get(t.tourId)?.kind;
+    return tourGate({
+      kind: kind === 'dated' || kind === 'request' || kind === 'unread' ? kind : undefined,
+      youngest,
+      activityMinAge: ACTIVITY_CONSTRAINTS[act]?.minChildAge ?? 0,
+      activityName: ACTIVITY_NAMES[act] ?? act,
+      placeOpenFrom: t.place?.openFrom ?? null,
+      placeOpenTo: t.place?.openTo ?? null,
+      offOrientation: Boolean(date && months && m !== null && !months.includes(m)),
+      parkClosed: date !== null && parkClosedOn(t.tourId, date),
+      ageText: [t.shortDescription, ...(t.included ?? [])].filter((x): x is string => typeof x === 'string').join('\n'),
+      date,
+    });
   };
-  const fitsOn = (t: RealTour, date: string | null): boolean => date === null
-    || (tourFitsDate(tourDates.get(t.tourId), date, today) && !requestOutOfOrientation(t, date));
+  const rememberGate = (t: RealTour, decision: TourGate): void => {
+    if (decision.reason === 'park_and_off_season') {
+      offSeasonRequest.set(t.tourId, t.title);
+      return;
+    }
+    if (!gated.has(t.tourId)) {
+      gated.set(t.tourId, {
+        reason: decision.reason,
+        clause: decision.clause,
+        line: `Не ставили: «${t.title}» — ${decision.clause}.`,
+        type: decision.reason === 'age' ? 'children' : 'season',
+      });
+    }
+  };
+  const fitsOn = (t: RealTour, date: string | null): boolean => {
+    const decision = gateOf(t, date);
+    if (decision) {
+      rememberGate(t, decision);
+      return false;
+    }
+    if (date === null) return true;
+    return tourFitsDate(tourDates.get(t.tourId), date, today);
+  };
 
   // Insert travel days between different zones
   let prevZone: ZoneId = 'avachinsky';
@@ -2094,9 +2133,13 @@ async function generateDayPlans(
       }
 
       const atPlace = realTour ? placeZoneOfTour(realTour) : null;
-      const placeView = atPlace && atPlace.zone !== block.zone
-        ? { zoneShown: atPlace.zone, weatherPoint: atPlace.point }
-        : {};
+      const placeView: { zoneShown?: ZoneId; weatherPoint?: [number, number] } = {};
+      if (atPlace?.zone && atPlace.zone !== block.zone) {
+        placeView.zoneShown = atPlace.zone;
+        placeView.weatherPoint = atPlace.point;
+      } else if (atPlace?.fromCoords) {
+        placeView.weatherPoint = atPlace.point;
+      }
       const coords: [number, number] = realTour
         ? [realTour.lat, realTour.lng]
         : route ? [route.lat, route.lng] : ZONE_COORDS[block.zone];
@@ -2200,6 +2243,7 @@ async function generateDayPlans(
             duration_hours: realTour.durationHours === null ? null : Number(realTour.durationHours),
           }),
           lodgingIncluded: lodgingIncluded(realTour.included),
+          ...(realTour.slug ? { slug: realTour.slug } : {}),
         };
 
         // Check availability for this tour — на дату именно этого дня, а не
@@ -2553,15 +2597,23 @@ async function generateDayPlans(
       missFor(interestOfTour.get(w.tour.tourId), `у «${w.tour.title}» нет подтверждённого выезда, по нашему ориентиру не сезон, а парк у места тура закрыт по сводке`);
       continue;
     }
+    const gate = gated.get(w.tour.tourId);
+    if (gate) {
+      missFor(interestOfTour.get(w.tour.tourId), `у «${w.tour.title}» ${gate.clause}`);
+      continue;
+    }
     const info = tourDates.get(w.tour.tourId);
     offDays.push({ title: w.tour.title, dates: info?.kind === 'dated' ? [...info.dates] : [], interest: interestOfTour.get(w.tour.tourId) ?? w.interest, zone: w.zone });
     missFor(interestOfTour.get(w.tour.tourId), `у «${w.tour.title}» нет выезда в дни поездки`);
   }
   const offSeasonSkipped = [...offSeasonRequest.entries()].filter(([id]) => !placedTours.has(id)).map(([, title]) => title);
+  const gateNotes = [...gated.entries()]
+    .filter(([id]) => !placedTours.has(id))
+    .map(([, g]) => ({ type: g.type, message: g.line }));
 
   return {
     days, unchecked: [...unchecked], spanUnknown: [...spanUnknown], tooLong: [...tooLong], extendedForTour, overLimit: [...overLimit], preferenceNotes,
-    selfSkipped: [...selfSkipped], selfSafetyUnchecked, skippedLegs, returnLegMissing, offDays, offSeasonSkipped,
+    selfSkipped: [...selfSkipped], selfSafetyUnchecked, skippedLegs, returnLegMissing, offDays, offSeasonSkipped, gateNotes,
     fillPool: fillPool.filter((c) => !placedTours.has(c.tourId)),
     missReasons: Object.fromEntries([...missReasons].map(([k, v]) => [k, [...v]])),
     skippedNoTour,
@@ -2887,18 +2939,38 @@ async function markFarAdjacentTours(days: DayPlan[]): Promise<void> {
   }
 }
 
+/** Дни «на своё усмотрение» в Авачинской зоне — местом из каталога, если база ответила. */
+async function withCatalogFreeDays(days: DayPlan[], profile: TripProfile): Promise<DayPlan[]> {
+  const need = days.some((d) => d.title === NO_TOUR_DAY_TITLE || d.title === NO_SELF_ROUTE_DAY_TITLE);
+  if (!need) return days;
+  const month = monthOfIsoDate(profile.arrivalDate) ?? monthOfIsoDate(kamchatkaToday()) ?? 1;
+  const places = await fetchSelfFillPlaces(month);
+  return assignCatalogFreeDays(days, places, '');
+}
+
 /**
- * Зона и точка главного места тура, как записаны в `places` (23.11). Южнее
- * `SOUTHERN_ZONE_MAX_LAT` — южная, как в `plannerZoneSql`. Зона не из списка
- * зон планера или место не записано — `null`: не угадываем.
+ * Зона и точка главного места тура (23.11). Записанная зона места, широта
+ * южнее порога — южная. Точка далеко от Авачи при подписи «avachinsky» или
+ * без зоны — север/восток по `placePoint` (Толбачик). Координат нет — не
+ * угадываем. `fromCoords` — точка настоящая, по ней и прогноз, а не центр зоны.
  */
-export function placeZoneOfTour(t: Pick<RealTour, 'place'>): { zone: ZoneId; point: [number, number] } | null {
+export function placeZoneOfTour(t: Pick<RealTour, 'place' | 'lat' | 'lng' | 'coordsKnown'>): { zone: ZoneId | null; point: [number, number]; fromCoords: boolean } | null {
   const p = t.place;
-  if (!p || !p.zone) return null;
-  const zone = (p.lat !== null && p.lat < SOUTHERN_ZONE_MAX_LAT ? 'southern' : p.zone) as ZoneId;
+  const placeLat = p && typeof p.lat === 'number' && Number.isFinite(p.lat) ? p.lat : null;
+  const placeLng = p && typeof p.lng === 'number' && Number.isFinite(p.lng) ? p.lng : null;
+  const tourKnown = t.coordsKnown !== false && typeof t.lat === 'number' && typeof t.lng === 'number'
+    && Number.isFinite(t.lat) && Number.isFinite(t.lng) && t.lat !== 0 && t.lng !== 0;
+  const lat = placeLat ?? (tourKnown ? t.lat : null);
+  const lng = placeLng ?? (tourKnown ? t.lng : null);
+  const view = placePoint({ recordedZone: p?.zone ?? null, lat, lng });
+  if (!view) return null;
+  const zone = view.zone;
+  if (!zone) {
+    if (!view.point) return null;
+    return { zone: null, point: view.point, fromCoords: true };
+  }
   if (!(zone in ZONE_COORDS)) return null;
-  const point: [number, number] = p.lat !== null && p.lng !== null ? [p.lat, p.lng] : ZONE_COORDS[zone];
-  return { zone, point };
+  return { zone, point: view.point ?? ZONE_COORDS[zone], fromCoords: view.fromCoords && view.point !== null };
 }
 
 /** Дата ± n дней (YYYY-MM-DD, UTC-полночь). */
@@ -3049,7 +3121,10 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
   // стояли в «не встали», а дни 7 и 10 были пустыми).
   const filled = opts.fillFor ? { days: honest.days, titles: [] as string[] }
     : await fillEmptyDays(honest.days, [...generated.offDays, ...(generated.fillPool ?? [])], profile);
-  const days = filled.days;
+  // Оставшиеся дни «на своё усмотрение» — местами из каталога рядом с городом
+  // (музей, смотровая, источник). Живой запрос, без кэша. База не ответила
+  // или мест нет — день остаётся свободным, выдуманной прогулки нет.
+  const days = opts.fillFor ? filled.days : await withCatalogFreeDays(filled.days, profile);
   if (filled.titles.length > 0) {
     const placed = new Set(filled.titles);
     generated.offDays.splice(0, generated.offDays.length, ...generated.offDays.filter((o) => !placed.has(o.title)));
@@ -3338,6 +3413,9 @@ export async function recommendTrip(profile: TripProfile, opts: RecommendTripOpt
     departure: profile.departureDate && edgeFraming.departure > 0 ? profile.departureDate : null,
   });
   if (offDaysLine) warnings.push({ type: 'tour_dates', severity: 'important', message: offDaysLine });
+  for (const note of generated.gateNotes ?? []) {
+    warnings.push({ type: note.type, severity: 'important', message: note.message });
+  }
   if (generated.offSeasonSkipped && generated.offSeasonSkipped.length > 0) {
     const t = generated.offSeasonSkipped;
     warnings.push({

@@ -74,6 +74,8 @@ export interface DayPlan {
     calendar?: TourCalendar;
     /** Адрес оператора, нижняя граница группы, зависит ли тур от погоды — от движка. */
     operatorSlug?: string;
+    /** Адрес карточки тура. Нет — ссылка по числовому id; UUID без адреса не публикуется. */
+    slug?: string | null;
     minParticipants?: number;
     weatherDependent?: boolean;
   };
