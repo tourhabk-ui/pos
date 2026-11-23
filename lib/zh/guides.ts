@@ -222,7 +222,7 @@ export const ZH_WINTER_GUIDE: ZhGuide = {
     { href: 'https://vedarai.ru/gornolyzhnye-bazy-kamchatki', label: 'Ведар，滑雪场' },
     { href: 'https://vedarai.ru/zh/harbin', label: 'Vedar，从哈尔滨飞往堪察加' },
   ],
-  ruPath: null,
+  ruPath: null, // /articles/zima — не пара: там цены каталога, здесь гид без цен
 };
 
 export const ZH_SAFETY_GUIDE: ZhGuide = {

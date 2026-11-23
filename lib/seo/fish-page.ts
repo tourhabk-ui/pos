@@ -13,7 +13,7 @@ import { recordDateIso } from '@/lib/seo/record-modified';
 import { FISH_TEXT_REVISION } from '@/lib/fish/fish-sources';
 import { FISH_SALMON_RUN_WINDOW, FISH_SEASONS } from '@/lib/facts/kamchatka';
 
-export const FISH_PAGE_DATE = '2026-11-22';
+export const FISH_PAGE_DATE = '2026-11-23';
 
 export const FISH_PAGE_TITLE = 'Рыбалка на Камчатке: виды, сезон и правила';
 
@@ -23,7 +23,7 @@ export const FISH_PAGE_DESCRIPTION =
 export const FISH_PAGE_H1 = 'Рыбалка на Камчатке';
 
 export const FISH_LEAD =
-  'Рыбалка на Камчатке возможна почти весь год: лососей ловят летом и осенью по путёвке, в море — палтуса и треску, зимой — навагу из-подо льда. Виды, сезоны, правила и снасти — ниже.';
+  'Рыбалка на Камчатке возможна почти весь год: лососей ловят летом и осенью по путёвке на реках Быстрой, Жупановой и Опале, в Авачинском заливе — палтуса и треску, зимой — навагу из-подо льда. Виды, сроки и правила — ниже.';
 
 export const FISH_AUTHOR = 'Редакция Vedar';
 
