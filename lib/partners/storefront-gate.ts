@@ -1,0 +1,61 @@
+/**
+ * Канал уведомлений до витрины (план готовности 23.11, этап 3b).
+ *
+ * Заявка туриста уходит партнёру в MAX или Telegram
+ * (lib/notifications/partner-request-notify, lib/partners/reach). Партнёр на
+ * витрине без привязанного чата заявку не получит: она останется у менеджера,
+ * а турист будет ждать ответа от того, кто о заявке не знает. До этого дня
+ * дверь одобрения и дверь «поставить на витрину» канал не спрашивали вовсе.
+ *
+ * Правило: карточку, которой приходят заявки, НЕЛЬЗЯ впервые поставить на
+ * витрину, пока у неё нет ни MAX, ни Telegram. Уже стоящих на витрине правило
+ * не снимает и не запирает: пилотам без привязки администратор видит «нет
+ * канала» в карточке («Мессенджеры для заявок») и выдаёт ссылку.
+ *
+ * Три исхода, не два (§4.0): «канал есть», «канала нет» и «не смог проверить».
+ * Третий не равен первому — карточка не меняется, дверь отвечает 503.
+ */
+import { reachForPartner } from '@/lib/partners/reach';
+
+/** Категории, которым приходят заявки туристов: им канал обязателен. */
+export const REQUEST_RECEIVING_CATEGORIES = ['operator', 'guide', 'transfer', 'stay', 'gear', 'cars'] as const;
+
+export function receivesRequests(category: string | null | undefined): boolean {
+  return typeof category === 'string' && (REQUEST_RECEIVING_CATEGORIES as readonly string[]).includes(category);
+}
+
+/** Отказ двери: канала нет. Называет, что делать администратору. */
+export const NO_CHANNEL_TEXT =
+  'У партнёра не подключён ни MAX, ни Telegram — заявки до него не дойдут. '
+  + 'Выдайте ссылку привязки в блоке «Мессенджеры для заявок» и поставьте карточку на витрину после подключения.';
+
+/** Отказ двери: проверить не удалось. Карточка не изменена. */
+export const CHANNEL_UNKNOWN_TEXT =
+  'Не удалось проверить, подключён ли у партнёра MAX или Telegram. Карточка не изменена — повторите позже.';
+
+/** Отказ двери создания: у новой карточки канала быть не может. */
+export const NEW_CARD_NOT_PUBLIC_TEXT =
+  'Новую карточку нельзя сразу поставить на витрину: у неё ещё нет ни MAX, ни Telegram, и заявки до партнёра не дойдут. '
+  + 'Заведите карточку, выдайте ссылку привязки и поставьте на витрину после подключения.';
+
+export type ChannelGate =
+  /** Канал есть — на витрину можно. */
+  | { outcome: 'ok' }
+  /** Категория заявок не получает (ресторан, агент) — канал не нужен. */
+  | { outcome: 'exempt' }
+  /** Ни MAX, ни Telegram. */
+  | { outcome: 'no_channel' }
+  /** Не смог проверить: карточки нет или база не ответила. */
+  | { outcome: 'unknown' };
+
+/**
+ * Можно ли карточку впервые поставить на витрину. Зовут двери администратора
+ * ПЕРЕД записью `is_public = TRUE`, и только когда карточка сейчас не на
+ * витрине: уже стоящих правило не трогает.
+ */
+export async function storefrontChannelGate(partnerId: string, category: string | null | undefined): Promise<ChannelGate> {
+  if (!receivesRequests(category)) return { outcome: 'exempt' };
+  const reach = await reachForPartner(partnerId);
+  if (!reach) return { outcome: 'unknown' };
+  return reach.reachable ? { outcome: 'ok' } : { outcome: 'no_channel' };
+}

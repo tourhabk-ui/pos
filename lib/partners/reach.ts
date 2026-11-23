@@ -125,6 +125,17 @@ export function reachFrom(row: PartnerReachRow): PartnerReach {
  * пишется в лог с SQLSTATE, а вызывающий обязан считать `null` за «не знаю»,
  * а не за «адреса нет» (§4.0).
  */
+/**
+ * Статус блока «Заявки в Telegram и MAX» в кабинете: «подключены» — когда
+ * заявка дойдёт, то есть привязан MAX ИЛИ Telegram. До 23.11 профиль оператора
+ * считал статус по одному Telegram, и оператор с одним MAX видел «Не
+ * подключены». `null` — прочитать не удалось: «не знаю», а не «не подключены».
+ */
+export function requestsChannelStatus(reach: PartnerReach | null): 'connected' | 'not_connected' | 'unknown' {
+  if (!reach) return 'unknown';
+  return reach.reachable ? 'connected' : 'not_connected';
+}
+
 export async function reachForPartner(partnerId: string): Promise<PartnerReach | null> {
   try {
     const { rows } = await pool.query<PartnerReachRow & { category: string | null; sells_tours: boolean | null }>(

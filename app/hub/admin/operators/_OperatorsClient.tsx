@@ -354,12 +354,15 @@ export function OperatorCard({
   onReject,
   onAccountCreated,
   acting,
+  actionError = null,
 }: {
   op: OperatorRow;
   onApprove: (id: string) => void;
   onReject: (id: string, name: string) => void;
   onAccountCreated: (id: string, email: string) => void;
   acting: string | null;
+  /** Почему одобрение не прошло — словами двери (например, не подключён канал уведомлений). */
+  actionError?: string | null;
 }) {
   const [expanded, setExpanded] = useState(op.profile_status === 'pending');
   const [isTest, setIsTest] = useState(op.is_test === true);
@@ -603,6 +606,11 @@ export function OperatorCard({
                 Отклонить
               </button>
             </div>
+          )}
+          {/* Отказ двери одобрения — словами. До 23.11 неудача была немой:
+              кнопка отпускалась, карточка оставалась в очереди без объяснения. */}
+          {actionError && (
+            <p role="alert" className="mt-3 text-sm text-[var(--danger)]">{actionError}</p>
           )}
         </div>
       )}
@@ -1459,6 +1467,7 @@ export default function OperatorsClient() {
   const [search, setSearch]       = useState('');
   const [acting, setActing]       = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<{ id: string; name: string } | null>(null);
+  const [approveError, setApproveError] = useState<{ id: string; text: string } | null>(null);
   const [counts, setCounts]       = useState<Record<string, number>>({});
   /** Сколько партнёров подходит под группу, вкладку и поиск — по ответу сервера; null — не знаем. */
   const [total, setTotal]         = useState<number | null>(null);
@@ -1541,6 +1550,7 @@ export default function OperatorsClient() {
 
   async function approve(id: string) {
     setActing(id);
+    setApproveError(null);
     try {
       const res = await fetch(`/api/admin/operators/${id}`, {
         method: 'PATCH',
@@ -1552,7 +1562,12 @@ export default function OperatorsClient() {
         setOperators(prev => prev.filter(o => o.id !== id));
         setTotal(prev => (prev === null ? prev : Math.max(0, prev - 1)));
         setCounts(prev => ({ ...prev, pending: (prev.pending ?? 1) - 1, approved: (prev.approved ?? 0) + 1 }));
+      } else {
+        const said = typeof j === 'object' && j !== null && 'error' in j ? (j as { error?: unknown }).error : null;
+        setApproveError({ id, text: typeof said === 'string' && said ? said : 'Одобрить не удалось — карточка не изменена.' });
       }
+    } catch {
+      setApproveError({ id, text: 'Сервер не ответил — карточка не изменена.' });
     } finally {
       setActing(null);
     }
@@ -1713,6 +1728,7 @@ export default function OperatorsClient() {
                 onAccountCreated={(id, email) =>
                   setOperators(prev => prev.map(o => (o.id === id ? { ...o, has_account: true, email } : o)))}
                 acting={acting}
+                actionError={approveError?.id === op.id ? approveError.text : null}
               />
             ))}
             {/* Обрезка названа словами: «вот все» и «вот первые сто» — разные ответы. */}
