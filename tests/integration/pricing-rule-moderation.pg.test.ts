@@ -404,11 +404,45 @@ withPg('правила цены: действует только провере�
       const rejected = await addRule(tour, 0.6, { status: 'rejected' });
       const off = await addRule(tour, 0.7, { status: 'pending', active: false });
       const waiting = await addRule(tour, 0.8, { status: 'pending' });
-      const ids = (await queue()).filter((r) => r.tourId === tour).map((r) => r.id);
-      expect(ids).toEqual([waiting.id]);
+      const cards = (await queue()).filter((r) => r.tourId === tour);
+      expect(cards.map((r) => r.id)).toEqual([waiting.id]);
+      // «Заменит действующее» и цена «сейчас» — по действующему правилу, а не по отклонённому
+      // или выключенному, хотя те записаны позже.
+      expect(cards[0]).toMatchObject({
+        replaces: 'Скидка на последние места: −10%, когда до выезда 7 дн. и меньше', priceNow: 18000, priceAfter: 16000,
+      });
       for (const id of [live.id, rejected.id, off.id]) {
         expect((await decide(id, { action: 'reject', reason: 'Решать нечего.' })).status, id).toBe(409);
       }
+    });
+
+    it('одобрение правила одного рода не выключает действующее правило другого рода', async () => {
+      const tour = await addTour('Очередь: два рода');
+      const lastMinute = await addRule(tour, 0.9, { status: 'approved' });
+      const group = await addRule(tour, 0.95, { status: 'pending' });
+      await pool.query(
+        `UPDATE tour_pricing_rules SET rule_type = 'group_discount', days_before_min = NULL, days_before_max = NULL, guests_min = 4 WHERE id = $1::bigint`,
+        [group.id],
+      );
+      const card = (await queue()).find((r) => r.id === group.id)!;
+      // Правила другого рода оно не заменяет.
+      expect(card.replaces).toBeNull();
+      expect((await decide(group.id, { action: 'approve', seen: card.seen })).status).toBe(200);
+      expect(await ruleRow(lastMinute.id)).toMatchObject({ is_active: true, moderation_status: 'approved' });
+      expect(await ruleRow(group.id)).toMatchObject({ is_active: true, moderation_status: 'approved' });
+      expect(await multipliers(tour)).toEqual([0.9, 0.95]);
+    });
+
+    it('правило удалённого тура в очередь не попадает и не решается', async () => {
+      const tour = await addTour('Очередь: удалённый тур');
+      const waiting = await addRule(tour, 0.8, { status: 'pending' });
+      const card = (await queue()).find((r) => r.id === waiting.id)!;
+      await pool.query(`UPDATE operator_tours SET deleted_at = NOW() WHERE id = $1::bigint`, [tour]);
+      expect((await queue()).some((r) => r.id === waiting.id)).toBe(false);
+      sent.alerts.length = 0;
+      expect((await decide(waiting.id, { action: 'approve', seen: card.seen })).status).toBe(404);
+      expect(await ruleRow(waiting.id)).toMatchObject({ moderation_status: 'pending' });
+      expect(sent.alerts).toHaveLength(0);
     });
   });
 });
