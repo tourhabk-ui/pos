@@ -4,9 +4,9 @@
  *   1) тур без календаря, чей записанный сезон кончился до дат поездки
  *      («Семейный тур выходного дня», сезон до 15.09), в план не встаёт вовсе;
  *      тур вне сезонного ориентира, но с выездом в даты, — встаёт;
- *   6) пятидневный «термальный маршрут» не теряется в 11-дневной поездке,
- *      когда в чужие зоны план не едет (туров там нет): блок растягивается
- *      под тур, и это сказано; «не поместились в срок поездки» — нет;
+ *   6) пятидневный «термальный маршрут» в 11-дневной поездке не режется и
+ *      не теряется: в основу автоплана его не ставят (разбор программ 23.11),
+ *      называют альтернативой; «не поместились в срок поездки» — нет;
  *   5) сводка о вулкане чужой зоны (Ключевской) плану без этой зоны не пишется.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -110,15 +110,16 @@ describe('кейс владельца 24.11–04.12, волна 22.11', () => {
     expect(JSON.stringify(rec.days)).not.toContain('Семейный тур выходного дня');
   });
 
-  it('пятидневный тур встаёт целиком в 11 дней, когда в чужие зоны план не едет; «не поместились» не пишется', async () => {
+  it('пятидневный тур одной темы в 11 дней не становится основой и не режется; «не поместились» не пишется', async () => {
     TOURS = { 'avachinsky:hot_spring': [MALKI, THERMAL5], 'avachinsky:fishing': [FISH], 'avachinsky:snowmobile': [SNOW], 'avachinsky:helicopter': [HELI] };
     const rec = await recommendTrip(OWNER);
-    const thermal = rec.days.filter((d) => d.realTour?.tourId === 't-thermal5').map((d) => d.day);
-    expect(thermal).toHaveLength(5);
-    expect(thermal[4] - thermal[0]).toBe(4);
+    expect(rec.days.some((d) => d.realTour?.tourId === 't-thermal5')).toBe(false);
     const text = rec.warnings.map((w) => w.message).join('\n');
+    expect(text).toMatch(/термальный маршрут/);
+    expect(text).toMatch(/резать его нельзя/);
+    expect(text).toMatch(/основу автоплана/);
     expect(text).not.toMatch(/Не поместились в срок поездки/);
-    // Остальные просьбы тур не вытеснил, резерв под вертолёт на месте.
+    // Остальные просьбы на месте, резерв под вертолёт тоже.
     for (const id of ['t-fish', 't-snow', 't-heli']) expect(rec.days.some((d) => d.realTour?.tourId === id)).toBe(true);
     expect(rec.days.some((d) => d.type === 'buffer')).toBe(true);
   });

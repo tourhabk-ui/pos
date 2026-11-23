@@ -3,7 +3,8 @@
  * `recommendTrip`, путь экрана планера (без 'plain', LLM подменён), моки без ПД:
  *  - в Западной зоне есть только трёхдневный тур, а раскладка дала ей день на
  *    месте: план не едет туда ради пустых дней, тур назван «не поместились»;
- *  - пятидневный термальный тур встаёт блоком «Дни 2–6», пустых дней нет;
+ *  - пятидневный термальный тур в основу не ставится и не режется: он назван
+ *    альтернативой, пустые дни не забиваются им;
  *  - «вертолёт без оператора — не сезон» не пишется, когда вертолёт с
  *    оператором в плане есть;
  *  - заметки о плане — в свёрнутом блоке под днями (SafetyBlock, «О плане»), сверху только
@@ -95,30 +96,27 @@ const FAMILY_PAST: Tour = {
 
 
 
-import { planShapeWarnings, tourRuns } from '@/lib/planner/day-card-view';
-import { NO_TOUR_DAY_TITLE } from '@/lib/planner/honest-days';
+import { planShapeWarnings } from '@/lib/planner/day-card-view';
 import { readFileSync } from 'node:fs';
 
 const WEST: Tour = { tourId: 't-west', title: 'Рыбалка на западе', zone: 'western', activityType: 'fishing', durationHours: 72 };
 
 describe('/planner: кейс владельца 24.11–04.12', () => {
-  it('в чужую зону с невлезающим туром план не едет; термальный 5-дн. — блоком; пустых дней нет', async () => {
+  it('в чужую зону с невлезающим туром план не едет; термальный 5-дн. — альтернатива, не блок', async () => {
     KEEPS = { 't-malki': false, 't-thermal5': false, 't-fish': false, 't-family': false, 't-snow': false, 't-heli': false, 't-west': false };
     ON_REQUEST = new Set(['hot_spring', 'fishing', 'snowmobile', 'helicopter']);
     TOURS = { 'avachinsky:hot_spring': [MALKI, THERMAL5], 'avachinsky:fishing': [FAMILY_PAST, FISH], 'avachinsky:snowmobile': [SNOW],
       'avachinsky:helicopter': [HELI], 'western:fishing': [WEST] };
     const rec = await recommendTrip(OWNER);
-    expect(rec.days).toHaveLength(11);
-    expect(rec.days.some((d) => d.title === NO_TOUR_DAY_TITLE)).toBe(false);
     expect(rec.days.some((d) => d.type === 'travel')).toBe(false);
     expect(rec.days.some((d) => d.zone === 'western')).toBe(false);
-    const runs = [...new Set([...tourRuns(rec.days as never).values()].map((r) => `${r.tourId}:${r.first}-${r.last}`))];
-    expect(runs).toHaveLength(1);
-    expect(runs[0]).toMatch(/^t-thermal5:\d+-\d+$/);
+    expect(rec.days.some((d) => d.realTour?.tourId === 't-thermal5')).toBe(false);
     for (const id of ['t-fish', 't-snow', 't-heli']) expect(rec.days.some((d) => d.realTour?.tourId === id)).toBe(true);
     expect(rec.days.some((d) => d.realTour?.tourId === 't-family')).toBe(false);
     const text = rec.warnings.map((w) => w.message).join('\n');
     expect(text).toMatch(/Не поместились в срок поездки[^\n]*Рыбалка на западе \(3 дн\.\)/);
+    expect(text).toMatch(/термальный маршрут/);
+    expect(text).toMatch(/основу автоплана/);
     expect(text).not.toMatch(/термальный маршрут \(5 дн\.\)/);
     expect(text).not.toMatch(/вертолётные экскурсии без оператора/i);
     expect(planShapeWarnings(rec.warnings).filter((w) => w.severity === 'critical')).toHaveLength(0);

@@ -16,10 +16,19 @@
 import { pool } from '@/lib/db-pool';
 import type { DayPlan } from '@/lib/planner/engine';
 import { NO_SELF_ROUTE_DAY_TITLE, NO_TOUR_DAY_TITLE } from '@/lib/planner/honest-days';
+import {
+  emptyLedger, noteGap, noteVariety, pickVariedPlace, placeVarietyKey, varietyKey,
+  type VarietyLedger,
+} from '@/lib/planner/day-variety';
 
-/** Типы мест для дня без гида: город и окрестности, без восхождений. */
-const SELF_TYPES_ALL_YEAR = ['museum', 'historical', 'ethnic', 'viewpoint', 'hot_spring', 'settlement'];
-const SELF_TYPES_WARM = ['beach', 'bay', 'park', 'waterfall'];
+/**
+ * Типы мест для дня без гида: город и окрестности, без восхождений.
+ * Зимой бухта и мыс — смотреть океан, не купаться: пляж по-прежнему только
+ * в тёплый сезон. Ездовых собак отдельным типом места нет — день про них
+ * появляется, только если такое место или тур уже есть в каталоге.
+ */
+const SELF_TYPES_ALL_YEAR = ['museum', 'historical', 'ethnic', 'viewpoint', 'hot_spring', 'settlement', 'bay', 'cape'];
+const SELF_TYPES_WARM = ['beach', 'park', 'waterfall'];
 /** Не дальше от Петропавловска, км: день без переезда. */
 const SELF_RADIUS_KM = 45;
 const PKC: [number, number] = [53.0452, 158.6483];
@@ -32,7 +41,7 @@ export interface SelfPlace {
   lng: number;
 }
 
-/** Тёплый сезон — май…октябрь: пляж и бухта зимой — не прогулка. */
+/** Тёплый сезон — май…октябрь: пляж зимой не прогулка. Бухта и мыс остаются. */
 export function selfTypesFor(month: number): string[] {
   return month >= 5 && month <= 10 ? [...SELF_TYPES_ALL_YEAR, ...SELF_TYPES_WARM] : SELF_TYPES_ALL_YEAR;
 }
@@ -96,7 +105,21 @@ export function selfPlaceDay(day: number, place: SelfPlace, site: string): DayPl
     minChildAge: 0,
     dayWarnings: [],
     placeHref: `${site}${place.href}`,
+    placeKind: place.type,
   };
+}
+
+/** День с туром или местом каталога учитывается в разнообразии. Остальное — разрыв. */
+function absorbDay(ledger: VarietyLedger, day: DayPlan): void {
+  if (day.type === 'activity' && day.realTour) {
+    noteVariety(ledger, varietyKey(day.activityType), 1);
+    return;
+  }
+  if (day.type === 'activity' && day.placeKind) {
+    noteVariety(ledger, placeVarietyKey(day.placeKind), 1);
+    return;
+  }
+  noteGap(ledger);
 }
 
 /**
@@ -105,18 +128,36 @@ export function selfPlaceDay(day: number, place: SelfPlace, site: string): DayPl
  * Порядок дней — по номеру.
  */
 export function fillEmptyDays(days: readonly DayPlan[], tripDays: number, places: readonly SelfPlace[] | null, site: string): { days: DayPlan[]; filled: number[] } {
-  const have = new Set(days.map((d) => d.day));
-  const used = new Set(days.map((d) => d.placeHref).filter(Boolean) as string[]);
-  const pool = (places ?? []).filter((p) => !used.has(`${site}${p.href}`));
-  const out = [...days];
+  const pool = places ?? [];
+  if (pool.length === 0) return { days: [...days], filled: [] };
+  const taken = new Set<string>();
+  for (const d of days) {
+    if (!d.placeHref) continue;
+    taken.add(d.placeHref.startsWith(site) ? d.placeHref.slice(site.length) : d.placeHref);
+  }
+  const byDay = new Map(days.map((d) => [d.day, d]));
+  const ledger = emptyLedger();
+  const out: DayPlan[] = [];
   const filled: number[] = [];
-  if (pool.length === 0) return { days: out, filled };
-  let k = 0;
   for (let n = 1; n <= tripDays; n++) {
-    if (have.has(n)) continue;
-    out.push(selfPlaceDay(n, pool[k % pool.length], site));
+    const existing = byDay.get(n);
+    if (existing) {
+      out.push(existing);
+      absorbDay(ledger, existing);
+      continue;
+    }
+    const place = pickVariedPlace(pool, ledger, taken, tripDays);
+    if (!place) {
+      noteGap(ledger);
+      continue;
+    }
+    taken.add(place.href);
+    noteVariety(ledger, placeVarietyKey(place.type), 1);
+    out.push(selfPlaceDay(n, place, site));
     filled.push(n);
-    k++;
+  }
+  for (const d of days) {
+    if (d.day < 1 || d.day > tripDays) out.push(d);
   }
   out.sort((a, b) => a.day - b.day);
   return { days: out, filled };
@@ -144,18 +185,32 @@ export function assignCatalogFreeDays(days: readonly DayPlan[], places: readonly
   const used = new Set(days.map((d) => d.placeHref).filter((h): h is string => Boolean(h)));
   const pool = places.filter((p) => p.href.startsWith('/places/') && !used.has(`${site}${p.href}`));
   if (pool.length === 0) return [...days];
-  let k = 0;
-  return days.map((d) => {
-    if (!FREE_DAY_TITLES.has(d.title)) return d;
-    if (d.zone !== 'avachinsky' && d.zoneShown !== 'avachinsky') return d;
-    const place = pool[k % pool.length]!;
-    k += 1;
+  const taken = new Set<string>();
+  const ledger = emptyLedger();
+  const indexed = days.map((d, i) => ({ d, i }));
+  indexed.sort((a, b) => a.d.day - b.d.day);
+  const out = [...days];
+  for (const item of indexed) {
+    const d = item.d;
+    const freeHere = FREE_DAY_TITLES.has(d.title) && (d.zone === 'avachinsky' || d.zoneShown === 'avachinsky');
+    if (!freeHere) {
+      absorbDay(ledger, d);
+      continue;
+    }
+    const place = pickVariedPlace(pool, ledger, taken, Math.max(...days.map((x) => x.day), 1));
+    if (!place) {
+      noteGap(ledger);
+      continue;
+    }
+    taken.add(place.href);
+    noteVariety(ledger, placeVarietyKey(place.type), 1);
     const made = selfPlaceDay(d.day, place, site);
-    return {
+    out[item.i] = {
       ...made,
       zone: d.zone,
       ...(d.zoneShown ? { zoneShown: d.zoneShown } : {}),
       weatherPoint: [place.lat, place.lng] as [number, number],
     };
-  });
+  }
+  return out;
 }

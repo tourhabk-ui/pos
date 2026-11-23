@@ -5,6 +5,9 @@
 
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { pool } from '@/lib/db-pool';
+import { isoUtcSql } from '@/lib/db/timestamp-iso';
+import { placeDayStatus } from '@/lib/safety/place-day-status';
+import { isOutsideKraiSources } from '@/lib/safety/kuril-north';
 import type { ZoneId } from '@/lib/planner/engine';
 import { rawTypesFor, normalizeActivity, ACTIVITY_CONSTRAINTS } from '@/lib/planner/constants';
 import { seasonCoversMonth } from '@/lib/tours/season-month';
@@ -97,6 +100,16 @@ export interface RealTour {
     slug?: string | null;
     openFrom?: string | null;
     openTo?: string | null;
+    /**
+     * Уровень карточки места на сегодня (`placeDayStatus`). Нет пересчёта
+     * или он старше трёх часов — `unknown`, не красный. Это не статус на
+     * дату тура.
+     */
+    level?: 'closed' | 'red' | 'yellow' | 'green' | 'unknown' | null;
+    /** Место отмечено закрытым. `false` красный park_closure не отменяет. */
+    closed?: boolean;
+    /** Текст сводки места (`alert_message`). Пусто — сводки в строке нет. */
+    parkSummary?: string | null;
   } | null;
 }
 
@@ -220,6 +233,11 @@ export async function fetchRealToursForZone(
         place_slug: string | null;
         place_open_from: string | null;
         place_open_to: string | null;
+        place_is_open: boolean | null;
+        place_status: string | null;
+        place_status_reason: string | null;
+        place_alert_message: string | null;
+        place_status_at: string | null;
       }>(
         `SELECT
           ot.id AS tour_id, ot.title, ot.short_description,
@@ -242,6 +260,9 @@ export async function fetchRealToursForZone(
           mp.name AS place_name, mp.zone AS place_zone, mp.lat AS place_lat, mp.lng AS place_lng,
           mp.slug AS place_slug,
           sp.place_open_from, sp.place_open_to,
+          lrs.is_open AS place_is_open, lrs.recommender_status AS place_status,
+          lrs.status_reason AS place_status_reason, lrs.alert_message AS place_alert_message,
+          ${isoUtcSql('lrs.updated_at')} AS place_status_at,
           ${inWindow ? nearestFreeDateInWindowSql('ot', '$3', '$4') : nearestFreeDateSql('ot')} AS nearest_free_date,
           ${anyDayOpenSql('ot')} AS any_day_open
         FROM operator_tours ot
@@ -255,6 +276,7 @@ export async function fetchRealToursForZone(
            ORDER BY open_to_date DESC NULLS LAST
            LIMIT 1
         ) sp ON TRUE
+        LEFT JOIN location_real_time_status lrs ON lrs.agent_route_id = mp.ark_id
         WHERE ${zoneMatchSql('ark', '$1')}
           AND ot.activity_type = ANY($2)
           AND ${publicTourSql('ot')}
@@ -294,15 +316,28 @@ export async function fetchRealToursForZone(
         zone: r.zone ?? zone,
         activityType: r.activity_type ?? activityType,
         slug: r.tour_slug ?? null,
-        place: r.place_name ? {
-          name: r.place_name,
-          zone: r.place_zone ?? null,
-          lat: Number.isFinite(parseFloat(String(r.place_lat))) ? parseFloat(String(r.place_lat)) : null,
-          lng: Number.isFinite(parseFloat(String(r.place_lng))) ? parseFloat(String(r.place_lng)) : null,
-          slug: r.place_slug ?? null,
-          openFrom: r.place_open_from ?? null,
-          openTo: r.place_open_to ?? null,
-        } : null,
+        place: r.place_name ? (() => {
+          const day = placeDayStatus({
+            isOpen: r.place_is_open ?? null,
+            status: r.place_status ?? null,
+            updatedAt: r.place_status_at ?? null,
+            outsideKraiSources: isOutsideKraiSources(r.place_zone ?? null),
+            reason: r.place_status_reason ?? null,
+          });
+          const summary = (r.place_alert_message ?? '').trim();
+          return {
+            name: r.place_name,
+            zone: r.place_zone ?? null,
+            lat: Number.isFinite(parseFloat(String(r.place_lat))) ? parseFloat(String(r.place_lat)) : null,
+            lng: Number.isFinite(parseFloat(String(r.place_lng))) ? parseFloat(String(r.place_lng)) : null,
+            slug: r.place_slug ?? null,
+            openFrom: r.place_open_from ?? null,
+            openTo: r.place_open_to ?? null,
+            level: day.level,
+            closed: r.place_is_open === false,
+            parkSummary: summary || null,
+          };
+        })() : null,
       }));
     } catch (err) {
       // Молчать нельзя: имя проверки и причина — в лог (§4.0). Пустой catch

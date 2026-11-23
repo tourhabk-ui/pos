@@ -224,6 +224,7 @@ const GOLDEN_TREK: string[] = [
   'rest|-|avachinsky|День на своё усмотрение',
   'rest|-|avachinsky|День на своё усмотрение',
   'activity|self|avachinsky|Свободный день. Город, сувениры, рыбный рынок',
+  'rest|-|avachinsky|Резервный день на погоду',
   'departure|-|avachinsky|Сборы утром. Трансфер в аэропорт, вылет днём',
 ];
 

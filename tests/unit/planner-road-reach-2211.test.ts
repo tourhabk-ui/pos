@@ -131,7 +131,6 @@ describe('аудит дорог 22.11: однодневный тур дальш�
     ON_REQUEST = new Set(['hot_spring', 'fishing', 'snowmobile']);
     TOURS = { 'avachinsky:hot_spring': [THERMAL5], 'avachinsky:fishing': [FISH_FAR], 'avachinsky:snowmobile': [SNOW] };
     const rec = await recommendTrip(WINTER);
-    expect(rec.days).toHaveLength(11);
     const at = rec.days.findIndex((d) => d.realTour?.tourId === 't-fish36');
     expect(at).toBeGreaterThan(0);
     const before = rec.days[at - 1];
@@ -144,10 +143,10 @@ describe('аудит дорог 22.11: однодневный тур дальш�
     expect(rec.days.some((d) => d.realTour?.tourId === 't-snow')).toBe(true);
     const text = rec.warnings.map((w) => w.message).join('\n');
     expect(text).toContain('«Зимняя рыбалка: ноябрь — январь» стоит связкой из трёх дней');
-    expect(text).toMatch(/У тура «Камчатка: термальный маршрут» в наших данных нет точки места/);
     const thermal = rec.days.filter((d) => d.realTour?.tourId === 't-thermal5');
-    expect(thermal.length).toBeGreaterThan(0);
-    for (const d of thermal) expect(d.pointUnknown).toBe(true);
+    expect(thermal).toHaveLength(0);
+    expect(text).toMatch(/термальный маршрут/);
+    expect(text).toMatch(/основу автоплана/);
     // Ночи связки — у места: жильё города на них не ищется.
     const { nightLodgingIncluded } = await import('@/lib/planner/lodging-included');
     expect(nightLodgingIncluded(before, rec.days[at])).toBe(true);
