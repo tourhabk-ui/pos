@@ -35,6 +35,7 @@ import { resolvePostType } from '@/lib/notifications/kuzmich-post-slot';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { withSpendAgent } from '@/lib/ai/usage-context';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,6 +61,11 @@ export async function GET(request: NextRequest) {
 
   const resolved = resolvePostType(searchParams.get('type'));
   const postType = resolved.type;
+  const startedAt = Date.now();
+  const journalId = postType === 'route' ? 'kuzmich-route'
+    : postType === 'tip' ? 'kuzmich-tip'
+    : postType === 'tour' ? 'kuzmich-tour'
+    : null;
   // Расход модели — под подписью вида поста: в реестре это три записи
   // (kuzmich-route, kuzmich-tip, kuzmich-tour), и книги сводятся с ними.
 
@@ -83,6 +89,13 @@ export async function GET(request: NextRequest) {
     result = await withSpendAgent('kuzmich-tip', () => postKuzmichTip());
   } else {
     result = await withSpendAgent('kuzmich-tour', () => postKuzmichTour());
+  }
+
+  if (journalId) {
+    recordCronRun(journalId, startedAt, result.ok ? 'success' : 'failed', {
+      items: result.ok ? 1 : 0,
+      error: result.ok ? undefined : 'пост не ушёл',
+    });
   }
 
   if (!result.ok) {

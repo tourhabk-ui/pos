@@ -26,6 +26,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { tgSend } from '@/lib/notifications/tg-send';
 import { escapeHtml } from '@/lib/text/escape-html';
 
@@ -111,6 +112,7 @@ export async function GET(req: NextRequest) {
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const startedAt = Date.now();
   const daysRaw = Number(req.nextUrl.searchParams.get('days') ?? '1');
   const days = Number.isFinite(daysRaw) && daysRaw >= 1 && daysRaw <= 30 ? Math.floor(daysRaw) : 1;
   const prune = req.nextUrl.searchParams.get('prune') === '1';
@@ -161,6 +163,11 @@ export async function GET(req: NextRequest) {
       notifyOutcome = out.ok ? { sent: true, reason: 'доставлен' } : { sent: false, reason: out.reason };
     }
   }
+
+  recordCronRun('client-errors-census', startedAt, failed.length === 0 ? 'success' : 'partial', {
+    items: t?.rows ?? 0,
+    error: failed.length ? 'часть переписи не сосчиталась' : undefined,
+  });
 
   return NextResponse.json({
     ok: failed.length === 0,

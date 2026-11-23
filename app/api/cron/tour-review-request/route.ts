@@ -32,6 +32,7 @@ import { buildReviewRequestMessage, REVIEW_REQUEST_MAX_AGE_DAYS } from '@/lib/no
 import { getPublicBaseUrl } from '@/lib/config';
 import { TOURIST_TG_CHAT_SQL } from '@/lib/notifications/tourist-telegram';
 import { TOUR_LAST_DAY_SQL } from '@/lib/bookings/tour-last-day';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,6 +69,7 @@ export async function GET(request: NextRequest) {
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const startedAt = Date.now();
 
   const { rows: bookings } = await pool.query<CompletedBookingRow>(`
     SELECT ob.id, ob.tourist_name, ot.id AS tour_id, ot.title AS tour_title,
@@ -102,6 +104,7 @@ export async function GET(request: NextRequest) {
   const noChannel = noChannelRows[0]?.n ?? 0;
 
   if (bookings.length === 0) {
+    recordCronRun('tour-review-request', startedAt, 'success', { items: 0 });
     return NextResponse.json({ success: true, sent: 0, no_channel: noChannel, message: 'Нет завершённых броней без запроса отзыва, которым есть куда написать' });
   }
 
@@ -126,6 +129,11 @@ export async function GET(request: NextRequest) {
     );
     sent.push(b.id);
   }
+
+  recordCronRun('tour-review-request', startedAt, failed.length === 0 ? 'success' : 'partial', {
+    items: sent.length,
+    error: failed.length ? 'часть просьб не ушла' : undefined,
+  });
 
   return NextResponse.json({
     success: true,

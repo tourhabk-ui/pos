@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { sendEngagementPushes, getEngagementStats } from '@/lib/kuzmich/engagement';
 import { getCronSecret } from '@/lib/auth/cron';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic   = 'force-dynamic';
 export const maxDuration = 30;
@@ -27,6 +28,8 @@ export async function GET(request: NextRequest) {
     sendEngagementPushes(),
     getEngagementStats(),
   ]);
+
+  recordCronRun('engagement', started, 'success', { items: result.sent });
 
   return NextResponse.json({
     ok: true,

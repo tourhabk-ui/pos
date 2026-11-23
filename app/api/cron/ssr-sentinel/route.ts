@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { SSR_PROBES, formatSentinelAlert, type SsrProbeResult } from '@/lib/seo/ssr-sentinel';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -45,6 +46,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const startedAt = Date.now();
   const started = Date.now();
   const results: SsrProbeResult[] = [];
 
@@ -72,6 +74,11 @@ export async function GET(request: NextRequest) {
   if (failed.length > 0) {
     await tgSend(formatSentinelAlert(failed, BASE));
   }
+
+  recordCronRun('ssr-sentinel', startedAt, failed.length === 0 ? 'success' : 'partial', {
+    items: results.length,
+    error: failed.length ? 'часть проб листинга не прошла' : undefined,
+  });
 
   return NextResponse.json({
     success: true,

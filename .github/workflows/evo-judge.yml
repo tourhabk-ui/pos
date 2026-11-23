@@ -104,7 +104,7 @@ jobs:
         run: |
           CODE=$(curl -sS -o /tmp/findings.json -w '%{http_code}' --max-time 60 \
             -H "Authorization: Bearer ${CRON_SECRET}" \
-            "https://vedarai.ru/api/cron/evo-issues?days=${DAYS}")
+            "https://vedarai.ru/api/cron/evo-issues?days=${DAYS}&caller=evo-judge")
           echo "HTTP: $CODE"
           # Пустой файл при 200 читался бы как «находок нет». Падаем громко.
           if [ "$CODE" != "200" ]; then

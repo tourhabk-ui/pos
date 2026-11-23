@@ -19,6 +19,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { autoCompletePastTours, listDueBookings } from '@/lib/bookings/auto-complete-past';
 import { logText } from '@/lib/log/log-text';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,10 +28,12 @@ export async function GET(request: NextRequest) {
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const startedAt = Date.now();
 
   try {
     if (request.nextUrl.searchParams.get('dry_run') === '1') {
       const ids = await listDueBookings();
+      recordCronRun('booking-auto-complete', startedAt, 'success', { items: ids.length });
       return NextResponse.json({
         success: true,
         dry_run: true,
@@ -40,6 +43,10 @@ export async function GET(request: NextRequest) {
       });
     }
     const s = await autoCompletePastTours();
+    recordCronRun('booking-auto-complete', startedAt, s.failed.length === 0 ? 'success' : 'partial', {
+      items: s.completed.length,
+      error: s.failed.length ? 'часть броней не завершилась' : undefined,
+    });
     return NextResponse.json({
       success: s.failed.length === 0,
       due: s.due,
@@ -52,6 +59,7 @@ export async function GET(request: NextRequest) {
     const code = (err as { code?: unknown })?.code;
     const sqlstate = typeof code === 'string' ? logText(code, 10) : null;
     console.error('[booking-auto-complete] отбор броней не выполнен:', sqlstate ?? '', logText(err instanceof Error ? err.message : err, 200));
+    recordCronRun('booking-auto-complete', startedAt, 'failed', { error: 'не удалось отобрать брони' });
     return NextResponse.json(
       { success: false, error: 'Не удалось отобрать брони для завершения', sqlstate },
       { status: 502 },

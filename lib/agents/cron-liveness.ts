@@ -32,11 +32,26 @@ const TIER_THRESHOLD: Record<CronTier, { late: number; dead: number; graceMin: n
   content: { late: 2, dead: 6, graceMin: 30 },
 };
 
-export function livenessThresholds(entry: Pick<CronEntry, 'everyMin' | 'tier'>): { lateAfterMin: number; deadAfterMin: number } {
+/**
+ * GitHub Actions не отдаёт частый cron каждые 30 минут. Замер 21.09:
+ * heartbeat — 6 прогонов из 30 за 5,3 суток, разрывы по несколько часов.
+ * Для крона без второй ноги порог «молчит» считается от этой доставки,
+ * а не от строки расписания. Иначе живой крон числится мёртвым каждые два часа.
+ * Шесть часов — выше виденного разрыва около пяти, ниже суток молчания.
+ */
+export const GITHUB_CRON_FLOOR_MIN = 360;
+
+export function livenessIntervalMin(entry: { everyMin: number; githubOnly?: boolean }): number {
+  if (entry.githubOnly && entry.everyMin < GITHUB_CRON_FLOOR_MIN) return GITHUB_CRON_FLOOR_MIN;
+  return entry.everyMin;
+}
+
+export function livenessThresholds(entry: Pick<CronEntry, 'everyMin' | 'tier' | 'githubOnly'>): { lateAfterMin: number; deadAfterMin: number } {
   const t = TIER_THRESHOLD[entry.tier];
+  const every = livenessIntervalMin(entry);
   return {
-    lateAfterMin: Math.round(entry.everyMin * t.late + t.graceMin),
-    deadAfterMin: Math.round(entry.everyMin * t.dead + t.graceMin),
+    lateAfterMin: Math.round(every * t.late + t.graceMin),
+    deadAfterMin: Math.round(every * t.dead + t.graceMin),
   };
 }
 
@@ -46,7 +61,7 @@ export function livenessThresholds(entry: Pick<CronEntry, 'everyMin' | 'tier'>):
  * @param nowMs     текущее время в мс
  */
 export function computeLiveness(
-  entry: Pick<CronEntry, 'everyMin' | 'tier' | 'agentId'>,
+  entry: Pick<CronEntry, 'everyMin' | 'tier' | 'agentId' | 'githubOnly'>,
   lastRunMs: number | null,
   nowMs: number,
 ): Liveness {
