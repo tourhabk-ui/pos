@@ -46,6 +46,25 @@ export type ChannelGate =
   | { outcome: 'unknown' };
 
 /**
+ * Спрашивать ли канал при правке карточки: после правки она стоит на витрине
+ * и принимает заявки, а до правки — нет.
+ *
+ * «Уже стоящих не запирает» значит ровно одно: карточку, которая уже на
+ * витрине и уже принимает заявки, править можно. Ресторан на витрине,
+ * который правкой становится туроператором, — для заявок карточка новая, и
+ * канал ей нужен так же, как при первом выкладе (наблюдение ревью 23.11:
+ * сменой категории правило обходилось в два шага).
+ */
+export function becomesRequestStorefront(
+  before: { isPublic: boolean; category: string | null | undefined },
+  after: { isPublic: boolean; category: string | null | undefined },
+): boolean {
+  const was = before.isPublic && receivesRequests(before.category);
+  const will = after.isPublic && receivesRequests(after.category);
+  return will && !was;
+}
+
+/**
  * Можно ли карточку впервые поставить на витрину. Зовут двери администратора
  * ПЕРЕД записью `is_public = TRUE`, и только когда карточка сейчас не на
  * витрине: уже стоящих правило не трогает.

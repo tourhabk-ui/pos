@@ -57,6 +57,8 @@ const CARDS: Card[] = [
   { key: 'editHidden', category: 'operator', profileStatus: 'approved', isPublic: false },
   { key: 'editBound',  category: 'transfer', profileStatus: 'approved', isPublic: false, max: 700004 },
   { key: 'editPublic', category: 'operator', profileStatus: 'approved', isPublic: true },
+  { key: 'cafePublic', category: 'restaurant', profileStatus: 'approved', isPublic: true },
+  { key: 'cafeBound',  category: 'restaurant', profileStatus: 'approved', isPublic: true, max: 700005 },
 ];
 const idOf = (i: number) => `c3300000-0000-4000-8000-0000000001${String(i).padStart(2, '0')}`;
 const userOf = (i: number) => `c3300000-0000-4000-8000-0000000002${String(i).padStart(2, '0')}`;
@@ -185,6 +187,24 @@ withPg('канал уведомлений до витрины: двери адм
       const off = await edit('editPublic', { name: 'Канал editPublic (правка)', isPublic: false });
       expect(off.status, JSON.stringify(off.body)).toBe(200);
       expect((await state('editPublic')).is_public).toBe(false);
+    });
+
+    it('ресторан на витрине правкой становится туроператором: без канала — 409, с каналом — можно', async () => {
+      const { NO_CHANNEL_TEXT } = await import('@/lib/partners/storefront-gate');
+      const category = async (key: string) => (await pool.query<{ category: string }>(`SELECT category FROM partners WHERE id = $1`, [ID[key]])).rows[0].category;
+      // Ресторану канал не нужен — он на витрине и без него. Туроператору — нужен.
+      const denied = await edit('cafePublic', { name: 'Канал cafePublic', category: 'operator' });
+      expect(denied.status).toBe(409);
+      expect(denied.body).toEqual({ success: false, error: NO_CHANNEL_TEXT, code: 'no_channel' });
+      expect(await category('cafePublic')).toBe('restaurant');
+      // То же при явном isPublic: true — «уже на витрине» правило не обходит.
+      expect((await edit('cafePublic', { name: 'Канал cafePublic', category: 'operator', isPublic: true })).status).toBe(409);
+      expect(await category('cafePublic')).toBe('restaurant');
+      // Имя ресторана править можно: заявок он не принимает.
+      expect((await edit('cafePublic', { name: 'Канал cafePublic (правка)' })).status).toBe(200);
+      const ok = await edit('cafeBound', { name: 'Канал cafeBound', category: 'operator' });
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      expect(await category('cafeBound')).toBe('operator');
     });
 
     it('снятую без канала обратно на витрину не поставить', async () => {

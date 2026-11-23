@@ -5,7 +5,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { z } from 'zod';
 import { adminContactView, websiteWrite } from '@/lib/partners/admin-contact';
 import { isTestProfileNotPublicViolation, TEST_PROFILE_NOT_PUBLIC_TEXT } from '@/lib/partners/test-profile';
-import { storefrontChannelGate, NO_CHANNEL_TEXT, CHANNEL_UNKNOWN_TEXT } from '@/lib/partners/storefront-gate';
+import { becomesRequestStorefront, storefrontChannelGate, NO_CHANNEL_TEXT, CHANNEL_UNKNOWN_TEXT } from '@/lib/partners/storefront-gate';
 
 export const dynamic = 'force-dynamic';
 
@@ -163,10 +163,13 @@ export async function PUT(
 
     // Канал уведомлений до витрины (23.11, этап 3b): карточку, которой
     // приходят заявки, нельзя ВПЕРВЫЕ поставить на витрину без MAX или
-    // Telegram. Правка карточки, уже стоящей на витрине, и снятие с неё
-    // правилом не задеты.
-    if (isPublic === true && currentRes.rows[0].is_public !== true) {
-      const gate = await storefrontChannelGate(id, category || currentRes.rows[0].category);
+    // Telegram. «Впервые» — это и выклад, и смена категории уже стоящей
+    // карточки на ту, что принимает заявки. Правка карточки, которая уже на
+    // витрине и уже принимает заявки, и снятие с витрины правилом не задеты.
+    const before = { isPublic: currentRes.rows[0].is_public === true, category: currentRes.rows[0].category };
+    const after = { isPublic: isPublic ?? before.isPublic, category: category || before.category };
+    if (becomesRequestStorefront(before, after)) {
+      const gate = await storefrontChannelGate(id, after.category);
       if (gate.outcome === 'no_channel') {
         return NextResponse.json({ success: false, error: NO_CHANNEL_TEXT, code: 'no_channel' }, { status: 409 });
       }

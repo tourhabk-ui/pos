@@ -19,7 +19,7 @@ vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
 vi.mock('@/components/admin/TildaPanel', () => ({ default: () => null }));
 
 import {
-  storefrontChannelGate, receivesRequests, REQUEST_RECEIVING_CATEGORIES,
+  storefrontChannelGate, becomesRequestStorefront, receivesRequests, REQUEST_RECEIVING_CATEGORIES,
   NO_CHANNEL_TEXT, CHANNEL_UNKNOWN_TEXT, NEW_CARD_NOT_PUBLIC_TEXT,
 } from '@/lib/partners/storefront-gate';
 import { CONNECT_CHANNEL_HELP, OPERATORS, GUIDES } from '@/lib/help/content';
@@ -59,6 +59,24 @@ describe('storefrontChannelGate', () => {
     expect([...REQUEST_RECEIVING_CATEGORIES].sort()).toEqual(['cars', 'gear', 'guide', 'operator', 'stay', 'transfer']);
     expect(receivesRequests('cars')).toBe(true);
     expect(receivesRequests('agent')).toBe(false);
+  });
+
+  it('канал спрашивается, когда карточка становится «на витрине и с заявками», — и только тогда', () => {
+    const on = (category: string | null) => ({ isPublic: true, category });
+    const off = (category: string | null) => ({ isPublic: false, category });
+    // Первый выклад.
+    expect(becomesRequestStorefront(off('operator'), on('operator'))).toBe(true);
+    // Смена категории уже стоящей карточки на ту, что принимает заявки.
+    expect(becomesRequestStorefront(on('restaurant'), on('operator'))).toBe(true);
+    expect(becomesRequestStorefront(on('agent'), on('guide'))).toBe(true);
+    // Уже на витрине и уже с заявками — правило не запирает (пилоты).
+    expect(becomesRequestStorefront(on('operator'), on('operator'))).toBe(false);
+    expect(becomesRequestStorefront(on('operator'), on('guide'))).toBe(false);
+    // Снятие с витрины, правка скрытой, ресторан — канал не нужен.
+    expect(becomesRequestStorefront(on('operator'), off('operator'))).toBe(false);
+    expect(becomesRequestStorefront(off('operator'), off('guide'))).toBe(false);
+    expect(becomesRequestStorefront(off('restaurant'), on('restaurant'))).toBe(false);
+    expect(becomesRequestStorefront(on('operator'), on('restaurant'))).toBe(false);
   });
 
   it('отказы называют, что делать, и не обещают лишнего', () => {
