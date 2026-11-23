@@ -953,6 +953,129 @@ withPg('общая вставка и гейт брони на настоящем
       expect(both.sort()).toEqual(['DUPLICATE', 'ok']);
     });
   });
+
+  /**
+   * Слово владельца 23.11: «Расчёт цены брони … запросы последовательно или в
+   * одной транзакции, без параллельных запросов на одном соединении».
+   *
+   * Дверь брони держит одно соединение на всю транзакцию. Правила цены,
+   * занятость даты и ступени читались на нём через `Promise.all`: драйвер
+   * ставил лишние запросы в свою очередь, предупреждал и в `pg@9` это уберёт.
+   * Здесь судит настоящее соединение: на каждом выданном пулом клиенте
+   * считаются запросы «в полёте» — событие `acquire` пула публичное.
+   */
+  describe('цена брони читается по одному запросу на соединении транзакции (слово владельца 23.11)', () => {
+    type AnyArgs = unknown[];
+    type Watched = { query: (...args: AnyArgs) => unknown };
+
+    async function watchAppConnections() {
+      const { pool: appPool } = await import('@/lib/db-pool');
+      const inFlight = new WeakMap<object, number>();
+      const wrapped = new Set<Watched>();
+      const seen = { max: 0, queries: 0, overlaps: [] as string[] };
+      // Обёртка пула приложения отдаёт `on`, но не `off`: слушатель остаётся
+      // до конца файла и после `stop()` ничего не делает.
+      let watching = true;
+      const head = (first: unknown): string => {
+        const text = typeof first === 'string' ? first : (first as { text?: unknown } | null)?.text;
+        return String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 70);
+      };
+      const onAcquire = (client: unknown): void => {
+        const c = client as Watched;
+        if (!watching || wrapped.has(c)) return;
+        wrapped.add(c);
+        const real = c.query.bind(c);
+        c.query = (...args: AnyArgs) => {
+          const now = (inFlight.get(c) ?? 0) + 1;
+          inFlight.set(c, now);
+          seen.queries += 1;
+          if (now > seen.max) seen.max = now;
+          if (now > 1) seen.overlaps.push(head(args[0]));
+          const done = (): void => { inFlight.set(c, (inFlight.get(c) ?? 1) - 1); };
+          const last = args[args.length - 1];
+          if (typeof last === 'function') {
+            const cb = last as (...a: AnyArgs) => unknown;
+            args[args.length - 1] = (...cbArgs: AnyArgs) => { done(); return cb(...cbArgs); };
+            return real(...args);
+          }
+          const out = real(...args);
+          if (out && typeof (out as PromiseLike<unknown>).then === 'function') (out as PromiseLike<unknown>).then(done, done);
+          else done();
+          return out;
+        };
+      };
+      appPool.on('acquire', onAcquire);
+      return {
+        seen,
+        stop(): void {
+          watching = false;
+          // Своё свойство снято — у клиента снова метод прототипа.
+          for (const c of wrapped) Reflect.deleteProperty(c, 'query');
+          wrapped.clear();
+        },
+      };
+    }
+
+    it('бронь: на соединении не больше одного запроса разом, а сумма собрана из правил, занятости и ступеней', async () => {
+      const { reserveBooking } = await import('@/lib/bookings/reserve');
+      // Все три чтения участвуют в сумме: ступень задаёт базу, занятость даты
+      // включает правило, правило даёт надбавку.
+      const t = await pool.query<{ id: string }>(
+        `INSERT INTO operator_tours (operator_id, title, base_price, price_unit, max_participants,
+                                     is_active, is_published, activity_type, difficulty)
+         VALUES ($1, 'Тур со ступенью и правилом', 10000, 'per_person', 4, TRUE, TRUE, 'hiking', 'easy')
+         RETURNING id::text AS id`,
+        [operatorId],
+      );
+      const tid = t.rows[0]!.id;
+      await pool.query(
+        `INSERT INTO tour_price_tiers (operator_tour_id, min_people, max_people, price_per_person)
+         VALUES ($1, 1, NULL, 9000)`,
+        [tid],
+      );
+      await pool.query(
+        `INSERT INTO tour_pricing_rules (operator_tour_id, rule_type, occupancy_min, multiplier, is_active)
+         VALUES ($1, 'occupancy_high', 50, 1.1, TRUE)`,
+        [tid],
+      );
+      await pool.query(
+        `INSERT INTO tour_availability (operator_tour_id, date, available_slots, booked_slots)
+         VALUES ($1, '2099-07-10', 4, 0)`,
+        [tid],
+      );
+      // Половина мест уже занята чужой бронью.
+      await pool.query(
+        `INSERT INTO operator_bookings (operator_tour_id, booking_date, participants, booking_status)
+         VALUES ($1, '2099-07-10', 2, 'confirmed')`,
+        [tid],
+      );
+
+      const watch = await watchAppConnections();
+      let bookingId: string | number;
+      try {
+        const done = await reserveBooking({
+          touristName: 'Тест', touristPhone: '+70000000000', touristEmail: null,
+          specialRequests: null, createdVia: 'website', userId: null, pdConsent: null, referralCode: null,
+          tourId: Number(tid), participants: 2, date: '2099-07-10',
+        });
+        bookingId = done.bookingId;
+      } finally {
+        watch.stop();
+      }
+
+      expect(watch.seen.queries, 'счётчик не увидел ни одного запроса — проверка ничего не проверила').toBeGreaterThan(3);
+      expect(watch.seen.overlaps, 'запросы ушли на одно соединение разом').toEqual([]);
+      expect(watch.seen.max).toBe(1);
+
+      const row = await pool.query<{ base_total_price: string; final_price: string }>(
+        `SELECT base_total_price, final_price FROM operator_bookings WHERE id = $1`,
+        [bookingId],
+      );
+      // Ступень 9 000 × 2 = 18 000; занято 2 из 4 → надбавка 10%: 9 900 × 2.
+      expect(Number(row.rows[0]!.base_total_price)).toBe(18000);
+      expect(Number(row.rows[0]!.final_price)).toBe(19800);
+    });
+  });
 });
 
 /**

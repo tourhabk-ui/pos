@@ -194,30 +194,42 @@ export async function loadPriceTiers(
   }));
 }
 
+/**
+ * Запросы идут ПО ОДНОМУ, не `Promise.all` (слово владельца 23.11: «запросы
+ * последовательно или в одной транзакции, без параллельных запросов на одном
+ * соединении»).
+ *
+ * На пути брони исполнитель — клиент открытой транзакции, то есть ОДНО
+ * соединение. Три запроса разом оно параллельно не выполняет: драйвер ставит
+ * их в свою очередь, предупреждает об этом и в `pg@9` такой вызов уберёт.
+ * Выигрыша во времени у брони не было никогда, а зависимость денежного пути от
+ * внутренней очереди драйвера была. На пуле три коротких чтения по индексу
+ * подряд — доли миллисекунды разницы; одно правило проще двух.
+ * Сторожа: `tests/unit/honest-price.test.ts` (исполнитель считает запросы «в
+ * полёте»), `tests/integration/honest-price.pg.test.ts` (бронь на настоящем
+ * соединении).
+ */
 export async function loadPricingContext(
   tourId: number | string,
   tourDate: string,
   exec: PricingExecutor = pool,
 ): Promise<{ rules: PricingRule[]; occupancyPct: number; tiers: PriceTier[] }> {
-  const [ruleRes, slotRes, tierRes] = await Promise.all([
-    exec.query<PricingRule>(
-      `SELECT rule_type, date_from, date_to, days_before_min, days_before_max,
-              occupancy_min, guests_min, multiplier
-         FROM tour_pricing_rules
-        WHERE operator_tour_id = $1 AND is_active = TRUE`,
-      [tourId],
-    ),
-    exec.query<{ available_slots: number | null; occupied: number }>(
-      `SELECT ta.available_slots, COALESCE(occ.occupied, 0)::int AS occupied
-         FROM tour_availability ta
-         LEFT JOIN v_tour_daily_occupancy occ
-           ON occ.operator_tour_id = ta.operator_tour_id AND occ.date = ta.date
-        WHERE ta.operator_tour_id = $1 AND ta.date = $2::date AND ta.is_cancelled = FALSE`,
-      [tourId, tourDate],
-    ),
-    loadPriceTiers(tourId, exec),
-  ]);
-  const tiers = tierRes;
+  const ruleRes = await exec.query<PricingRule>(
+    `SELECT rule_type, date_from, date_to, days_before_min, days_before_max,
+            occupancy_min, guests_min, multiplier
+       FROM tour_pricing_rules
+      WHERE operator_tour_id = $1 AND is_active = TRUE`,
+    [tourId],
+  );
+  const slotRes = await exec.query<{ available_slots: number | null; occupied: number }>(
+    `SELECT ta.available_slots, COALESCE(occ.occupied, 0)::int AS occupied
+       FROM tour_availability ta
+       LEFT JOIN v_tour_daily_occupancy occ
+         ON occ.operator_tour_id = ta.operator_tour_id AND occ.date = ta.date
+      WHERE ta.operator_tour_id = $1 AND ta.date = $2::date AND ta.is_cancelled = FALSE`,
+    [tourId, tourDate],
+  );
+  const tiers = await loadPriceTiers(tourId, exec);
   const slot = slotRes.rows[0];
   const total = slot?.available_slots ?? 0;
   const occupancyPct = total > 0 ? Math.round((slot.occupied / total) * 100) : 0;
