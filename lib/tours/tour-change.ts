@@ -41,9 +41,15 @@ export type TourChange =
   | { outcome: 'written'; row: TourWriteResult; pending: null }
   /** Содержание ушло на проверку; `row` — если заодно записано что-то «сразу». */
   | { outcome: 'pending'; row: TourWriteResult | null; pending: PendingSummary }
+  /**
+   * Прислано то же, что уже стоит: менять нечего, и это не ошибка. Форма
+   * шлёт себя целиком при каждом сохранении — «Сохранить» без правок обязано
+   * отвечать успехом, как и до очереди.
+   */
+  | { outcome: 'unchanged' }
   /** Тура нет, он удалён или не этой карточки. */
   | { outcome: 'not_found' }
-  /** Менять нечего. */
+  /** В запросе нет ни одного поля тура. */
   | { outcome: 'empty' };
 
 interface LiveRow extends Record<string, unknown> {
@@ -100,7 +106,11 @@ export async function saveTourChange(
   // Что ещё нужно проверить: содержание опубликованного или замершего тура
   // и сама просьба о публикации.
   const toStage = direct ? {} : content;
-  const written: TourChange = row ? { outcome: 'written', row, pending: null } : { outcome: 'empty' };
+  const written: TourChange = row
+    ? { outcome: 'written', row, pending: null }
+    // Содержание прислано, но оно равно витрине — «без изменений»; не прислано
+    // ничего, что можно записать, — «нечего сохранять», как было у роута.
+    : (Object.keys(content).length > 0 ? { outcome: 'unchanged' } : { outcome: 'empty' });
   // В этой правке нет ни содержания, ни просьбы: черновик, если он есть,
   // не трогается. Скрыть тур или поменять даты — не правка на проверку.
   if (Object.keys(toStage).length === 0 && !asksPublish) return written;

@@ -242,7 +242,7 @@ export async function saveDocDraft(who: DocWho, which: DocField | 'all'): Promis
       });
       // Тур проверен под блокировкой строкой выше: «записал» без записи не говорим.
       if (w.outcome === 'not_found') throw new Error('тур не записан: not_found');
-      if (w.outcome !== 'empty' && w.row) title = w.row.title;
+      if ((w.outcome === 'written' || w.outcome === 'pending') && w.row) title = w.row.title;
       if (w.outcome === 'pending') pendingNote = w.pending.notice;
     }
     const saved = [...draft.saved, ...written];

@@ -101,6 +101,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (written.outcome === 'not_found') {
       return NextResponse.json({ success: false, error: 'Тур не найден среди ваших' }, { status: 404 });
     }
+    // Сохранили форму без единой правки — успех, а не ошибка.
+    if (written.outcome === 'unchanged') {
+      return NextResponse.json({ success: true, data: { id, title: null }, pending: null, unchanged: true });
+    }
     // Поисковикам — только о том, что изменилось на витрине.
     if (written.row) pingTourChanged(id);
     return NextResponse.json({

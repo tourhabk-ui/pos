@@ -427,7 +427,7 @@ export async function saveDraft(who: Who): Promise<SaveDraft> {
       `UPDATE tour_chat_edits SET status = 'saved', decided_at = NOW() WHERE id = $1::uuid AND status = 'pending'`,
       [who.draftId],
     );
-    const title = saved.outcome !== 'empty' && saved.row ? saved.row.title : tour.title;
+    const title = (saved.outcome === 'written' || saved.outcome === 'pending') && saved.row ? saved.row.title : tour.title;
     return { kind: 'saved', draft, title, slug: tour.slug, pending: saved.outcome === 'pending' ? saved.pending.notice : null };
   }, { kind: 'db_error' });
   // Поисковикам — только о том, что изменилось на витрине.

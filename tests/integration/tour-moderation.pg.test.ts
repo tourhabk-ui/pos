@@ -220,6 +220,14 @@ withPg('модерация правок тура', () => {
       expect(live.cancellation_free_days).toBeNull();
     });
 
+    it('сохранили форму без единой правки — «без изменений», а не ошибка; пустой запрос — «нечего сохранять»', async () => {
+      const live = await liveOf(tour);
+      // Форма шлёт себя целиком: то же название и то же описание.
+      expect(await change(tour, OP, { title: live.title, description: live.description })).toEqual({ outcome: 'unchanged' });
+      expect(await change(tour, OP, {})).toEqual({ outcome: 'empty' });
+      expect(await pendingCount(tour)).toBe(0);
+    });
+
     it('чужой тур владелец не правит и черновика не оставляет', async () => {
       expect(await change(tour, OTHER, { base_price: 1 })).toEqual({ outcome: 'not_found' });
       expect(await pendingCount(tour)).toBe(0);

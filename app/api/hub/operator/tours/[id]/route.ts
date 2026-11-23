@@ -198,6 +198,11 @@ export async function PATCH(
       return NextResponse.json({ error: 'Tour not found' }, { status: 404 });
     }
 
+    // Сохранили форму без единой правки — успех, а не ошибка.
+    if (saved.outcome === 'unchanged') {
+      return NextResponse.json({ success: true, data: { id: String(tourId) }, pending: null, unchanged: true });
+    }
+
     // Поисковикам сообщаем только о том, что изменилось на витрине.
     if (saved.row) pingTourChanged(tourId);
 
