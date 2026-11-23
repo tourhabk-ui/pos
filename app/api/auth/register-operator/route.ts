@@ -151,7 +151,7 @@ export async function POST(request: NextRequest) {
 
     // Акцепт оферты — в той же транзакции, что и карточка.
     if (needsOffer) {
-      const logged = await recordOfferAcceptanceForUser(client, { userId: user.id as string, ip, source: 'registration' });
+      const logged = await recordOfferAcceptanceForUser(client, { userId: user.id as string, ipAddress: ip, source: 'registration' });
       if (logged === 0) throw new Error('акцепт оферты не записан: карточка партнёра не найдена');
     }
 

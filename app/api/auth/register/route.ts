@@ -32,6 +32,24 @@ const RegisterSchema = z.object({
   telegram: z.string().trim().max(100, 'Telegram длиннее 100 символов').optional(),
 });
 
+/**
+ * Роль аккаунта и все его роли — из ОБОИХ полей запроса, одним правилом
+ * (находка ревью безопасности 23.11, этап 5 плана готовности).
+ *
+ * Роль аккаунта берётся из `role`, а карточки и отметка оферты считались по
+ * `roles`: запрос `role: 'operator', roles: ['tourist']` проходил без отметки
+ * оферты, не заводил карточку и акцепт, но выдавал вход оператора — а карточку
+ * потом молча дозаводил кабинет. Теперь набор один: роль аккаунта всегда в
+ * нём, и по нему судят и отметку, и карточки, и акцепт. Заморозку агента то же
+ * правило держало и раньше (`requestsAgentRole` смотрит оба поля).
+ */
+export function registrationRoles<T extends string>(role: T | undefined, roles: readonly T[] | undefined): { userRole: T | 'tourist'; allRoles: Array<T | 'tourist'> } {
+  // Определяем роль: переданная роль > первая из массива ролей > tourist
+  const userRole: T | 'tourist' = role ?? roles?.[0] ?? 'tourist';
+  const listed: Array<T | 'tourist'> = roles?.length ? [...roles] : [userRole];
+  return { userRole, allRoles: listed.includes(userRole) ? listed : [userRole, ...listed] };
+}
+
 /** Контакты партнёра из формы: только непустые поля. */
 function partnerContacts(phone?: string, telegram?: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -77,7 +95,8 @@ export async function POST(request: NextRequest) {
 
     // Оферта (этап 5 плана готовности, 23.11): партнёр — сторона оферты — без
     // отметки не заводится. Проверка поля, не попытка регистрации: до лимита.
-    const wantsOfferRole = offerRequiredFor(parsed.data.roles?.length ? parsed.data.roles : [parsed.data.role ?? 'tourist']);
+    const { userRole, allRoles } = registrationRoles(parsed.data.role, parsed.data.roles);
+    const wantsOfferRole = offerRequiredFor(allRoles);
     if (wantsOfferRole && parsed.data.offer_accepted !== true) {
       return NextResponse.json({ success: false, error: OFFER_REQUIRED_TEXT, code: 'offer_required' }, { status: 400 });
     }
@@ -96,13 +115,9 @@ export async function POST(request: NextRequest) {
         { status: 429, headers: { 'Retry-After': String(waitSec) } }
       );
     }
-    const { email, password, name, role, roles, referralCode, phone, telegram } = parsed.data;
+    const { email, password, name, referralCode, phone, telegram } = parsed.data;
     const contacts = partnerContacts(phone, telegram);
-
-    // Определяем роль: переданная роль > первая из массива ролей > tourist
-    const userRole = role ?? roles?.[0] ?? 'tourist';
-    // Все роли для сохранения в preferences (для мультиролей)
-    const allRoles = roles?.length ? roles : [userRole];
+    // Роль аккаунта и все роли (preferences, карточки, акцепт) — `registrationRoles` выше.
 
     // Подключаемся к БД
     client = await pool.connect();
@@ -192,7 +207,7 @@ export async function POST(request: NextRequest) {
     // заведён и акцепт записан, либо ни того, ни другого. По строке на
     // карточку; версию ставит журнал сам (lib/legal/offer-acceptance).
     if (wantsOfferRole) {
-      const logged = await recordOfferAcceptanceForUser(client, { userId: user.id as string, ip, source: 'registration' });
+      const logged = await recordOfferAcceptanceForUser(client, { userId: user.id as string, ipAddress: ip, source: 'registration' });
       if (logged === 0) throw new Error('акцепт оферты не записан: карточка партнёра не найдена');
     }
 

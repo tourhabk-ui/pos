@@ -61,7 +61,7 @@ vi.mock('@/lib/payments/accepting', () => ({
 
 process.env.JWT_SECRET = 'test-secret-for-register-by-role';
 
-import { POST } from '@/app/api/auth/register/route';
+import { POST, registrationRoles } from '@/app/api/auth/register/route';
 import { POST as POST_OPERATOR_FORM } from '@/app/api/auth/register-operator/route';
 import { OFFER_REQUIRED_TEXT, OFFER_VERSION } from '@/lib/legal/offer';
 
@@ -326,6 +326,36 @@ describe('оферта: двери регистрации партнёра', () 
       expect(await res.json()).toEqual({ success: false, error: OFFER_REQUIRED_TEXT, code: 'offer_required' });
     }
     expect(clientQueryMock).not.toHaveBeenCalled();
+  });
+
+  it('набор ролей один: роль аккаунта всегда в нём', () => {
+    expect(registrationRoles(undefined, undefined)).toEqual({ userRole: 'tourist', allRoles: ['tourist'] });
+    expect(registrationRoles('stay', undefined)).toEqual({ userRole: 'stay', allRoles: ['stay'] });
+    expect(registrationRoles(undefined, ['gear', 'stay'])).toEqual({ userRole: 'gear', allRoles: ['gear', 'stay'] });
+    expect(registrationRoles('stay', ['gear', 'stay'])).toEqual({ userRole: 'stay', allRoles: ['gear', 'stay'] });
+    // Роль аккаунта вне списка — в набор входит первой.
+    expect(registrationRoles('operator', ['tourist'])).toEqual({ userRole: 'operator', allRoles: ['operator', 'tourist'] });
+    expect(registrationRoles('tourist', ['gear'])).toEqual({ userRole: 'tourist', allRoles: ['tourist', 'gear'] });
+    expect(registrationRoles('guide', [])).toEqual({ userRole: 'guide', allRoles: ['guide'] });
+  });
+
+  it.each(['operator', 'guide', 'transfer', 'stay', 'gear', 'cars'])('главная дверь: роль аккаунта %s при списке ролей «турист» отметку не обходит', async (role) => {
+    const res = await POST(registerReq({ email: 'p@x.ru', password: 'Secret123', name: 'Тест', role, roles: ['tourist'], offer_accepted: undefined }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ success: false, error: OFFER_REQUIRED_TEXT, code: 'offer_required' });
+    expect(clientQueryMock).not.toHaveBeenCalled();
+  });
+
+  it('главная дверь: роль аккаунта вне списка, отметка стоит — карточка заведена, акцепт записан', async () => {
+    const res = await POST(registerReq({ email: 'p@x.ru', password: 'Secret123', name: 'Тест', role: 'stay', roles: ['tourist'] }));
+    expect(res.status).toBe(201);
+    const cards = partnerInsertCalls();
+    expect(cards).toHaveLength(1);
+    expect(cards[0][1]).toContain('stay');
+    expect(acceptCalls()).toHaveLength(1);
+    // В аккаунт записаны обе роли: вход — как у партнёра, роль аккаунта первой.
+    const userInsert = clientQueryMock.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO users'))!;
+    expect(String((userInsert[1] as unknown[]).join(' '))).toContain('"roles":["stay","tourist"]');
   });
 
   it('главная дверь: роль с заявками среди нескольких — отметка всё равно нужна', async () => {

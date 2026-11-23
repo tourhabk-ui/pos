@@ -5,6 +5,12 @@
  * Журнал только пополняется: каждый акцепт — новая строка с версией оферты.
  * Версию ставит этот файл из `OFFER_VERSION`, а не вызывающий: записать акцепт
  * «без версии» или с чужой версией через эти функции нельзя.
+ *
+ * В строке — адрес человека (`ip`) и ссылка на его аккаунт: это персональные
+ * данные. Параметр назван `ipAddress`, а не `ip`, намеренно: перепись ПД
+ * (lib/agents/compliance/pd-sinks) узнаёт адрес по этому слову, и таблица
+ * обязана стоять в `PD_TABLES` с родом хранения. Под именем `ip` запись была
+ * переписи не видна (находка ревью безопасности 23.11).
  */
 import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
@@ -18,8 +24,8 @@ function sqlstate(err: unknown): string {
   return (err as { code?: string } | null)?.code ?? 'нет SQLSTATE';
 }
 
-function cleanIp(ip: string | null | undefined): string | null {
-  const v = (ip ?? '').trim().slice(0, 64);
+function cleanIp(ipAddress: string | null | undefined): string | null {
+  const v = (ipAddress ?? '').trim().slice(0, 64);
   return v ? v : null;
 }
 
@@ -33,28 +39,28 @@ function cleanIp(ip: string | null | undefined): string | null {
  */
 export async function recordOfferAcceptanceForUser(
   client: Db,
-  opts: { userId: string; ip: string | null | undefined; source: OfferAcceptSource },
+  opts: { userId: string; ipAddress: string | null | undefined; source: OfferAcceptSource },
 ): Promise<number> {
   const { rowCount } = await client.query(
     `INSERT INTO partner_offer_acceptances (partner_id, user_id, offer_version, ip, source)
      SELECT p.id, $1::uuid, $2::varchar, $3::varchar, $4::varchar
        FROM partners p
       WHERE p.user_id = $1::uuid AND p.category = ANY($5::text[])`,
-    [opts.userId, OFFER_VERSION, cleanIp(opts.ip), opts.source, [...OFFER_ROLES]],
+    [opts.userId, OFFER_VERSION, cleanIp(opts.ipAddress), opts.source, [...OFFER_ROLES]],
   );
   return rowCount ?? 0;
 }
 
 /** Акцепт одной карточкой — кнопка в кабинете у партнёра, заведённого раньше. */
 export async function recordOfferAcceptanceForPartner(
-  opts: { partnerId: string; userId: string; ip: string | null | undefined },
+  opts: { partnerId: string; userId: string; ipAddress: string | null | undefined },
   db: Db = pool,
 ): Promise<'recorded' | 'db_error'> {
   try {
     await db.query(
       `INSERT INTO partner_offer_acceptances (partner_id, user_id, offer_version, ip, source)
        VALUES ($1::uuid, $2::uuid, $3::varchar, $4::varchar, 'cabinet')`,
-      [opts.partnerId, opts.userId, OFFER_VERSION, cleanIp(opts.ip)],
+      [opts.partnerId, opts.userId, OFFER_VERSION, cleanIp(opts.ipAddress)],
     );
     return 'recorded';
   } catch (err) {

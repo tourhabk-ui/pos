@@ -150,6 +150,24 @@ withPg('регистрация на настоящем PostgreSQL', () => {
       expect((await journal(email)).map((r) => r.category).sort()).toEqual(['gear', 'transfer']);
     });
 
+    it('роль аккаунта вне списка ролей отметку не обходит: без неё — 400, с ней — карточка и акцепт', async () => {
+      const { OFFER_REQUIRED_TEXT } = await import('@/lib/legal/offer');
+      const email = 'offer.split.roles@example.com';
+      // Роль аккаунта — партнёрская, а в списке ролей только «турист».
+      const denied = await POST(req({ ...base, name: 'Тест', email, role: 'gear', roles: ['tourist'] }));
+      expect(denied.status).toBe(400);
+      expect(await denied.json()).toEqual({ success: false, error: OFFER_REQUIRED_TEXT, code: 'offer_required' });
+      expect(await userCount(email)).toBe(0);
+
+      const ok = await POST(req({ ...base, name: 'Тест', email, role: 'gear', roles: ['tourist'], offer_accepted: true }));
+      expect(ok.status).toBe(201);
+      const account = await pool.query<{ role: string; roles: string[] }>(
+        `SELECT role, ARRAY(SELECT JSONB_ARRAY_ELEMENTS_TEXT(preferences->'roles')) AS roles FROM users WHERE email = $1`, [email]);
+      // Вход — прокатчик снаряжения, и карточка у него есть сразу, а не «потом из кабинета».
+      expect(account.rows[0]).toEqual({ role: 'gear', roles: ['gear', 'tourist'] });
+      expect((await journal(email)).map((r) => r.category)).toEqual(['gear']);
+    });
+
     it('туристу отметка не нужна, и акцепта у него нет', async () => {
       const email = 'offer.tourist@example.com';
       const res = await POST(req({ ...base, email }));
@@ -165,7 +183,7 @@ withPg('регистрация на настоящем PostgreSQL', () => {
       const ids = await pool.query<{ partner_id: string; user_id: string }>(
         `SELECT p.id::text AS partner_id, u.id::text AS user_id FROM partners p JOIN users u ON u.id = p.user_id WHERE u.email = $1`, [email]);
       const { recordOfferAcceptanceForPartner, readOfferAcceptance } = await import('@/lib/legal/offer-acceptance');
-      expect(await recordOfferAcceptanceForPartner({ partnerId: ids.rows[0].partner_id, userId: ids.rows[0].user_id, ip: '10.9.9.9' })).toBe('recorded');
+      expect(await recordOfferAcceptanceForPartner({ partnerId: ids.rows[0].partner_id, userId: ids.rows[0].user_id, ipAddress: '10.9.9.9' })).toBe('recorded');
       const after = await journal(email);
       expect(after).toHaveLength(2);
       expect(after[0]).toEqual(before[0]);

@@ -324,24 +324,24 @@ describe('журнал акцепта: версия ставится здесь,
   it('запись при регистрации несёт действующую версию и роли-стороны оферты; ноль строк — ноль', async () => {
     const { recordOfferAcceptanceForUser } = await load();
     const { db, query } = fakeDb(() => ({ rowCount: 2 }));
-    expect(await recordOfferAcceptanceForUser(db, { userId: 'u1', ip: ' 203.0.113.7 ', source: 'registration' })).toBe(2);
+    expect(await recordOfferAcceptanceForUser(db, { userId: 'u1', ipAddress: ' 203.0.113.7 ', source: 'registration' })).toBe(2);
     const [sql, params] = query.mock.calls[0];
     expect(sql).toContain('INSERT INTO partner_offer_acceptances');
     expect(params).toEqual(['u1', OFFER_VERSION, '203.0.113.7', 'registration', [...OFFER_ROLES]]);
     const none = fakeDb(() => ({ rowCount: 0 }));
-    expect(await recordOfferAcceptanceForUser(none.db, { userId: 'u1', ip: null, source: 'registration' })).toBe(0);
+    expect(await recordOfferAcceptanceForUser(none.db, { userId: 'u1', ipAddress: null, source: 'registration' })).toBe(0);
     expect(none.query.mock.calls[0][1][2]).toBeNull();
   });
 
   it('запись из кабинета: версия — действующая, адрес обрезан; отказ базы — «не записано» без данных в логе', async () => {
     const { recordOfferAcceptanceForPartner } = await load();
     const good = fakeDb(() => ({ rowCount: 1 }));
-    expect(await recordOfferAcceptanceForPartner({ partnerId: 'p1', userId: 'u1', ip: 'a'.repeat(200) }, good.db)).toBe('recorded');
+    expect(await recordOfferAcceptanceForPartner({ partnerId: 'p1', userId: 'u1', ipAddress: 'a'.repeat(200) }, good.db)).toBe('recorded');
     expect(good.query.mock.calls[0][1]).toEqual(['p1', 'u1', OFFER_VERSION, 'a'.repeat(64)]);
 
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const bad = fakeDb(() => { throw Object.assign(new Error('секрет 203.0.113.7'), { code: '23503' }); });
-    expect(await recordOfferAcceptanceForPartner({ partnerId: 'p1', userId: 'u1', ip: '203.0.113.7' }, bad.db)).toBe('db_error');
+    expect(await recordOfferAcceptanceForPartner({ partnerId: 'p1', userId: 'u1', ipAddress: '203.0.113.7' }, bad.db)).toBe('db_error');
     const logged = err.mock.calls.flat().join(' ');
     expect(logged).toContain('23503');
     expect(logged).not.toContain('203.0.113.7');
@@ -379,7 +379,12 @@ describe('запреты', () => {
   const touching = sources().filter((f) => read(f).includes('partner_offer_acceptances'));
 
   it('журнал акцепта пишет один файл; стирание аккаунта снимает только адрес и связь с человеком', () => {
-    expect(touching.sort()).toEqual(['lib/account/erase.ts', 'lib/legal/offer-acceptance.ts']);
+    expect(touching.sort()).toEqual([
+      'lib/account/erase.ts',
+      'lib/agents/compliance/pd-db-tables.ts', // реестр таблиц с ПД: запись о журнале, SQL к нему нет
+      'lib/legal/offer-acceptance.ts',
+    ]);
+    expect(read('lib/agents/compliance/pd-db-tables.ts')).not.toMatch(/(INSERT INTO|UPDATE|DELETE FROM)\s+partner_offer_acceptances/i);
     const journal = read('lib/legal/offer-acceptance.ts');
     // Журнал только пополняется: строк акцепта никто не правит и не удаляет.
     expect(journal).not.toMatch(/UPDATE\s+partner_offer_acceptances|DELETE\s+FROM\s+partner_offer_acceptances/i);
@@ -391,12 +396,40 @@ describe('запреты', () => {
     expect(step).not.toMatch(/offer_version|accepted_at|partner_id\s*=/i);
   });
 
-  it('администратор оферту за партнёра не принимает: его двери журнал не пишут', () => {
-    const admin = sources().filter((f) => f.startsWith('app/api/admin/') || f.startsWith('app/hub/admin/'));
-    expect(admin.length).toBeGreaterThan(50);
-    for (const f of admin) {
-      expect(read(f), f).not.toMatch(/recordOfferAcceptance|offer-acceptance/);
+  it('акцепт пишут только названные двери — три регистрации и кабинет партнёра; администратор среди них нет', () => {
+    // Список точный, а не «каталоги администратора»: дверь администратора может
+    // лежать где угодно (app/api/hub/admin, app/api/telegram/admin, крон), и
+    // перечень префиксов её пропустил бы (находка ревью безопасности 23.11).
+    // Новый файл, который зовёт запись акцепта или подключает журнал, — красный,
+    // пока не назван здесь с тем, чьим входом он пишет.
+    const users = sources().filter((f) => /recordOfferAcceptanceFor(?:User|Partner)|readOfferAcceptance\b|from '@\/lib\/legal\/offer-acceptance'/.test(read(f))).sort();
+    const WRITERS: Record<string, string> = {
+      'app/api/auth/register-operator/route.ts': 'сам человек при регистрации партнёром: отметка в его запросе',
+      'app/api/auth/register/route.ts': 'сам человек при регистрации партнёром: отметка в его запросе',
+      'app/api/hub/partner/offer/route.ts': 'владелец кабинета партнёра: вход requirePartner, карточка из входа',
+      'app/api/partners/register/route.ts': 'сам человек при регистрации юрлица: согласие с офертой обязательно схемой',
+    };
+    const READERS = ['lib/partners/readiness-store.ts'];
+    expect(users).toEqual([...Object.keys(WRITERS), 'lib/legal/offer-acceptance.ts', ...READERS].sort());
+    for (const reader of READERS) expect(read(reader), reader).not.toMatch(/recordOfferAcceptance/);
+    for (const [file, why] of Object.entries(WRITERS)) {
+      expect(why.length, file).toBeGreaterThan(30);
+      expect(read(file), file).toMatch(/recordOfferAcceptanceFor(?:User|Partner)\(/);
+      // Ни одна дверь записи не открывается входом администратора или ключом крона.
+      expect(read(file), file).not.toMatch(/requireAdmin|CRON_SECRET/);
     }
+  });
+
+  it('таблица журнала стоит в реестре таблиц с ПД: адрес человека виден переписи', async () => {
+    const { PD_TABLES } = await import('@/lib/agents/compliance/pd-db-tables');
+    const { pdKindOf } = await import('@/lib/agents/compliance/pd-sinks');
+    expect(PD_TABLES.find((e) => e.table === 'partner_offer_acceptances')).toMatchObject({ kept: 'erase' });
+    // Параметр назван так, чтобы перепись узнала в нём адрес; под именем `ip` она его не видела.
+    expect(pdKindOf('ipAddress')).toBe('contact');
+    expect(pdKindOf('ip')).toBeNull();
+    const journal = read('lib/legal/offer-acceptance.ts');
+    expect(journal).toMatch(/cleanIp\(opts\.ipAddress\)/);
+    expect(journal).not.toMatch(/opts\.ip\b/);
   });
 
   it('миграция журнала: версия обязательна, строки туров и партнёров не трогает, без DROP', () => {

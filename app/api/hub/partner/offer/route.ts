@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   const saved = await recordOfferAcceptanceForPartner({
     partnerId: ctx.partnerId,
     userId: ctx.userId,
-    ip: getTrustedClientIp(req.headers),
+    ipAddress: getTrustedClientIp(req.headers),
   });
   if (saved === 'db_error') {
     return NextResponse.json({ success: false, error: 'Отметка не записана — попробуйте позже' }, { status: 503 });

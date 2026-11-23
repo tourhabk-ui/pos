@@ -93,6 +93,7 @@ export const PD_TABLES: readonly PdTableEntry[] = [
   { table: 'tour_seat_requests', kept: 'erase', holds: 'запрос мест в туре: имя и телефон' },
   { table: 'transfer_seat_bookings', kept: 'erase', holds: 'заказ места в машине: телефон' },
   { table: 'support_tickets', kept: 'erase', holds: 'обращение в поддержку: имя и почта' },
+  { table: 'partner_offer_acceptances', kept: 'erase', holds: 'акцепт оферты партнёром: адрес и ссылка на аккаунт принявшего; версия и время остаются у карточки' },
   // --- пробелы: срока нет, удаление аккаунта их не стирает
   {
     table: 'agent_clients', kept: 'gap', holds: 'клиенты турагента: имя, телефон и почта',
