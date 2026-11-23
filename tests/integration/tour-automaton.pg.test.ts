@@ -683,6 +683,15 @@ withPg('автомат предлагает правку тура', () => {
       // Повтор импорта с теми же данными ничего не меняет.
       expect(await save(scraped('Импорт: тур на сайте'))).toBe('staged');
       expect((await draftOf(tour)).patch).toEqual(draft.patch);
+      // Одобрение пишет все пять полей, включая примечание к цене; оператору сказано, что тур изменила платформа.
+      sent.alerts.length = 0;
+      const ok = await adminPost(card.id, { action: 'approve', seen: card.seen });
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      expect(await rowOf(tour)).toMatchObject({
+        description: COMPOSED, base_price: 12000, price_unit: 'per_person', price_note: 'Детям до 12 лет — скидка',
+        duration_hours: 9, activity_type: 'hiking',
+      });
+      expect(sent.alerts[0]?.text).toContain('Тур изменён по предложению платформы');
     });
 
     it('цена за группу ложится словарём сайта — «за тур»; единица не понята — цена и единица не трогаются', async () => {
