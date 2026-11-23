@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseTelegramPreview, isTelegramInvite, telegramPreviewUrl } from '@/lib/agents/scout-telegram';
 import { RSS_SOURCES } from '@/lib/agents/scout-digest';
+import { classifyItemAge } from '@/lib/agents/scout-item-age';
 import { SCOUT_SOURCE_EXPECTATIONS } from '@/lib/services/scout/source-health';
 
 const DIGEST = readFileSync(join(process.cwd(), 'lib/agents/scout-digest.ts'), 'utf-8');
@@ -39,7 +40,41 @@ describe('разбор превью', () => {
       title: 'Минэкономразвития утвердило правила субсидий на модульные отели',
       url: 'https://t.me/ru_rst/1234',
       source: 'РСТ (Telegram)',
+      publishedAt: '2026-09-03T10:00:00.000Z',
     });
+  });
+
+  // Аудит 23.11: превью отдаёт около двадцати постов от старых к новым, а
+  // разбор брал первые пять — самые старые. Новость попадала в разведку,
+  // когда после неё выходило ещё пятнадцать постов.
+  it('из длинного превью берутся ПОСЛЕДНИЕ посты, новые первыми, с временем поста', () => {
+    const post = (n: number) => `
+<div class="tgme_widget_message_wrap js-widget_message_wrap">
+  <div class="tgme_widget_message" data-post="ru_rst/${n}">
+    <div class="tgme_widget_message_text js-message_text" dir="auto">Новость номер ${n} о туризме</div>
+    <a class="tgme_widget_message_date" href="https://t.me/ru_rst/${n}"><time datetime="2026-11-${String(n - 90).padStart(2, '0')}T08:00:00+00:00">08:00</time></a>
+  </div>
+</div>`;
+    // 101…120: двадцать постов, 120 — самый свежий, стоит последним.
+    const html = Array.from({ length: 20 }, (_, i) => post(101 + i)).join('');
+    const posts = parseTelegramPreview(html, 'РСТ (Telegram)');
+    expect(posts.map((p) => p.url)).toEqual([120, 119, 118, 117, 116].map((n) => `https://t.me/ru_rst/${n}`));
+    expect(posts[0]!.publishedAt).toBe('2026-11-30T08:00:00.000Z');
+  });
+
+  it('времени в разметке нет или оно не разбирается — поля нет, а не «сейчас»', () => {
+    const noTime = SAMPLE.replace(/<time[^>]*>[^<]*<\/time>/, '');
+    expect(parseTelegramPreview(noTime, 'x')[0]).not.toHaveProperty('publishedAt');
+    const broken = SAMPLE.replace('2026-09-03T10:00:00+00:00', 'вчера');
+    expect(parseTelegramPreview(broken, 'x')[0]).not.toHaveProperty('publishedAt');
+  });
+
+  it('пост трёхнедельной давности отсеивается как старьё, без даты — остаётся', () => {
+    const now = Date.parse('2026-09-25T00:00:00Z');
+    const [dated] = parseTelegramPreview(SAMPLE, 'x');
+    expect(classifyItemAge(dated!.publishedAt, now)).toBe('stale');
+    const [undated] = parseTelegramPreview(SAMPLE.replace(/<time[^>]*>[^<]*<\/time>/, ''), 'x');
+    expect(classifyItemAge(undated!.publishedAt, now)).toBe('unknown');
   });
 
   it('длинный пост обрезается, не выбрасывается', () => {

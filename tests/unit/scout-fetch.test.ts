@@ -26,6 +26,12 @@ beforeEach(() => {
     if (url === 'https://partner.example.ru/jump/') {
       return new Response(null, { status: 302, headers: { location: 'http://internal.example.ru/meta' } });
     }
+    if (url === 'https://slow.example.ru/') {
+      // Отвечает только обрывом по сигналу — как сервер, который молчит.
+      return new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted by timeout')));
+      });
+    }
     return new Response('?', { status: 500 });
   }) as typeof fetch;
 });
@@ -66,5 +72,25 @@ describe('safeFetchText', () => {
     const r = await safeFetchText('https://partner.example.ru/jump/');
     expect(r.ok).toBe(false);
     expect(seen.map((s) => s.url)).toEqual(['https://partner.example.ru/jump/']);
+  });
+
+  // 23.11: читающему нужно отличать «адрес отвергнут» от «сервер не ответил» —
+  // первое нельзя обходить другой дорогой (реле), второе можно.
+  it('отвергнутый адрес помечен blocked; отказ сервера и обрыв — нет', async () => {
+    expect(await safeFetchText('https://partner.example.ru/jump/')).toMatchObject({ ok: false, blocked: true });
+    expect(await safeFetchText('http://169.254.169.254/latest/meta-data/')).toMatchObject({ ok: false, blocked: true });
+    expect(await safeFetchText('http://internal.example.ru/')).toMatchObject({ ok: false, blocked: true });
+    expect(await safeFetchText('https://partner.example.ru/gone/')).not.toHaveProperty('blocked');
+    expect(await safeFetchText('https://slow.example.ru/', { timeoutMs: 20 })).not.toHaveProperty('blocked');
+    // IP-литерал и внутреннее имя не запрашивались вовсе.
+    expect(seen.map((s) => s.url)).not.toContain('http://169.254.169.254/latest/meta-data/');
+    expect(seen.map((s) => s.url)).not.toContain('http://internal.example.ru/');
+  });
+
+  it('свой срок ожидания читающего: молчащий сервер обрывается по нему', async () => {
+    const t0 = Date.now();
+    const r = await safeFetchText('https://slow.example.ru/', { timeoutMs: 30 });
+    expect(r.ok).toBe(false);
+    expect(Date.now() - t0).toBeLessThan(5_000);
   });
 });

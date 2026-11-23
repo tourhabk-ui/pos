@@ -15,7 +15,8 @@
  *  - перепись раскладывает внешние ошибки по клиенту, а проверки (смоук) в
  *    неё не попадают.
  *
- * Вторая часть файла — заметки Кузьмича только с источником (#3514).
+ * Вторая часть файла — заметки Кузьмича только с источником (#3514); там же,
+ * на той же таблице, память канала разведки (аудит 23.11).
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -35,6 +36,7 @@ import { createTestDatabase, dropTestDatabase } from '../helpers/pg-schema';
 import { KUZMICH_KNOWLEDGE_SCOPE_SQL } from '@/lib/kuzmich/knowledge-scope';
 import { placeInfoForKuzmich } from '@/lib/kuzmich/place-info-tool';
 import { getGuardianContextDetailed } from '@/lib/kuzmich/guardian-context';
+import { recentPublishedDigests } from '@/lib/agents/scout-digest';
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -289,5 +291,21 @@ withPg('заметки Кузьмича — только с источником
     expect(malki.text).toContain('topkam.ru');
     expect(malki.text).not.toContain('3000');
     expect(malki.text).not.toContain('120 км');
+  });
+
+  // Аудит 23.11: выпуск, который Telegram не принял, записывался в ту же
+  // таблицу и читался как опубликованный — повторная попытка отсекалась как
+  // «почти дословный повтор» самой себя. `->>` по jsonb судит сервер.
+  it('память канала разведки: неотправленный выпуск опубликованным не считается', async () => {
+    await pool.query(
+      `INSERT INTO agent_knowledge (slug, type, title, compiled_truth, agent_id, metadata) VALUES
+         ('intel/scout/2026-11-19', 'intel', 'Scout Digest 2026-11-19', 'старая запись без поля', 'scout', '{}'),
+         ('intel/scout/2026-11-20', 'intel', 'Scout Digest 2026-11-20', 'выпуск ушёл', 'scout', '{"sent_to_tg": true}'),
+         ('intel/scout/2026-11-21', 'intel', 'Scout Digest 2026-11-21', 'выпуск не ушёл', 'scout', '{"sent_to_tg": false}'),
+         ('intel/other/2026-11-22', 'intel', 'Не выпуск', 'чужая запись', 'scout', '{"sent_to_tg": true}')`,
+    );
+    expect(await recentPublishedDigests()).toEqual(['выпуск ушёл', 'старая запись без поля']);
+    expect(await recentPublishedDigests(1)).toEqual(['выпуск ушёл']);
+    await pool.query(`DELETE FROM agent_knowledge WHERE slug LIKE 'intel/%'`);
   });
 });

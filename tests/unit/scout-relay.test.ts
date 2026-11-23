@@ -87,9 +87,8 @@ describe('разведчик: прямой путь первый, путь за�
     expect(DIGEST).toMatch(/error: `напрямую: \$\{direct\.error\}; \$\{relayed\.error\}`/);
   });
 
-  it('текст статьи тоже идёт через реле после гео-отказа', () => {
-    expect(DIGEST).toMatch(/shouldFallbackToRelay\(\{ status: res\.status \}\)\) && relayConfigured\(\)/);
-  });
+  // «Текст статьи тоже идёт через реле после гео-отказа» судится поведением:
+  // tests/unit/scout-article-fetch.test.ts (23.11, вместо сравнения строки кода).
 
   it('отчёт здоровья несёт via, когда он есть', () => {
     const report = buildSourceReport(
