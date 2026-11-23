@@ -72,7 +72,7 @@ export interface PendingRow {
   id: string;
   patch: unknown;
   wants_publish: boolean;
-  /** Кто предложил поля (1510): {колонка: имя автомата}. */
+  /** Кто предложил поля (1511): {колонка: имя автомата}. */
   proposed_by?: unknown;
 }
 
