@@ -82,5 +82,11 @@ jobs:
               d = json.load(f)
           print('ВЕРДИКТ:', d.get('verdict', '(нет)'))
           print()
+          # Запись человека (actor_type editor): кто и что написал причиной —
+          # в публичный лог не идёт (перепись 23.11); событие и время остаются.
+          for row in d.get('recent') or []:
+              if isinstance(row, dict) and row.get('actor_type') == 'editor':
+                  row['actor_id'] = '(скрыто)'
+                  row['decision_reason'] = '(скрыто, %d зн.)' % len(row.get('decision_reason') or '')
           print(json.dumps(d, ensure_ascii=False, indent=2))
           PY

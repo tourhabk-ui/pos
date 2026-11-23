@@ -13,6 +13,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # Сводка ответа вместо тела: лог Actions публичный, а в телах бывают
+      # имена операторов, номера броней и свободный текст (перепись 23.11).
+      # Отказ checkout не должен отменять вызовы эндпоинтов: без скрипта шаг
+      # просто не напечатает сводку, исход решает код HTTP.
+      - name: Скрипт сводки ответа
+        continue-on-error: true
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts
+
       - name: Send 24h tour reminders
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -28,7 +38,7 @@ jobs:
             -H "Authorization: Bearer $CRON_SECRET")
 
           echo "HTTP: $HTTP"
-          cat /tmp/reminder_resp.json 2>/dev/null || true
+          node scripts/cron-body-summary.mjs /tmp/reminder_resp.json "$HTTP" || true
 
           if [ "$HTTP" = "200" ]; then
             echo "Tour reminders sent OK"
