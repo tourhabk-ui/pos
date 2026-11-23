@@ -89,6 +89,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       error: 'В правке есть адрес снимка, который снимком не является. Тур не изменён — верните правку владельцу с причиной.',
     }, { status: 409 });
   }
+  if (decided.outcome === 'place_gone') {
+    return NextResponse.json({
+      success: false,
+      code: 'place_gone',
+      error: 'Главное место из правки скрыто или слито в другое, пока правка ждала. Тур не изменён — верните правку владельцу с причиной.',
+    }, { status: 409 });
+  }
   if (decided.outcome === 'already') {
     return NextResponse.json({ success: false, error: 'По этой правке решение уже записано' }, { status: 409 });
   }

@@ -24,6 +24,7 @@
  * что-то записано в живую строку.
  */
 import type { PoolClient } from 'pg';
+import { assertLiveMainPlace } from '@/lib/tours/main-place';
 import { writeTourPatch, type TourPatchInput, type TourWriteResult } from '@/lib/tours/tour-write';
 import { contentDiff, pendingNotice, splitTourInput, type ModeratedTourColumn } from '@/lib/tours/moderation';
 import { LIVE_CONTENT_COLUMNS, lockPendingTourEdit, stageTourEdit } from '@/lib/tours/moderation-store';
@@ -118,6 +119,14 @@ export async function saveTourChange(
   // Содержание прислано, но оно равно витрине, и черновика нет (форма шлёт
   // себя целиком при каждом сохранении): проверять нечего.
   if (pendingBefore === null && !asksPublish && Object.keys(contentDiff(live, toStage)).length === 0) return written;
+
+  // Главное место проверяется при отправке на проверку, а не только при
+  // одобрении: иначе владелец узнал бы, что место скрыто или слито, лишь из
+  // отказа администратора. Не живое — MainPlaceRejected, ничего не записано.
+  const stagedPlace = (toStage as Record<string, unknown>).main_place_id;
+  if (typeof stagedPlace === 'string' && stagedPlace !== (live.main_place_id ?? null)) {
+    await assertLiveMainPlace(client, stagedPlace);
+  }
 
   // Просьба о публикации вместе с прямой правкой: администратор должен
   // увидеть уже записанное содержание — сверяем с ним, а не со старой строкой.

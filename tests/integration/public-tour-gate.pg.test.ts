@@ -41,7 +41,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
 import { createTestDatabase } from '../helpers/pg-schema';
-import { approveTourEdit } from '../helpers/tour-edit-approve';
+import { approveTourEdit, pendingTourEdits } from '../helpers/tour-edit-approve';
 
 vi.mock('next/cache', () => ({ unstable_cache: (fn: () => unknown) => fn }));
 
@@ -1518,7 +1518,7 @@ withPg('витрина туров: снятый тур не в плане и н�
       expect(new Set(ids).size, 'место не множится по турам').toBe(ids.length);
     });
 
-    it('кабинет: скрытое, слитое и несуществующее место — 400 без записи; живое — пишется как выбор оператора', async () => {
+    it('кабинет: скрытое, слитое и несуществующее место — 400 без записи; живое — выбор оператора: у тура на сайте после проверки, у черновика сразу', async () => {
       const { PATCH } = await import('@/app/api/hub/operator/tours/[id]/route');
       const patch = (slug: string, body: unknown) => PATCH(
         new NextRequest(`http://localhost/api/hub/operator/tours/${tour[slug]}`, {
@@ -1526,22 +1526,52 @@ withPg('витрина туров: снятый тур не в плане и н�
         }),
         { params: Promise.resolve({ id: tour[slug] }) },
       );
+      // Вошедший из заглушки входа — настоящая строка: правка на проверке помнит, кто её сохранил.
+      await pool.query(
+        `INSERT INTO users (id, email, name, password_hash, role)
+         VALUES ('b1100000-0000-4000-8000-0000000000bb', 'tp-owner@example.com', 'Тест', 'x', 'operator')
+         ON CONFLICT (id) DO NOTHING`,
+      );
       for (const bad of ['tp-place-hidden', 'tp-place-merged', 'tp-no-such-place']) {
         const res = await patch('tp-twin', { main_place_id: bad });
         expect(res.status, bad).toBe(400);
         expect(await linkOf('tp-twin')).toEqual({ main_place_id: null, main_place_source: null });
+        // И на проверку такое место не уходит.
+        expect(await pendingTourEdits(tour['tp-twin']), bad).toBe(0);
       }
+      // Тур на сайте (слово владельца 23.11: место — через проверку): связь
+      // прежняя, пока администратор не одобрил.
       const okRes = await patch('tp-twin', { main_place_id: 'tp-place-twin-a' });
       expect(okRes.status).toBe(200);
+      expect((await okRes.json()).pending).toMatchObject({ fields: ['main_place_id'] });
+      expect(await linkOf('tp-twin')).toEqual({ main_place_id: null, main_place_source: null });
+      await approveTourEdit(tour['tp-twin']);
       expect(await linkOf('tp-twin')).toEqual({ main_place_id: 'tp-place-twin-a', main_place_source: 'operator' });
 
-      // Сохранение формы целиком с прежним местом — «по координатам» так и остаётся.
+      // Сохранение формы целиком с прежним местом — «по координатам» так и остаётся, и проверять нечего.
       expect((await patch('tp-exact', { title: 'TP тур tp-exact', main_place_id: 'tp-place-exact' })).status).toBe(200);
       expect(await linkOf('tp-exact')).toEqual({ main_place_id: 'tp-place-exact', main_place_source: 'coords_equal' });
+      expect(await pendingTourEdits(tour['tp-exact'])).toBe(0);
 
-      // Снять — и место, и источник.
+      // Снять — и место, и источник; у тура на сайте — тоже после проверки.
       expect((await patch('tp-twin', { main_place_id: null })).status).toBe(200);
+      expect(await linkOf('tp-twin')).toEqual({ main_place_id: 'tp-place-twin-a', main_place_source: 'operator' });
+      await approveTourEdit(tour['tp-twin']);
       expect(await linkOf('tp-twin')).toEqual({ main_place_id: null, main_place_source: null });
+
+      // Черновик туристы не видят: место пишется сразу как выбор оператора, скрытое — те же 400.
+      const draftBefore = await linkOf('tp-draft');
+      try {
+        expect((await patch('tp-draft', { main_place_id: 'tp-place-hidden' })).status).toBe(400);
+        expect(await linkOf('tp-draft')).toEqual(draftBefore);
+        expect((await patch('tp-draft', { main_place_id: 'tp-place-pick' })).status).toBe(200);
+        expect(await linkOf('tp-draft')).toEqual({ main_place_id: 'tp-place-pick', main_place_source: 'operator' });
+        expect(await pendingTourEdits(tour['tp-draft'])).toBe(0);
+      } finally {
+        // Сцену делят соседние тесты: связь черновика возвращается как была.
+        await pool.query(`UPDATE operator_tours SET main_place_id = $2, main_place_source = $3 WHERE slug = $1`,
+          ['tp-draft', draftBefore.main_place_id, draftBefore.main_place_source]);
+      }
     });
 
     it('планировщик: места тура — и главное; бронь тура с маршрутом и главным местом в одной точке — один раз', async () => {
