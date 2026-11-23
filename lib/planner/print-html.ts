@@ -138,8 +138,8 @@ function style(origin: string): string {
   .day-meta { font-size: 10px; color: ${C.mist}; margin-top: 3px; }
   .day-warn { font-size: 10px; color: ${C.warn}; margin-top: 3px; }
   .day-place { font-size: 10.5px; color: ${C.ink}; margin-top: 3px; }
-  .day-place span { color: ${C.ocean}; word-break: break-all; }
-  .day-link { font-size: 10px; color: ${C.ocean}; margin-top: 3px; word-break: break-all; }
+  .day-place a, .day-link a { color: ${C.ocean}; text-decoration: none; }
+  .day-link { font-size: 10px; color: ${C.ocean}; margin-top: 3px; }
   .aside { display: flex; gap: 8px; align-items: flex-start; }
   .thumb { width: 34mm; }
   .thumb img { width: 34mm; height: 22mm; object-fit: cover; border-radius: 6px; display: block; }
@@ -226,6 +226,18 @@ function dayDate(range: string, num: number): string {
   return `${t.getUTCDate()} ${MONTHS_SHORT[t.getUTCMonth()]}`;
 }
 
+/**
+ * Видимый текст ссылки: адрес без https://, а длинный id (UUID) в конце —
+ * словами «страница места/маршрута на vedarai.ru», чтобы строка не рвалась.
+ * Сама ссылка (href) — полная.
+ */
+export function shortLinkText(href: string): string {
+  const bare = href.replace(/^https?:\/\//, '');
+  const m = /^([^/]+)\/(places|routes)\/([^/?#]+)$/.exec(bare);
+  if (m && m[3].length > 24) return `страница ${m[2] === 'places' ? 'места' : 'маршрута'} на ${m[1]}`;
+  return bare;
+}
+
 export function buildPlanPrintHtml(input: PrintPlanInput): string {
   const e = escapeHtml;
   const { fmt } = input;
@@ -284,8 +296,10 @@ export function buildPlanPrintHtml(input: PrintPlanInput): string {
       ? `<figure class="thumb"><img data-print-photo src="${e(safeUrl(photo.src, origin)!)}" alt=""/><figcaption>${e(photo.caption)}</figcaption></figure>`
       : '';
     const placeHref = d.place ? safeUrl(d.place.href, origin) : null;
+    // Ссылка кликабельна, а видимый адрес — короткий (PDF 23.11: UUID места
+    // рвался посреди строки, и адрес нельзя было ни нажать, ни перепечатать).
     const placeHtml = d.place && placeHref
-      ? `<div class="day-place">${d.place.kind === 'route' ? 'Маршрут' : 'Место'}: <strong>${e(d.place.title)}</strong> — <span>${e(placeHref.replace(/^https:\/\//, ''))}</span></div>`
+      ? `<div class="day-place">${d.place.kind === 'route' ? 'Маршрут' : 'Место'}: <a href="${e(placeHref)}"><strong>${e(d.place.title)}</strong></a> — <a href="${e(placeHref)}">${e(shortLinkText(placeHref))}</a></div>`
       : '';
     const desc = d.description.length > 220 ? `${d.description.slice(0, 219).trimEnd()}…` : d.description;
     return `<div class="row${d.confirmed ? ' confirmed' : ''}">
@@ -296,7 +310,7 @@ export function buildPlanPrintHtml(input: PrintPlanInput): string {
     <div class="day-meta">${e(d.meta)}${weather ? ` · ${e(weather)}` : ''}</div>
     ${warn ? `<div class="day-warn">${e(warn)}</div>` : ''}
     ${placeHtml}
-    ${href ? `<div class="day-link">${e(href.replace(/^https:\/\//, ''))}</div>` : ''}
+    ${href ? `<div class="day-link"><a href="${e(href)}">${e(shortLinkText(href))}</a></div>` : ''}
   </div>
   <div class="aside">${photoHtml}${href ? qrSvg(href) : ''}</div>
 </div>`;

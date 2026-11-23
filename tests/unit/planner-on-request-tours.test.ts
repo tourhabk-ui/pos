@@ -173,7 +173,7 @@ describe('«Сам» и «Вперемешку»: месяц без операт
       // вовсе — на его месте «подходящего тура на эти даты нет».
       expect(rec.days.filter((d) => d.activityMode === 'open')).toEqual([]);
       expect(rec.days.flatMap((d) => d.dayWarnings ?? [])).not.toContain(OUT_OF_SEASON_DAY_NOTE);
-      expect(rec.days.some((d) => d.title === 'Подходящего тура на эти даты нет')).toBe(true);
+      expect(rec.days.some((d) => d.title === 'День на своё усмотрение')).toBe(true);
     } finally {
       TOURS['avachinsky:trekking'] = [{ tourId: 't-trek', title: 'Трекинг к подножию вулкана', zone: 'avachinsky', activityType: 'trekking' }];
     }

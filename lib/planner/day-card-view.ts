@@ -161,6 +161,9 @@ export function planShapeWarnings<W extends PlanWarningLike>(warnings: readonly 
  * дней — каждая ОДИН раз, с днями, к которым она относилась; совет по
  * одежде — тоже один раз. Порядок: критичное, важное, справка.
  */
+/** «День 8: », «Дни 3, 4: », «Дни 2–3: » в начале сводки плана. Диапазон «2–3» даёт оба конца. */
+const DAY_LEAD = /^(?:День|Дни)\s+(\d+(?:\s*(?:,|и|–|-)\s*\d+)*)\s*:\s+/;
+
 export function safetyBlock(days: readonly ViewDay[], warnings: readonly PlanWarningLike[]): SafetyItem[] {
   const items = new Map<string, SafetyItem>();
   const add = (text: string, severity: SafetyItem['severity'], day?: number) => {
@@ -174,7 +177,16 @@ export function safetyBlock(days: readonly ViewDay[], warnings: readonly PlanWar
   };
   for (const w of warnings) {
     if (PLAN_SHAPE_TYPES.has(w.type)) continue;
-    add(w.message, (['critical', 'important', 'info'].includes(w.severity) ? w.severity : 'info') as SafetyItem['severity']);
+    const sev = (['critical', 'important', 'info'].includes(w.severity) ? w.severity : 'info') as SafetyItem['severity'];
+    // Сводка плана «День 8: <строка дня>» — та же строка, что на самом дне
+    // (PDF 24.11–4.12, 23.11: закрытие парка стояло в блоке дважды). Ключ —
+    // текст без приставки дня, дни — в скобках, как у строк дней.
+    const lead = DAY_LEAD.exec(w.message);
+    const leadDays = lead ? [...lead[1].matchAll(/\d+/g)].map((m) => Number(m[0])) : [];
+    if (lead && leadDays.length > 0) {
+      const text = w.message.slice(lead[0].length);
+      for (const day of leadDays) add(text, sev, day);
+    } else add(w.message, sev);
   }
   // Строка дня о вулкане/дороге, место которой уже названо в сводке плана, —
   // второй раз в блоке не пишется (22.11); на самом дне она стоит.

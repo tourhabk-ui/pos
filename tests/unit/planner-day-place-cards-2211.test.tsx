@@ -80,6 +80,6 @@ describe('PDF', () => {
       days: [{ num: 1, confirmed: false, title: 'Снегоход на Мыс Маячный', badge: null, priceLine: '', description: '', meta: '', warnings: [],
         place: { kind: 'place', title: 'Мыс Маячный', href: '/places/abc' } }],
     });
-    expect(html).toContain('Место: <strong>Мыс Маячный</strong> — <span>vedarai.ru/places/abc</span>');
+    expect(html).toContain('Место: <a href="https://vedarai.ru/places/abc"><strong>Мыс Маячный</strong></a> — <a href="https://vedarai.ru/places/abc">vedarai.ru/places/abc</a>');
   });
 });
