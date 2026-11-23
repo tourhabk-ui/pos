@@ -156,16 +156,25 @@ describe('GET /api/cron/kuzmich-review-batch', () => {
   it('тексты — только в шифре; открытого вопроса и ответа в теле нет; числа видны', async () => {
     const res = await GET(req('?days=7'));
     expect(res.status).toBe(200);
-    const raw = await res.clone().text();
-    for (const s of ['Авачинский', 'ветер до 20', 'Туров к вулканам', 'volcano', 'Анна', '914', 'guest@example.com']) {
-      expect(raw).not.toContain(s);
-    }
     const body = await res.json();
+    // Ключ в файле генерируется заново, а «914» из телефона — три знака: они
+    // могут случайно попасть в base64 шифра или в отпечаток (CI 45106400512:
+    // fingerprint 322a8914…). Открытый текст ищем во всех полях, кроме
+    // содержимого sealed; после расшифровки маска проверяется отдельно.
+    const { sealed, ...envelope } = body;
+    const publicRaw = JSON.stringify(envelope);
+    for (const s of ['Авачинский', 'ветер до 20', 'Туров к вулканам', 'volcano', 'Анна', '914', 'guest@example.com']) {
+      expect(publicRaw, s).not.toContain(s);
+      expect(String(sealed?.alg ?? ''), s).not.toContain(s);
+    }
     expect(body).toMatchObject({ ok: true, days: 7, web_sessions_read: 2, web_dialogs: 1, web_pairs: 1, a2a_read: 1, a2a_dialogs: 1, dropped_over_size: 0 });
     const batch = JSON.parse(open(body.sealed)) as ReviewBatch;
     expect(batch.web[0].pairs[0].q).toContain('Авачинский');
     expect(batch.web[0].pairs[0].q).not.toContain('Анна');
+    expect(batch.web[0].pairs[0].q).not.toContain('914');
     expect(batch.a2a[0].pair.a).toContain('Туров к вулканам');
+    expect(JSON.stringify(batch)).not.toContain('914');
+    expect(JSON.stringify(batch)).not.toContain('guest@example.com');
     expect(JSON.stringify(batch)).not.toMatch(/session_id|user_id/);
   });
 
