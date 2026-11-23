@@ -337,3 +337,160 @@ describe('detectEmergency — авария и пострадавшие (25.10)',
     expect(detectEmergency(text)).toEqual({ detected: false, categories: [] });
   });
 });
+
+/**
+ * Аудит агентов 23.11: прогон детектора на фразах беды показал пропуски —
+ * стихия (землетрясение, цунами, пепел), потеря сознания, «застряли», медведь
+ * у палатки, английское «help me» и китайское «救命» (порог длины в 3 знака
+ * отбрасывал слово из двух). На Камчатке землетрясение и цунами — первая
+ * беда, о которой напишут.
+ */
+describe('detectEmergency — пропуски, найденные аудитом 23.11', () => {
+  const positive: Array<[string, string]> = [
+    // стихия
+    ['нас трясёт, сильное землетрясение', 'disaster'],
+    ['Землю трясёт уже минуту', 'disaster'],
+    ['сейчас землетрясение, что делать', 'disaster'],
+    ['началось землетрясение', 'disaster'],
+    ['началось извержение, идёт пепел', 'disaster'],
+    ['на нас сыплется пепел', 'disaster'],
+    ['нас накрыло пеплом', 'disaster'],
+    ['цунами, что делать', 'disaster'],
+    ['объявили тревогу цунами, мы на пляже', 'disaster'],
+    ['вода резко уходит от берега', 'disaster'],
+    ['the ground is shaking', 'disaster'],
+    ['tsunami siren, what should we do', 'disaster'],
+    ['地震了', 'disaster'],
+    ['海啸警报响了', 'disaster'],
+    // озноб — это холод, а не стихия
+    ['Провалился в ручей, весь мокрый, до лагеря три часа, меня трясёт', 'freezing'],
+    // без сознания, обморок, не может идти, отравление
+    ['муж потерял сознание', 'injury'],
+    ['она теряет сознание', 'injury'],
+    ['упала в обморок', 'injury'],
+    ['турист в обмороке', 'injury'],
+    ['не могу идти, нога не слушается', 'injury'],
+    ['он не может встать', 'injury'],
+    ['ребёнок отравился', 'injury'],
+    ['у него анафилактический шок', 'injury'],
+    ['she fainted', 'injury'],
+    ['他晕倒了', 'injury'],
+    // застряли, не найти дорогу
+    ['мы застряли в машине, не можем выбраться', 'lost'],
+    ['застряли в снегу на перевале', 'lost'],
+    ['не можем найти тропу', 'lost'],
+    ['не могу найти дорогу обратно', 'lost'],
+    ['we are stuck', 'lost'],
+    // ревью 23.11: «дело» исключается связкой, а не голым предлогом
+    ['Help us get out of here', 'distress'],
+    ['Help us get out of the water', 'distress'],
+    ['Help us to evacuate', 'distress'],
+    ['Help us with an emergency', 'distress'],
+    ['help us find our way back', 'distress'],
+    ['help us find the route down', 'distress'],
+    ['I need help getting out', 'distress'],
+    ['We need help finding our group', 'distress'],
+    ['we need help on the trail', 'distress'],
+    ['we need help with our tour guide, he fell into the river', 'distress'],
+    ['Нога опухла, не могу идти на ногу', 'injury'],
+    ['Не могу идти на ногах, очень больно', 'injury'],
+    ['не могу идти по снегу, проваливаюсь по пояс', 'injury'],
+    ['не может идти за группой, отстал', 'injury'],
+    ['не могу идти с такой ногой', 'injury'],
+    ["I'm stuck on a ledge", 'lost'],
+    ['не можем выбраться отсюда', 'lost'],
+    ['не могу выбраться из машины, дверь зажало', 'lost'],
+    ['не можем найти свою группу', 'lost'],
+    ['не можем найти путь назад', 'lost'],
+    ['my friend is hurt', 'injury'],
+    ['she just collapsed', 'injury'],
+    ['землетрясение началось', 'disaster'],
+    ['только что было сильное землетрясение', 'disaster'],
+    ["we're stranded on the pass", 'lost'],
+    ['我们被困住了', 'lost'],
+    // медведь у палатки
+    ['медведь ходит вокруг палатки', 'bear'],
+    ['медведь залез в палатку', 'bear'],
+    ['медведь ломится в машину', 'bear'],
+    // зов о помощи
+    ['help me', 'distress'],
+    ['please help', 'distress'],
+    ['Please help us!', 'distress'],
+    ['I need help', 'distress'],
+    ['救命', 'distress'],
+  ];
+  it.each(positive)('срабатывает: «%s» → %s', (text, category) => {
+    const d = detectEmergency(text);
+    expect(d.detected, `пропуск: ${text}`).toBe(true);
+    expect(d.categories).toContain(category);
+  });
+
+  const negative = [
+    // вопросы и новости о стихии — не беда
+    'Бывают ли на Камчатке землетрясения?',
+    'Когда было последнее землетрясение?',
+    'Что делать при землетрясении в гостинице?',
+    'Идёт извержение Шивелуча — отменят ли тур в Ключи?',
+    'Началось извержение Ключевской, можно ли ехать?',
+    'Есть ли угроза цунами на Халактырском пляже?',
+    'Расскажите про цунами 1952 года',
+    'Is there a tsunami risk on the beach?',
+    '堪察加会地震吗？',
+    // «не могу идти» и «встать» как планы, а не тело
+    'Не могу идти в поход в субботу, перенесите',
+    'не могу идти на тур 5-го',
+    'не могу встать рано, есть выезд после десяти?',
+    // застряли не в поле
+    'застряли в аэропорту из-за погоды, перенесите бронь',
+    "I'm stuck choosing between two tours",
+    'We are stranded at the airport, can we move the booking?',
+    // «выбраться» и «найти группу» как планы
+    'Никак не можем выбраться на Камчатку, третий год собираемся',
+    'не могу выбраться из Москвы раньше августа',
+    'Не могу найти группу на Авачинский на 5 декабря',
+    'не могу встать на доску, есть ли инструктор по сёрфу?',
+    // слово беды не о человеке и не о сейчас
+    'The bridge collapsed last year, is the road open?',
+    'Сейчас читаю про землетрясение 1952 года',
+    // помощь с делом — было ложное срабатывание до 23.11
+    'Can you help us plan a trip in July?',
+    'Could you help us choose a hotel?',
+    'Please help us find a good hotel near the airport',
+    'help us get tickets to the museum',
+    'help us with our booking',
+    'Can you help us to change the dates?',
+    'We need help with the payment',
+    'I need help choosing between two tours',
+    'we need help finding a cheap transfer',
+    'I need help in planning the trip',
+    // «не могу идти» + выезд, день или число — планы
+    'не могу идти на экскурсию в пятницу, можно перенести?',
+    'не могу идти в этот поход, верните предоплату',
+    'не могу идти завтра, перенесите на среду',
+    'не могу идти после 5 числа',
+    // помощь с делом
+    'Please help me choose a tour',
+    'I need help with booking',
+    'help me find a hotel',
+    // медведи как тема
+    'Медведи ходят вокруг Курильского озера летом?',
+    // было ложное срабатывание до 23.11
+    'ожидается перелом погоды на завтра',
+  ];
+  it.each(negative)('не срабатывает: «%s»', (text) => {
+    expect(detectEmergency(text).detected, `ложное срабатывание: ${text}`).toBe(false);
+  });
+
+  it('«меня трясёт» после воды — совет про холод, а не про цунами', () => {
+    const d = detectEmergency('Провалился в ручей, весь мокрый, до лагеря три часа, меня трясёт');
+    expect(d.categories).not.toContain('disaster');
+    expect(buildSosBlock(d.categories)).not.toContain('30 м');
+  });
+
+  it('совет для стихии — правило 30 метров, на трёх языках', () => {
+    expect(buildSosBlock(['disaster'])).toContain('30 м');
+    expect(buildSosBlock(['disaster'], 'en')).toContain('30 m');
+    expect(buildSosBlock(['disaster'], 'zh')).toContain('30');
+    for (const lang of ['ru', 'en', 'zh'] as const) expect(buildSosBlock(['disaster'], lang)).toContain('112');
+  });
+});
