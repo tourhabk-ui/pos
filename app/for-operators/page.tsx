@@ -3,6 +3,8 @@ import { Header } from '@/components/layout/Header'
 import { OperatorPromo } from '@/components/homepage/OperatorPromo'
 import { AgentModelSection, type CatalogCounts } from '@/components/homepage/AgentModelSection'
 import { getPlatformCounts } from '@/lib/stats/platform-counts'
+import { RoleEntryLinks } from '@/components/partners/RoleJoinPage'
+import { JOIN_PAGES } from '@/lib/partners/join-pages'
 
 // Рендер на каждый запрос: сборка Docker идёт без базы, и собранная там
 // страница отдавала бы запечённое «чисел нет» до следующей сборки.
@@ -35,6 +37,12 @@ export default async function ForOperatorsPage() {
       <main className="pt-16">
         <OperatorPromo headingLevel="h1" />
         <AgentModelSection catalog={catalog} />
+        <div className="pt-12">
+          <RoleEntryLinks
+            title="Не туроператор?"
+            links={Object.values(JOIN_PAGES).map((p) => ({ href: p.path, label: p.linkLabel }))}
+          />
+        </div>
       </main>
     </div>
   )

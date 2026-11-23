@@ -66,6 +66,45 @@ withPg('регистрация на настоящем PostgreSQL', () => {
     expect(res.status).toBe(201);
   });
 
+  /**
+   * Роль со страницы роли (план готовности 23.11, этап 3a): `/guides/join`,
+   * `/stays/join` и `/transfers/join` ведут на общую форму с выбранной ролью,
+   * а форма шлёт её сюда. Регистрация обязана завести карточку партнёра
+   * нужной категории, не поставить её на витрину и привести человека в его
+   * кабинет.
+   */
+  it.each([
+    ['guide', '/hub/guide'],
+    ['stay', '/hub/stay'],
+    ['transfer', '/hub/carrier'],
+  ])('роль %s: партнёр своей категории, не на витрине, кабинет %s', async (role, hub) => {
+    const email = `join.${role}@example.com`;
+    const res = await POST(req({ ...base, name: `Тест ${role}`, email, role, roles: [role] }));
+    const json = await res.json();
+    expect(res.status, JSON.stringify(json)).toBe(201);
+    expect(json.user.role).toBe(role);
+    const { ROLE_HUB } = await import('@/lib/auth/role-routes');
+    expect(ROLE_HUB[json.user.role as string]).toBe(hub);
+
+    const p = await pool.query<{ category: string; is_public: boolean | null; is_test: boolean; profile_status: string }>(
+      `SELECT p.category, p.is_public, p.is_test, p.profile_status
+         FROM partners p JOIN users u ON u.id = p.user_id WHERE u.email = $1`,
+      [email],
+    );
+    expect(p.rows).toHaveLength(1);
+    expect(p.rows[0].category).toBe(role);
+    // Новая карточка туристу не видна: на витрину её ставит администратор.
+    expect(p.rows[0].is_public).not.toBe(true);
+    expect(p.rows[0].is_test).toBe(false);
+    expect(p.rows[0].profile_status).toBe('none');
+    const { publicPartnerSql } = await import('@/lib/partners/test-profile');
+    const shown = await pool.query(
+      `SELECT 1 FROM partners p JOIN users u ON u.id = p.user_id WHERE u.email = $1 AND ${publicPartnerSql('p')}`,
+      [email],
+    );
+    expect(shown.rowCount).toBe(0);
+  });
+
   it('повтор того же адреса — 409, а не 500', async () => {
     const res = await POST(req({ ...base, email: 'plain.tourist@example.com' }));
     expect(res.status).toBe(409);
