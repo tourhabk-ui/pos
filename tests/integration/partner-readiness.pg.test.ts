@@ -26,6 +26,9 @@ vi.mock('next/cache', () => ({ unstable_cache: (fn: () => unknown) => fn }));
 vi.mock('@/lib/auth/middleware', async (orig) => ({
   ...(await orig<typeof import('@/lib/auth/middleware')>()),
   requireRole: vi.fn(async () => ({ userId: viewer.userId, role: viewer.role })),
+  // Дверь профиля оператора входит через requireOperator; кто владелец
+  // карточки, а кто менеджер — решает уже база (lib/operators/team-access).
+  requireOperator: vi.fn(async () => ({ userId: viewer.userId, role: viewer.role })),
 }));
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
@@ -61,6 +64,9 @@ const CARDS: Card[] = [
   // Карточки для двери «принять оферту» (этап 5): дописаны в конец, чтобы id прежних не сдвинулись.
   { key: 'offerOld',     category: 'gear', max: 710014 },
   { key: 'offerErase',   category: 'stay', max: 710015 },
+  // Карточки для повторной подачи заявки (слово владельца 23.11): тоже в конец.
+  { key: 'opResubmit',   category: 'operator', profileStatus: 'rejected', max: 710016 },
+  { key: 'opApproved',   category: 'operator', profileStatus: 'approved', max: 710017 },
 ];
 const idOf = (i: number) => `c3c00000-0000-4000-8000-0000000001${String(i).padStart(2, '0')}`;
 const userOf = (i: number) => `c3c00000-0000-4000-8000-0000000002${String(i).padStart(2, '0')}`;
@@ -191,10 +197,9 @@ withPg('готовность партнёра: факты из базы', () => 
       expect(item(r, 'profile')?.state).toBe('done');
     });
 
-    it('отклонённая заявка: повторной отправки нет — шаг не за партнёром', async () => {
+    it('отклонённая заявка: шаг за партнёром — исправить профиль и отправить снова', async () => {
       const r = await read('opRejected');
-      expect(item(r, 'profile')).toMatchObject({ state: 'waiting' });
-      expect(item(r, 'profile')?.href).toBeUndefined();
+      expect(item(r, 'profile')).toMatchObject({ state: 'todo', href: '/hub/operator/profile' });
       expect(r.verdict).toBe('not_ready');
     });
 
@@ -494,6 +499,102 @@ withPg('готовность партнёра: факты из базы', () => 
       expect(rows[0].accepted_at.getTime()).toBe(before.accepted_at.getTime());
       // Чужие строки журнала стирание не задело.
       expect((await journal('opPilot'))[0]).toMatchObject({ ip: '10.0.0.77', user_id: USER.opPilot });
+    });
+  });
+
+  /**
+   * Слово владельца 23.11: «отклонённый оператор видит причину отказа и может
+   * подать заявку снова, как у гида». Мок принял бы любой SQL; здесь условие
+   * «только из отклонённой» и журнал заявок судит сервер.
+   */
+  describe('дверь профиля оператора: повторная подача после отказа', () => {
+    const as = (key: string, role?: string) => { viewer.userId = USER[key]; viewer.role = role ?? CATEGORY[key]; };
+    const patch = async (key: string, body: unknown) => {
+      as(key);
+      const { PATCH } = await import('@/app/api/hub/operator/profile/route');
+      const res = await PATCH(new NextRequest('http://localhost/api/hub/operator/profile', { method: 'PATCH', body: JSON.stringify(body) }));
+      return { status: res.status, body: await res.json() };
+    };
+    const open = async (key: string) => {
+      as(key);
+      const { GET } = await import('@/app/api/hub/operator/profile/route');
+      const res = await GET(new NextRequest('http://localhost/api/hub/operator/profile'));
+      return { status: res.status, body: await res.json() };
+    };
+    const cardOf = async (key: string) => (await pool.query<{ profile_status: string; profile_review_comment: string | null; applied_at: Date | null; description: string | null }>(
+      `SELECT profile_status, profile_review_comment, applied_at, description FROM partners WHERE id = $1`, [ID[key]],
+    )).rows[0];
+    const journalOf = async (key: string) => (await pool.query<{ status: string; review_comment: string | null }>(
+      `SELECT status, review_comment FROM operator_applications WHERE partner_id = $1 ORDER BY created_at`, [ID[key]],
+    )).rows;
+
+    beforeAll(async () => {
+      // Отказ администратора, как его пишет роут решения: причина в карточке и в журнале.
+      for (const key of ['opResubmit', 'opRejected']) {
+        await pool.query(
+          `UPDATE partners SET profile_review_comment = 'Не указан телефон компании.', applied_at = NOW() - INTERVAL '3 days' WHERE id = $1`, [ID[key]],
+        );
+        await pool.query(
+          `INSERT INTO operator_applications (partner_id, user_id, status, company_name, review_comment)
+           VALUES ($1, $2, 'rejected', 'Готовность', 'Не указан телефон компании.')`, [ID[key], USER[key]],
+        );
+      }
+    });
+
+    it('отклонённый владелец видит причину отказа в ответе профиля', async () => {
+      const r = await open('opResubmit');
+      expect(r.status).toBe(200);
+      expect(r.body.data).toMatchObject({ profile_status: 'rejected', profile_review_comment: 'Не указан телефон компании.', viewer: 'owner' });
+    });
+
+    it('подача снова: заявка в очереди, время подачи новое, журнал снова ждёт; причина прошлого отказа остаётся', async () => {
+      const before = await cardOf('opResubmit');
+      const r = await patch('opResubmit', { submit_for_review: true, description: 'Исправленное описание компании.' });
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+      expect(r.body).toMatchObject({ success: true, profile_status: 'pending' });
+      const after = await cardOf('opResubmit');
+      expect(after.profile_status).toBe('pending');
+      expect(after.description).toBe('Исправленное описание компании.');
+      expect(after.applied_at!.getTime()).toBeGreaterThan(before.applied_at!.getTime());
+      expect(after.profile_review_comment).toBe('Не указан телефон компании.');
+      expect(await journalOf('opResubmit')).toEqual([{ status: 'pending', review_comment: 'Не указан телефон компании.' }]);
+      // Чек-лист: шаг закрыт — заявка отправлена.
+      expect(item(await read('opResubmit'), 'profile')).toMatchObject({ state: 'done' });
+    });
+
+    it('вторая подача той же заявки — 409 словами, время подачи не переписано', async () => {
+      const before = await cardOf('opResubmit');
+      const r = await patch('opResubmit', { submit_for_review: true });
+      expect(r.status).toBe(409);
+      expect(r.body.error).toBe('Заявка уже на проверке — дождитесь решения администратора');
+      expect((await cardOf('opResubmit')).applied_at!.getTime()).toBe(before.applied_at!.getTime());
+    });
+
+    it('одобренному и не подававшему подавать нечего — 409, карточка прежняя', async () => {
+      const approved = await patch('opApproved', { submit_for_review: true });
+      expect(approved.status).toBe(409);
+      expect(approved.body.error).toBe('Профиль уже одобрен — подавать заявку снова не нужно');
+      expect((await cardOf('opApproved')).profile_status).toBe('approved');
+      const fresh = await patch('opNew', { submit_for_review: true });
+      expect(fresh.status).toBe(409);
+      expect((await cardOf('opNew')).profile_status).toBe('none');
+    });
+
+    it('обычное сохранение профиля отклонённую заявку в очередь не возвращает', async () => {
+      const r = await patch('opRejected', { description: 'Просто правка описания.' });
+      expect(r.status).toBe(200);
+      expect((await cardOf('opRejected')).profile_status).toBe('rejected');
+      expect(await journalOf('opRejected')).toEqual([{ status: 'rejected', review_comment: 'Не указан телефон компании.' }]);
+      // Чек-лист отклонённого: шаг за ним, дверь названа.
+      expect(item(await read('opRejected'), 'profile')).toMatchObject({ state: 'todo', href: '/hub/operator/profile' });
+    });
+
+    it('чужую карточку этой дверью не подать: карточка берётся из входа', async () => {
+      // Вошёл одобренный оператор и шлёт флаг — меняется (и отказывает) только его карточка.
+      const before = await cardOf('opRejected');
+      const r = await patch('opApproved', { submit_for_review: true, partner_id: ID.opRejected, id: ID.opRejected });
+      expect(r.status).toBe(409);
+      expect((await cardOf('opRejected')).profile_status).toBe(before.profile_status);
     });
   });
 });

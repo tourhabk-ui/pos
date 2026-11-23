@@ -7,6 +7,7 @@ import {
   MapPin, Phone, Globe, MessageSquare, BadgeCheck, Clock,
 } from 'lucide-react';
 import { profileStatusView } from '@/lib/operator/profile-status';
+import { ProfileReviewNotice } from '@/components/operator/ProfileReviewNotice';
 import { MessengerConnectCard, type MessengerCodeView } from '@/components/operator/MessengerConnectCard';
 
 const INPUT = 'w-full min-h-[44px] px-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]';
@@ -32,6 +33,8 @@ interface OperatorProfileData {
   description: string | null;
   short_description: string | null;
   profile_status: string | null;
+  profile_review_comment?: string | null;
+  viewer?: string;
   is_verified: boolean;
   contacts: Contacts | null;
   location: Location | null;
@@ -57,6 +60,8 @@ export default function OperatorProfileClient() {
   const [city, setCity] = useState('');
   const [address, setAddress] = useState('');
   const [profileStatus, setProfileStatus] = useState<string | null>(null);
+  const [reviewComment, setReviewComment] = useState<string | null>(null);
+  const [viewer, setViewer] = useState<'owner' | 'manager'>('manager');
   const [isVerified, setIsVerified] = useState(false);
   const [tgNotify, setTgNotify] = useState<TelegramNotifications>({ status: 'unknown', source: null });
   const [messenger, setMessenger] = useState<MessengerCodeView | null>(null);
@@ -89,6 +94,10 @@ export default function OperatorProfileClient() {
         setCity(d.location?.city ?? '');
         setAddress(d.location?.address ?? '');
         setProfileStatus(d.profile_status ?? null);
+        setReviewComment(d.profile_review_comment ?? null);
+        // Подать заявку снова может только владелец; не знаем, кто смотрит, —
+        // кнопку не показываем.
+        setViewer(d.viewer === 'owner' ? 'owner' : 'manager');
         setIsVerified(d.is_verified ?? false);
         const tg = d.telegram_notifications ?? { status: 'unknown', source: null };
         setTgNotify(tg);
@@ -238,6 +247,14 @@ export default function OperatorProfileClient() {
             <span className="text-sm">{fetchError}</span>
           </div>
         ) : (
+          <>
+          {/* Отказ: причина и повторная подача — раньше причина приходила с сервера и не показывалась. */}
+          <ProfileReviewNotice
+            status={profileStatus}
+            comment={reviewComment}
+            viewer={viewer}
+            onResubmitted={() => setProfileStatus('pending')}
+          />
           <form onSubmit={(e) => { void handleSave(e); }} className="space-y-6">
             {/* Компания */}
             <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-6 space-y-4">
@@ -414,6 +431,7 @@ export default function OperatorProfileClient() {
               {saving ? 'Сохранение...' : 'Сохранить изменения'}
             </button>
           </form>
+          </>
         )}
       </div>
     </Protected>
