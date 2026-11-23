@@ -405,7 +405,11 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // из TG-групп. Экстрактор удалён, вебхуку модель не нужна.
   'telegram-webhook-watchdog': ['db_read', 'db_write', 'net_out', 'telegram'],
   'tochka-check': ['net_out'],
-  'tour-describe': ['db_read', 'db_write'],
+  // 'db_write' снят 23.11: своей записи в тур у роута больше нет — текст уходит
+  // дверью автомата (lib/tours/describe-door → lib/tours/tour-change), а её
+  // запись лежит глубже обхода переписи. Писать крон не перестал: у тура на
+  // сайте он кладёт правку на проверку (`writes: true` в cron-schedulers).
+  'tour-describe': ['db_read'],
   'tour-photos': ['db_read', 'db_write'],
   'tour-photos-census': ['db_read', 'net_out'],
   'tour-pickup': ['db_read', 'db_write'],
