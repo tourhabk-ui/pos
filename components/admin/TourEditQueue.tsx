@@ -124,6 +124,12 @@ export function TourEditQueue({ loading, error, edits, actingId, actionError, on
                       </div>
                     ))}
                   </dl>
+                ) : edit.changes.length === 0 ? (
+                  // Просьба о публикации, которую уже исполнил администратор из
+                  // редактора: менять нечего, одобрение просто закроет запись.
+                  <p className="mb-3 text-sm text-[var(--text-secondary)]">
+                    Отличий от сайта нет: тур уже опубликован. Одобрение закроет запись, на сайте ничего не изменится.
+                  </p>
                 ) : (
                   <div className="mb-3"><TourEditDiff changes={edit.changes} /></div>
                 )}

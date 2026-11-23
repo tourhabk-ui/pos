@@ -193,6 +193,13 @@ describe('очередь администратора: что видно', () =>
     expect(card.getByRole('button', { name: 'Опубликовать' })).toBeTruthy();
   });
 
+  it('правка без отличий от сайта — сказано словами, а не пустой карточкой', () => {
+    queue({ edits: [{ ...EDIT, changes: [] }] });
+    const card = within(screen.getByRole('article', { name: 'Правка тура: Вулкан Горелый' }));
+    expect(card.getByText('Отличий от сайта нет: тур уже опубликован. Одобрение закроет запись, на сайте ничего не изменится.')).toBeTruthy();
+    expect(card.queryAllByTestId('tour-edit-change')).toHaveLength(0);
+  });
+
   it('отклонить нельзя без причины; причина уходит обрезанной; одобрение — по id карточки', () => {
     const props = queue();
     const card = within(screen.getByRole('article', { name: 'Правка тура: Вулкан Горелый' }));
