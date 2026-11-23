@@ -11,8 +11,13 @@ import { describe, it, expect } from 'vitest';
 const ROOT = process.cwd();
 const M1500 = readFileSync(join(ROOT, 'migrations/1500_cuks_phones_official_labels.sql'), 'utf8');
 
+function stripSqlComments(sql: string): string {
+  return sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*--.*$/gm, ' ');
+}
+
 /** Список значений в ADD CONSTRAINT <name> CHECK (… IN (…)). */
 function checkInList(sql: string, constraint: string): string[] | null {
+  sql = stripSqlComments(sql);
   const re = new RegExp(
     String.raw`ADD CONSTRAINT\s+${constraint}\s+CHECK\s*\([\s\S]*?\bIN\s*\(([^)]*)\)`,
     'i',
@@ -24,6 +29,7 @@ function checkInList(sql: string, constraint: string): string[] | null {
 
 /** DROP IF EXISTS стоит до ADD, и оба — до UPDATE на withdrawn. */
 function dropThenAddBeforeWithdrawnUpdate(sql: string, constraint: string): boolean {
+  sql = stripSqlComments(sql);
   const drop = sql.search(new RegExp(String.raw`DROP CONSTRAINT IF EXISTS\s+${constraint}\b`, 'i'));
   const add = sql.search(new RegExp(String.raw`ADD CONSTRAINT\s+${constraint}\b`, 'i'));
   const upd = sql.search(/source\s*=\s*'withdrawn'/);
