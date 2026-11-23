@@ -222,6 +222,15 @@ describe('красное закрытие парка в плане', () => {
       expect(got.summary).toMatch(/циклон/);
     }
     expect(gateClosureFromAlerts([seasonal]).operational).toBe(false);
+    const bare = {
+      title: 'Природный парк «Налычево» — маршруты закрыты', description: '',
+      alert_id: 'bare', affected_parks: ['nalychevo'],
+    };
+    const seasonRow = { ...seasonal, alert_id: 'season', affected_parks: ['nalychevo'] };
+    expect(gateClosureFromAlerts([seasonRow, bare]).operational).toBe(false);
+    expect(gateClosureFromAlerts([bare, seasonRow]).operational).toBe(false);
+    expect(gateClosureFromAlerts([bare]).operational).toBe(true);
+    expect(gateClosureFromAlerts([{ ...bare, affected_parks: ['klyuchevskoy'] }, seasonRow]).operational).toBe(true);
     const clipped = { title: `${seasonal.title}${' '.repeat(TITLE_CLIP)}`.slice(0, TITLE_CLIP), description: '' };
     expect(gateClosureFromAlerts([clipped]).operational).toBe(true);
     const gate = tourGate({

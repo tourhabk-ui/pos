@@ -25,7 +25,7 @@
  */
 import { ACTIVITY_CONSTRAINTS } from '@/lib/planner/constants';
 import { monthOfIsoDate } from '@/lib/planner/trip-season';
-import { isSeasonalClosureRow } from '@/lib/services/safety/park-season';
+import { seasonalClosureIdsOf } from '@/lib/services/safety/park-season';
 import { isSeasonalClosure } from '@/lib/safety/park-closure';
 
 export type TourGateReason = 'park_and_off_season' | 'park' | 'place' | 'age';
@@ -179,13 +179,29 @@ export function liveCardCoversDate(todayIso: string, dateIso: string): boolean {
  * сезонного: первая строка ответа базы не задана, и сезонная сводка не
  * должна гасить циклон, который пришёл второй. Обрезанный текст сезоном
  * не считается — слово опасности могло остаться за обрезом.
+ *
+ * Голое «маршруты закрыты» — то же правило, что у карточки места
+ * (`seasonalClosureIdsOf`): межсезонное, только если каждый названный парк
+ * закрыт межсезонной сводкой в этом же наборе. Само по себе оно красное.
  */
 export function gateClosureFromAlerts(
-  alerts: readonly { title: string | null; description: string | null }[],
+  alerts: readonly {
+    title: string | null;
+    description: string | null;
+    alert_id?: string;
+    affected_parks?: string[] | null;
+  }[],
 ): { summary: string | null; operational: boolean } {
   if (alerts.length === 0) return { summary: null, operational: false };
-  const operational = alerts.filter((a) => !isSeasonalClosureRow({ title: a.title, description: a.description }));
-  const pick = operational[0] ?? alerts[0]!;
+  const rows = alerts.map((a, i) => ({
+    id: a.alert_id ?? String(i),
+    title: a.title,
+    description: a.description,
+    affected_parks: a.affected_parks ?? null,
+  }));
+  const seasonal = new Set(seasonalClosureIdsOf(rows));
+  const operational = rows.filter((r) => !seasonal.has(r.id));
+  const pick = operational[0] ?? rows[0]!;
   const summary = `${pick.title ?? ''} ${pick.description ?? ''}`.trim();
   return { summary: summary || null, operational: operational.length > 0 };
 }
