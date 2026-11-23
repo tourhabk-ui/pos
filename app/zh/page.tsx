@@ -177,6 +177,8 @@ export default async function ZhEntryPage() {
             {' · '}<Link className="underline" href="/zh/harbin">从哈尔滨飞往堪察加</Link>
             {' · '}<Link className="underline" href="/zh/booking">堪察加旅游预订</Link>
             {' · '}<Link className="underline" href="/zh/volcano-tours">堪察加火山旅游</Link>
+            {' · '}<Link className="underline" href="/zh/kamchatka-zimoj">冬季的堪察加</Link>
+            {' · '}<Link className="underline" href="/zh/safety">去堪察加安全吗</Link>
             {' · '}<Link className="underline" href="/">俄文首页</Link>
             {' · '}<Link className="underline" href="/catalog">俄文目录</Link>
             {' · '}<Link className="underline" href="/mcp">MCP 页面（俄文）</Link>

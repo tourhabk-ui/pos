@@ -5,6 +5,7 @@ import BottomNav from '@/components/shared/BottomNav';
 import { SectionSwipeBar, SAFETY_SECTION_ITEMS } from '@/components/layout/SectionSwipeBar';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { safetyHreflang } from '@/lib/zh/pages';
 import { getSafetyLiveData } from '@/app/_home/data';
 import {
   SAFETY_PAGE_DESCRIPTION,
@@ -21,7 +22,7 @@ const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 export const metadata: Metadata = {
   title: SAFETY_PAGE_TITLE,
   description: SAFETY_PAGE_DESCRIPTION,
-  alternates: { canonical: '/safety' },
+  alternates: { canonical: `${SITE}/safety`, languages: safetyHreflang(SITE) },
   openGraph: {
     images: defaultOgImages(),
     title: SAFETY_PAGE_TITLE,
