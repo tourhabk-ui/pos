@@ -85,8 +85,8 @@ export function notifyAdminNewTicket(ticket: SupportTicket): void {
  * Бюджет LLM превышен — алерт владельцу. Возвращает исход доставки: «алерт
  * отправлен» вызывающий вправе сказать только при `ok: true`.
  */
-export function notifyBudgetAlert(spentUsd: number, limitUsd: number): Promise<TgSendOutcome> {
-  return sendAdminMessage('llm-budget-check', budgetAlertText(spentUsd, limitUsd));
+export function notifyBudgetAlert(spentUsd: number, limitUsd: number, runnerUsd: number | null = null): Promise<TgSendOutcome> {
+  return sendAdminMessage('llm-budget-check', budgetAlertText(spentUsd, limitUsd, runnerUsd));
 }
 
 /**
@@ -94,15 +94,23 @@ export function notifyBudgetAlert(spentUsd: number, limitUsd: number): Promise<T
  * моделям и агентам: «Расходы AI», вкладка «Деньги» (`/hub/admin/ai-usage`).
  * До 22.11 тревога вела в корень админки и звала в «Статистику LLM» —
  * раздела с таким именем нет (разбор 03.11).
+ *
+ * С 23.11 порог сверяется с расходом сайта — тем, что считает суточный стоп
+ * (слово владельца «1 да», `lib/ai/spend-scope.ts`). Расход раннера GitHub
+ * стоп не закрывает и назван отдельной строкой; null — сумма не передана.
  */
-export function budgetAlertText(spentUsd: number, limitUsd: number): string {
+export function budgetAlertText(spentUsd: number, limitUsd: number, runnerUsd: number | null = null): string {
   return [
-    '<b>Превышен дневной бюджет LLM</b>',
+    '<b>Превышен дневной бюджет LLM сайта</b>',
     '',
-    `<b>Потрачено:</b> $${spentUsd.toFixed(4)}`,
+    `<b>Потрачено сайтом:</b> $${spentUsd.toFixed(4)}`,
     `<b>Лимит:</b> $${limitUsd.toFixed(2)}`,
     `<b>Превышение:</b> $${(spentUsd - limitUsd).toFixed(4)}`,
+    ...(runnerUsd !== null && Number.isFinite(runnerUsd)
+      ? [`<b>Раннер GitHub (в лимит не входит):</b> $${runnerUsd.toFixed(4)}`]
+      : []),
     '',
+    'Суточный стоп закрыт до 00:00 UTC: Кузьмич отвечает туристам, что на сегодня отдыхает.',
     'Расход по моделям и агентам — <a href="https://vedarai.ru/hub/admin/ai-usage">Расходы AI → Деньги</a>.',
   ].join('\n');
 }

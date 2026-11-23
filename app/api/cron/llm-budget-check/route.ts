@@ -1,7 +1,9 @@
 /**
  * GET /api/cron/llm-budget-check
  * Считает дневные LLM-затраты из llm_usage_log.
- * Если сумма превышает AI_DAILY_BUDGET_USD — отправляет Telegram-алерт владельцу.
+ * Если расход сайта достиг AI_DAILY_BUDGET_USD — отправляет Telegram-алерт
+ * владельцу. Расход раннера GitHub с порогом не сверяется: стоп его не
+ * считает (слово владельца 23.11), он назван отдельной строкой.
  * Запускать ежечасно или реже.
  *
  * Порог не задан или не число — прогон НЕ успех (lib/ai/daily-budget.ts): траты
@@ -16,6 +18,7 @@ import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { notifyBudgetAlert } from '@/lib/telegram/admin-notify';
 import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
 import { readDailyBudget, BUDGET_UNSET_REASON, BUDGET_INVALID_REASON } from '@/lib/ai/daily-budget';
+import { STOP_SPEND_SQL, RUNNER_SPEND_SQL, SPEND_TODAY_SQL } from '@/lib/ai/spend-scope';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,15 +52,22 @@ export async function GET(req: Request) {
     // Бюджет по КАЛЬКУЛИРУЕМЫМ строкам остаётся точным; строки с неизвестной
     // ценой не должны пропадать из ответа — иначе «потрачено X» читалось бы
     // как факт там, где часть трат не посчитана вовсе.
-    const { rows } = await pool.query<{ spent: string; unknown_calls: string }>(`
+    //
+    // С порогом сверяется та же сумма, что считает стоп, — расход сайта
+    // (слово владельца 23.11 «1 да», lib/ai/spend-scope.ts). Расход раннера
+    // GitHub стоп не закрывает; его сумма идёт отдельной строкой ответа и
+    // тревоги, чтобы трата не пропала из виду.
+    const { rows } = await pool.query<{ spent: string; runner_spent: string; unknown_calls: string }>(`
       SELECT
-        COALESCE(SUM(estimated_cost_usd), 0)::text AS spent,
-        COUNT(*) FILTER (WHERE estimated_cost_usd IS NULL)::text AS unknown_calls
+        COALESCE(SUM(estimated_cost_usd) FILTER (WHERE ${STOP_SPEND_SQL}), 0)::text AS spent,
+        COALESCE(SUM(estimated_cost_usd) FILTER (WHERE ${RUNNER_SPEND_SQL}), 0)::text AS runner_spent,
+        COUNT(*) FILTER (WHERE estimated_cost_usd IS NULL AND ${STOP_SPEND_SQL})::text AS unknown_calls
       FROM llm_usage_log
-      WHERE created_at >= DATE_TRUNC('day', NOW())
+      WHERE ${SPEND_TODAY_SQL}
     `);
 
     const spentUsd = parseFloat(rows[0]?.spent ?? '0');
+    const runnerSpentUsd = parseFloat(rows[0]?.runner_spent ?? '0') || 0;
     const unknownCalls = parseInt(rows[0]?.unknown_calls ?? '0', 10);
     if (unknownCalls > 0) {
       // Не ошибка крона — честная третья форма: посчитано по известному,
@@ -77,6 +87,7 @@ export async function GET(req: Request) {
         status: 'not_configured',
         reason,
         spent_usd: spentUsd,
+        runner_spent_usd: runnerSpentUsd,
         unknown_cost_calls: unknownCalls,
       });
     }
@@ -89,12 +100,13 @@ export async function GET(req: Request) {
       // говорил `alert_sent` при любом исходе — превышение бюджета
       // «срабатывало» только в JSON. «Отправлен» теперь пишется лишь по
       // ответу Telegram; недоставка — свой статус и причина.
-      const alert = await notifyBudgetAlert(spentUsd, limitUsd);
+      const alert = await notifyBudgetAlert(spentUsd, limitUsd, runnerSpentUsd);
       return Response.json({
         ok: true,
         status: alert.ok ? 'alert_sent' : 'alert_not_delivered',
         alert,
         spent_usd: spentUsd,
+        runner_spent_usd: runnerSpentUsd,
         limit_usd: limitUsd,
         unknown_cost_calls: unknownCalls,
       });
@@ -104,6 +116,7 @@ export async function GET(req: Request) {
       ok: true,
       status: 'ok',
       spent_usd: spentUsd,
+      runner_spent_usd: runnerSpentUsd,
       limit_usd: limitUsd,
       unknown_cost_calls: unknownCalls,
     });

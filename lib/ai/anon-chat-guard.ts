@@ -13,9 +13,10 @@
  * Здесь три предохранителя, все — до вызова модели:
  *  1. размеры входа (MAX_MESSAGE_CHARS, история, фото) — в схеме роута;
  *  2. бесплатные сообщения гостя — ещё и на IP за сутки (ANON_PER_IP_DAILY);
- *  3. жёсткий суточный стоп гостевых вызовов: траты LLM за сегодня (UTC) из
- *     `llm_usage_log` ≥ дневного бюджета (`AI_DAILY_BUDGET_USD`, без него —
+ *  3. жёсткий суточный стоп гостевых вызовов: траты LLM сайта за сегодня (UTC)
+ *     из `llm_usage_log` ≥ дневного бюджета (`AI_DAILY_BUDGET_USD`, без него —
  *     $5, лимит владельца) — гость получает честный ответ без вызова модели.
+ *     Расход раннера GitHub в сумму не входит (23.11, `lib/ai/spend-scope.ts`).
  *     Вторая линия — счётчик гостевых ответов процесса за сутки
  *     (`AI_ANON_DAILY_MAX`, по умолчанию 400): работает, даже если книга
  *     трат не прочиталась.
@@ -23,6 +24,8 @@
  * Вошедшие пользователи стопом не останавливаются: у них своя ответственность
  * и свои лимиты, а у бюджета — тревога крона llm-budget-check.
  */
+
+import { SPEND_TODAY_SQL, STOP_SPEND_SQL } from '@/lib/ai/spend-scope';
 
 export const MAX_MESSAGE_CHARS = 4000;
 export const MAX_HISTORY_ITEMS_USED = 10;
@@ -156,13 +159,18 @@ export function createAnonGuard(opts: {
   };
 }
 
-/** Траты LLM за сегодняшние сутки (UTC) — та же сумма, что у крона llm-budget-check. */
+/**
+ * Траты LLM сайта за сегодняшние сутки (UTC) — та же сумма, что крон
+ * llm-budget-check сверяет с порогом. Расход раннера GitHub сюда не входит
+ * (слово владельца 23.11 «1 да», `lib/ai/spend-scope.ts`).
+ */
 export async function readLlmSpendToday(): Promise<number> {
   const { pool } = await import('@/lib/db-pool');
   const { rows } = await pool.query<{ spent: string }>(
     `SELECT COALESCE(SUM(estimated_cost_usd), 0)::text AS spent
        FROM llm_usage_log
-      WHERE created_at >= DATE_TRUNC('day', NOW())`,
+      WHERE ${SPEND_TODAY_SQL}
+        AND ${STOP_SPEND_SQL}`,
   );
   return parseFloat(rows[0]?.spent ?? '0') || 0;
 }
