@@ -407,26 +407,26 @@ export const CRON_REGISTRY: CronEntry[] = [
   {
     // Разбор находок эволюции идёт НА РАННЕРЕ: api.anthropic.com закрыт по
     // гео из России, где стоит прод, а раннер вне РФ — релей не нужен.
-    // В прод ходит за находками (evo-issues?caller=evo-judge) и пишет строку
-    // прогона. Сам разбор модели остаётся на раннере: журнал видит, что список
-    // находок отдан, а не что модель закончила.
+    // Прод только отдаёт список находок. Строка журнала на этой выдаче
+    // считалась бы прогоном судьи, хотя модель в неё не входит. Расход
+    // виден в книгах по ключу реестра. agentId нет намеренно.
     key: 'evo-judge', label: 'Evo Judge',
     description: 'Разбор находок эволюции сильной моделью на раннере.',
     workflow: 'evo-judge.yml', cron: '20 10 * * *', schedule: 'ежедневно · 10:20 UTC',
     endpoint: 'evo-issues',
-    everyMin: DAY, tier: 'quality', agentId: 'evo-judge', triggerable: false,
+    everyMin: DAY, tier: 'quality', agentId: null, triggerable: false,
   },
   {
     // AI-ревью кода Growth Scan идёт НА РАННЕРЕ той же причиной, что у
     // evo-judge: гео-блок Cloudflare касается только прода в РФ. Прод отдаёт
-    // список файлов (evo-review-job) и принимает готовые находки
-    // (evo-findings) — сам модель не зовёт. Строка прогона пишется, когда прод
-    // отдал список файлов, а не когда модель закончила ревью.
+    // список файлов и принимает готовые находки — сам модель не зовёт.
+    // Журнал выдачи списка выглядел бы прогоном ревью. Расход — в книгах
+    // по ключу реестра. agentId нет намеренно.
     key: 'evo-review', label: 'Evo Review',
     description: 'AI-ревью кода Growth Scan на раннере (без гео-блока) + запись находок.',
     workflow: 'evo-review.yml', cron: '11 19 * * *', schedule: 'ежедневно · 19:11 UTC (07:11 по Камчатке)',
     endpoint: 'evo-review-job',
-    everyMin: DAY, tier: 'growth', agentId: 'evo-review', triggerable: false,
+    everyMin: DAY, tier: 'growth', agentId: null, triggerable: false,
   },
   {
     key: 'kb-gap', label: 'KB Gap',

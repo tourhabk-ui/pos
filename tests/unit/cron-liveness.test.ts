@@ -73,12 +73,12 @@ describe('overallPosture', () => {
 describe('журналы кронов без телеметрии', () => {
   const NEWLY_JOURNALED = [
     'client-errors-census', 'booking-auto-complete', 'tour-review-request', 'ssr-sentinel',
-    'kuzmich-bad-outcomes', 'evo-judge', 'evo-review', 'kb-gap', 'engagement', 'smart-notify',
+    'kuzmich-bad-outcomes', 'kb-gap', 'engagement', 'smart-notify',
     'enrich-routes', 'routes-cache', 'kuzmich-places', 'import-routes',
     'kuzmich-route', 'kuzmich-tip', 'kuzmich-tour',
   ];
 
-  it('семнадцать записей пишут свой agentId', () => {
+  it('пятнадцать записей пишут свой agentId', () => {
     for (const key of NEWLY_JOURNALED) {
       const entry = CRON_REGISTRY.find((e) => e.key === key);
       expect(entry?.agentId, key).toBe(key);

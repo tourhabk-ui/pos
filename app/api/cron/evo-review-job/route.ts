@@ -18,7 +18,6 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { computeReviewFileList } from '@/lib/agents/evo/growth-agent';
 import { loadLearnedLessons, lessonsPromptBlock } from '@/lib/agents/evo/learned-lessons';
-import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -28,14 +27,11 @@ export async function GET(request: NextRequest) {
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  const startedAt = Date.now();
-
   try {
     const { reviewFiles, source, listed } = await computeReviewFileList();
     const learnedLessonsBlock = lessonsPromptBlock(
       await loadLearnedLessons().catch(() => ({ strategy: null, lessons: [], rejectedDigest: [] })),
     );
-    recordCronRun('evo-review', startedAt, 'success', { items: reviewFiles.length });
     return NextResponse.json({
       success: true,
       files: reviewFiles,
@@ -45,7 +41,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     console.error('[evo-review-job]', err instanceof Error ? err.message : err);
-    recordCronRun('evo-review', startedAt, 'failed', { error: 'список файлов не собрался' });
     return NextResponse.json(
       { error: 'список файлов не собрался' },
       { status: 500 },

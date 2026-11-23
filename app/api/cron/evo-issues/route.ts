@@ -10,7 +10,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { pool } from '@/lib/db-pool';
-import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -23,9 +22,6 @@ export async function GET(request: NextRequest) {
 
   const daysRaw = parseInt(request.nextUrl.searchParams.get('days') ?? '7', 10);
   const days = Math.min(Math.max(Number.isFinite(daysRaw) ? daysRaw : 7, 1), 90);
-  const startedAt = Date.now();
-  const forJudge = request.nextUrl.searchParams.get('caller') === 'evo-judge';
-
   try {
     const { rows } = await pool.query<{
       id: string; category: string; severity: string; file_path: string | null;
@@ -43,10 +39,8 @@ export async function GET(request: NextRequest) {
        LIMIT 100`,
       [days],
     );
-    if (forJudge) recordCronRun('evo-judge', startedAt, 'success', { items: rows.length });
     return NextResponse.json({ success: true, days, count: rows.length, issues: rows });
   } catch (err) {
-    if (forJudge) recordCronRun('evo-judge', startedAt, 'failed', { error: 'находки не прочитались' });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Ошибка отчёта Evo' },
       { status: 500 },

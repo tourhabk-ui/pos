@@ -46,7 +46,17 @@ export async function GET(request: NextRequest) {
       results.kamchatkaland = await runKamchatkalandImporter(Math.ceil(batch / 2));
     }
 
-    recordCronRun('import-routes', startedAt, 'success');
+    // Мера — сколько паспортов и статей реально записано, а не «запрос
+    // вернулся». Ноль — честный ноль, не выдуманная единица.
+    const written = (value: unknown): number => {
+      if (!value || typeof value !== 'object') return 0;
+      const row = value as { inserted?: unknown; updated?: unknown };
+      const n = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : 0);
+      return n(row.inserted) + n(row.updated);
+    };
+    recordCronRun('import-routes', startedAt, 'success', {
+      items: written(results.visitkamchatka) + written(results.kamchatkaland),
+    });
     return NextResponse.json({ success: true, ...results });
   } catch (err) {
     recordCronRun('import-routes', startedAt, 'failed', { error: 'импорт паспортов не выполнился' });

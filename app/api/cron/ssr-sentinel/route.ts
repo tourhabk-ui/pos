@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
   const startedAt = Date.now();
   const started = Date.now();
   const results: SsrProbeResult[] = [];
+  try {
 
   for (const probe of SSR_PROBES) {
     try {
@@ -86,4 +87,9 @@ export async function GET(request: NextRequest) {
     probes: results,
     duration_ms: Date.now() - started,
   });
+  } catch (err) {
+    console.error('[ssr-sentinel]', err instanceof Error ? err.message : err);
+    recordCronRun('ssr-sentinel', startedAt, 'failed', { error: 'пробы листинга не выполнились' });
+    return NextResponse.json({ success: false, error: 'пробы листинга не выполнились' }, { status: 500 });
+  }
 }

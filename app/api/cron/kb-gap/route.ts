@@ -82,6 +82,7 @@ export async function GET(request: NextRequest) {
   }
   const startedAt = Date.now();
 
+  try {
   const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 
   // Найти сессии с признаками незнания в ответах бота
@@ -189,5 +190,10 @@ ${unknownQuestions.slice(0, 50).map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
     // проверка MCP 29.09). Темы видны в agent_knowledge.
     timestamp: new Date().toISOString(),
   });
+  } catch (err) {
+    console.error('[kb-gap]', err instanceof Error ? err.message : err);
+    recordCronRun('kb-gap', startedAt, 'failed', { error: 'пробелы не разобраны' });
+    return NextResponse.json({ success: false, error: 'пробелы не разобраны' }, { status: 500 });
+  }
   });
 }

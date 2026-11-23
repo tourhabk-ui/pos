@@ -24,18 +24,24 @@ export async function GET(request: NextRequest) {
 
   const started = Date.now();
 
-  const [result, stats] = await Promise.all([
-    sendEngagementPushes(),
-    getEngagementStats(),
-  ]);
+  try {
+    const [result, stats] = await Promise.all([
+      sendEngagementPushes(),
+      getEngagementStats(),
+    ]);
 
-  recordCronRun('engagement', started, 'success', { items: result.sent });
+    recordCronRun('engagement', started, 'success', { items: result.sent });
 
-  return NextResponse.json({
-    ok: true,
-    sent:    result.sent,
-    skipped: result.skipped,
-    stats,
-    elapsed_ms: Date.now() - started,
-  });
+    return NextResponse.json({
+      ok: true,
+      sent:    result.sent,
+      skipped: result.skipped,
+      stats,
+      elapsed_ms: Date.now() - started,
+    });
+  } catch (err) {
+    console.error('[engagement]', err instanceof Error ? err.message : err);
+    recordCronRun('engagement', started, 'failed', { error: 'рассылка не выполнилась' });
+    return NextResponse.json({ ok: false, error: 'рассылка не выполнилась' }, { status: 500 });
+  }
 }

@@ -71,6 +71,7 @@ export async function GET(request: NextRequest) {
   }
   const startedAt = Date.now();
 
+  try {
   const { rows: bookings } = await pool.query<CompletedBookingRow>(`
     SELECT ob.id, ob.tourist_name, ot.id AS tour_id, ot.title AS tour_title,
            (${TOURIST_TG_CHAT_SQL})::text AS telegram_chat_id
@@ -143,4 +144,10 @@ export async function GET(request: NextRequest) {
     booking_ids_sent: sent,
     timestamp: new Date().toISOString(),
   });
+  } catch (err) {
+    const code = (err as { code?: unknown })?.code;
+    console.error('[tour-review-request]', typeof code === 'string' ? code : '', err instanceof Error ? err.message : err);
+    recordCronRun('tour-review-request', startedAt, 'failed', { error: 'просьбы об отзыве не разобраны' });
+    return NextResponse.json({ success: false, error: 'просьбы об отзыве не разобраны' }, { status: 500 });
+  }
 }
