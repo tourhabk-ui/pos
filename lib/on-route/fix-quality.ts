@@ -236,3 +236,26 @@ export function fixAccuracyPlausible(accuracyM: number | null): boolean {
   if (accuracyM == null || !Number.isFinite(accuracyM)) return true;
   return accuracyM <= GPS_ACCURACY_IMPLAUSIBLE_M;
 }
+
+/**
+ * Слова о грубой точке, которую экран отбросил (24.11).
+ *
+ * Отбросить её правильно (см. выше), но молчать о ней — нет. Скрин владельца
+ * 24.11 с компьютера: браузер отвечал сетевой догадкой, карта ставила по ней
+ * синюю точку, а строка приборов без конца писала «Ищем спутники…», и выбор
+ * старта — «Определяем вашу позицию…». Искать было нечего: ответ пришёл, только
+ * в масштабе города. «Ищем» обещает, что стоит подождать (§4.0).
+ */
+export function coarseFixAccuracyWords(accuracyM: number): string {
+  if (!Number.isFinite(accuracyM) || accuracyM <= 0) return 'с неизвестной точностью';
+  return accuracyM >= 1000 ? `±${Math.round(accuracyM / 1000)} км` : `±${Math.round(accuracyM)} м`;
+}
+
+export function coarseFixStatus(accuracyM: number): string {
+  return `Спутников нет — место известно примерно, ${coarseFixAccuracyWords(accuracyM)}`;
+}
+
+export function coarseFixOriginText(accuracyM: number): string {
+  return `Точного положения нет: браузер знает место только примерно (${coarseFixAccuracyWords(accuracyM)}), `
+    + 'по сети, а не по спутникам. Начать путь от такой точки нельзя — укажите старт на карте.';
+}

@@ -29,6 +29,7 @@ import {
 import {
   fixInfo, fixLabel, figuresAreLive, canAdvanceWaypoint,
   readHeading, compassLabel, compassNeedsPermission, fixAccuracyPlausible,
+  coarseFixStatus, coarseFixOriginText,
   type CompassState,
 } from '@/lib/on-route/fix-quality';
 import { remainingRelief, distanceAlongTrack } from '@/lib/routes/relief';
@@ -64,7 +65,11 @@ import {
   passportGradeLabel, passportGradeNote, type PassportGrade,
 } from '@/lib/routes/passport';
 import { navigabilityCtaLabel, type NavigabilityVerdict } from '@/lib/routes/navigability';
-import { groupRoutesByDestination, type Destination, type DestinationOption, type RouteOption } from '@/lib/on-route/destination';
+import {
+  groupRoutesByDestination, withLinkedPlace, linkedPlaceFromApi, autoDestination,
+  linkedPlaceIdFrom, TRAIL_PLACE_PARAM,
+  type Destination, type DestinationOption, type RouteOption, type LinkedPlace,
+} from '@/lib/on-route/destination';
 import { originLabel, type Origin } from '@/lib/on-route/origin';
 import { httpRouteBuilder, type RouteBuildResult, type RouteBuildMode } from '@/lib/on-route/route-build';
 import { wantsRoadApproach, roadApproachKey, displayableRoadApproach, trailheadGap } from '@/lib/on-route/road-approach';
@@ -474,6 +479,10 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   // потому что новых событий от мёртвого GPS не приходит по определению.
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [gpsMessage, setGpsMessage] = useState<string | null>(null);
+  // Последняя ОТБРОШЕННАЯ точка — догадка браузера по сети (точность хуже
+  // GPS_ACCURACY_IMPLAUSIBLE_M). В положение она не идёт, но экран обязан
+  // сказать, что ответ пришёл, а не «ищем спутники» без конца (24.11).
+  const [coarseFixAccuracy, setCoarseFixAccuracy] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [isOffline, setIsOffline] = useState(false);
   const [gpsError, setGpsError] = useState(false);
@@ -655,6 +664,14 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   const [mapCenter, setMapCenter] = useState<[number, number] | undefined>(undefined);
   const [modalRoutes, setModalRoutes] = useState<RoutePreview[]>([]);
   const [modalError, setModalError] = useState<string | null>(null);
+  // Для какой строки поиск уже ответил (или не смог) — пока не ответил,
+  // автовыбор цели ждёт: иначе место из ссылки обгоняло бы готовые треки.
+  const [searchDoneFor, setSearchDoneFor] = useState<string | null>(null);
+  // Место, с карточки которого пришли (?place=, 24.11): цель известна и без
+  // маршрутов каталога. 'none' — ссылка его не несла (старая ссылка, ручной
+  // ввод), 'loading' — читаем, 'failed' — не прочиталось.
+  const [linkedPlace, setLinkedPlace] = useState<LinkedPlace | null>(null);
+  const [linkedPlacePhase, setLinkedPlacePhase] = useState<'none' | 'loading' | 'ok' | 'failed'>('none');
   // Навигаторный выбор (фидбэк владельца 2026-07-19): ищем по НАЗВАНИЮ МЕСТА,
   // варианты смотрим на карте и только потом фиксируем маршрут.
   const [modalQuery, setModalQuery] = useState('');
@@ -699,6 +716,26 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           // (автовыбор доводит до цели, но не отменяет «Изменить»).
           setShowRouteModal(true);
         }
+        // Само место из ссылки (24.11): координата — из базы по id, не из
+        // адреса. Не прочиталось — цель ищется по имени, как до этого дня,
+        // и пустой поиск говорит, что место не прочиталось.
+        const placeId = linkedPlaceIdFrom(params.get(TRAIL_PLACE_PARAM));
+        if (placeId) {
+          const query = q.trim();
+          setLinkedPlacePhase('loading');
+          fetch(`/api/places/${encodeURIComponent(placeId)}?view=0`)
+            .then(r => (r.ok ? r.json() : null))
+            .then((json: unknown) => {
+              const place = linkedPlaceFromApi(json, query);
+              setLinkedPlace(place);
+              setLinkedPlacePhase(place ? 'ok' : 'failed');
+              if (!place) console.error('[trail] место из ссылки не прочиталось', { code: 'linked_place_unreadable' });
+            })
+            .catch((err: unknown) => {
+              console.error('[trail] место из ссылки не прочиталось', { code: 'linked_place_fetch', message: err instanceof Error ? err.message : String(err) });
+              setLinkedPlacePhase('failed');
+            });
+        }
       }
     } catch { /* параметра нет — ничего не меняем */ }
   }, []);
@@ -711,16 +748,22 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
   // старта не трогает и не сбрасывает зафиксированную цель (критерий PR 4).
   const [selectedOrigin, setSelectedOrigin] = useState<Origin | null>(null);
 
-  // Автовыбор цели: как только поиск нашёл путь к месту из деплинка.
+  // Автовыбор цели по деплинку: место с готовыми путями из поиска, а если
+  // маршрутов каталога к нему нет — само место из ссылки (24.11, «Урочище
+  // Аквариум»: карточка путь построила, экран ответил «Ничего не нашлось»).
   useEffect(() => {
     if (!cameFromPlaceRef.current || autoDestConsumedRef.current) return;
-    if (searchRoutes.length === 0) return;
-    const { destinations } = groupRoutesByDestination(searchRoutes, modalQuery.trim());
-    if (destinations.length > 0) {
+    const query = modalQuery.trim();
+    const { destinations } = groupRoutesByDestination(searchRoutes, query);
+    const picked = autoDestination({
+      destinations, linked: linkedPlace, linkedPhase: linkedPlacePhase,
+      searchDone: searchDoneFor === query, query,
+    });
+    if (picked) {
       autoDestConsumedRef.current = true;
-      setSelectedDestination(destinations[0]);
+      setSelectedDestination(picked);
     }
-  }, [searchRoutes, modalQuery]);
+  }, [searchRoutes, modalQuery, searchDoneFor, linkedPlace, linkedPlacePhase]);
 
   // Автовыбор старта: текущая позиция, как только у GPS есть фикс. Второй
   // опрос геолокации не заводим — coords уже идёт с датчика самого экрана.
@@ -1412,7 +1455,10 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
        * говорит слежение, и третий голос о том же только путал бы.
        */
       const seedFix = (pos: GeolocationPosition) => {
-        if (typeof pos.coords.accuracy === 'number' && !fixAccuracyPlausible(pos.coords.accuracy)) return;
+        if (typeof pos.coords.accuracy === 'number' && !fixAccuracyPlausible(pos.coords.accuracy)) {
+          setCoarseFixAccuracy(pos.coords.accuracy);
+          return;
+        }
         const t = pos.timestamp ?? Date.now();
         setCoords(prev => (prev && prev.t >= t) ? prev : {
           lat: pos.coords.latitude,
@@ -1439,6 +1485,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           // портим: пробел просто состарит текущий фикс честно, тем же
           // fixInfo, что уже отличает stale/dead от live.
           if (typeof pos.coords.accuracy === 'number' && !fixAccuracyPlausible(pos.coords.accuracy)) {
+            setCoarseFixAccuracy(pos.coords.accuracy);
             return;
           }
           setGpsMessage(null);
@@ -1662,6 +1709,11 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     // «Ищем» и «не отвечает» — разные решения человека: первое значит
     // подождать, второе — что ждать нечего (§4.0).
     if (gpsMessage) return { tone: 'warn', text: gpsMessage };
+    // Ответ браузера пришёл, но в масштабе города (24.11): «ищем» здесь
+    // обещало бы, что стоит подождать, — на компьютере спутников не будет.
+    if (fix.state === 'none' && coarseFixAccuracy != null) {
+      return { tone: 'warn', text: coarseFixStatus(coarseFixAccuracy) };
+    }
     if (fix.state === 'none') return { tone: 'info', text: 'Ищем спутники…' };
     if (fix.state === 'dead' || fix.state === 'stale') return { tone: 'warn', text: fixLabel(fix) };
     // Ступень связи, а не только режим. Прежняя строка сообщала «офлайн» и
@@ -1704,7 +1756,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
       };
     }
     return null;
-  }, [gpsError, fix, gpsMessage, isOffline, compassState, waypoints, currentWpIdx]);
+  }, [gpsError, fix, gpsMessage, coarseFixAccuracy, isOffline, compassState, waypoints, currentWpIdx]);
 
   const hours = Math.floor(elapsed / 3600);
   const mins = Math.floor((elapsed % 3600) / 60);
@@ -2679,6 +2731,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
     if (!pickerVisible || q.length < 2) { setSearchRoutes([]); setSearching(false); setSearchFailed(false); return; }
     setSearching(true);
     setSearchFailed(false);
+    setSearchDoneFor(null);
     modalSearchRef.current = setTimeout(() => {
       fetch(`/api/routes/search?q=${encodeURIComponent(q)}`)
         .then(r => {
@@ -2721,7 +2774,7 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
         // сообщало бы туристу факт о Камчатке там, где мы просто не смогли
         // спросить сервер.
         .catch(() => { setSearchRoutes([]); setSearchFailed(true); })
-        .finally(() => setSearching(false));
+        .finally(() => { setSearching(false); setSearchDoneFor(q); });
     }, 350);
     return () => clearTimeout(modalSearchRef.current);
   }, [modalQuery, pickerVisible]);
@@ -2886,7 +2939,13 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
           <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
             {gpsError
               ? 'Доступ к геопозиции запрещён — разрешите его в браузере, чтобы начинать от текущего места, или укажите точку на карте.'
-              : 'Определяем вашу позицию…'}
+              // Ответ датчика — словами, а не вечное «определяем» (24.11):
+              // отказ и грубая точка — разные причины, лекарство у обеих одно.
+              : gpsMessage
+                ? `${gpsMessage} — укажите старт на карте.`
+                : coarseFixAccuracy != null
+                  ? coarseFixOriginText(coarseFixAccuracy)
+                  : 'Определяем вашу позицию…'}
           </p>
         )}
         {renderMapPickButton('origin', 'Указать точку на карте')}
@@ -2961,11 +3020,16 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
             </div>
           </>
         ) : (
+          // До 24.11 здесь стояло «ведение по ней платформа пока не
+          // предлагает» — неправда с 03.10: путь до точки по дорогам и тропам
+          // считает build() выше, и его можно открыть и вести.
           <div className="px-3 py-3 rounded-lg" style={{ background: 'var(--bg-hover)' }}>
-            <p className="text-xs font-semibold" style={{ color: 'var(--warning)' }}>Путь не найден</p>
+            <p className="text-xs font-semibold" style={{ color: 'var(--warning)' }}>Путь не найден в каталоге</p>
             <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-              В данных платформы нет маршрута к этой точке — ни трека, ни путевых точек рядом.
-              Координата сохранена как цель; ведение по ней платформа пока не предлагает.
+              Готовых треков к этой точке нет — ни снятого трека, ни путевых точек рядом.
+              {selectedOrigin
+                ? ' Путь от старта ищется по дорогам и тропам — ответ выше.'
+                : ' Укажите старт — путь до точки посчитаем по дорогам и тропам.'}
             </p>
           </div>
         )}
@@ -3447,22 +3511,27 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                                 не сама цель. Совпавшие только названием
                                 маршрута — своей секцией, честно подписанной:
                                 настоящей цели за ними нет. ── */
-                            searchRoutes.length === 0 ? (
+                            searchRoutes.length === 0 && !(linkedPlace && linkedPlace.query === modalQuery.trim()) ? (
                               <div>
                                 <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
                                   {searching ? 'Ищем пути…' : `Пути к «${modalQuery.trim()}»`}
                                 </p>
                                 <div className="text-sm text-center py-6"
-                                  style={{ color: searchFailed && !searching ? 'var(--warning)' : 'var(--text-muted)' }}>
-                                  {searching
+                                  style={{ color: (searchFailed || linkedPlacePhase === 'failed') && !searching ? 'var(--warning)' : 'var(--text-muted)' }}>
+                                  {searching || linkedPlacePhase === 'loading'
                                     ? 'Секунду…'
                                     : searchFailed
                                       ? 'Поиск не дошёл до сервера — проверьте связь. Это не значит, что путей нет.'
-                                      : 'Ничего не нашлось — попробуйте другое место'}
+                                      : linkedPlacePhase === 'failed'
+                                        ? 'Место с карточки не прочиталось, а маршрутов каталога по этому названию нет. Проверьте связь или укажите точку на карте.'
+                                        : 'Ничего не нашлось — попробуйте другое место'}
                                 </div>
                               </div>
                             ) : (() => {
-                              const { destinations, titleOnly } = groupRoutesByDestination(searchRoutes, modalQuery.trim());
+                              const query = modalQuery.trim();
+                              const grouped = groupRoutesByDestination(searchRoutes, query);
+                              const destinations = withLinkedPlace(grouped.destinations, linkedPlace, query);
+                              const { titleOnly } = grouped;
 
                               return (
                                 <div className="space-y-4">
@@ -3482,7 +3551,9 @@ function OnTrailTab({ mapPackBaseUrl, topInset }: { mapPackBaseUrl: string | nul
                                                 {destinationTitle(d.destination)}
                                               </p>
                                               <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                                                {d.routeOptions.length} {plural(d.routeOptions.length, 'путь', 'пути', 'путей')}
+                                                {d.routeOptions.length === 0
+                                                  ? 'Готовых треков нет — путь посчитаем от старта'
+                                                  : `${d.routeOptions.length} ${plural(d.routeOptions.length, 'путь', 'пути', 'путей')}`}
                                               </p>
                                             </div>
                                             <ChevronRight className="w-4 h-4 text-[var(--text-muted)] shrink-0" />

@@ -65,7 +65,10 @@ describe('пустое состояние — инструмент выбора 
 describe('сначала цель, потом путь (домен Destination, владелец 27.08)', () => {
   it('результат поиска группируется через groupRoutesByDestination, не плоским списком', () => {
     expect(TRAIL).toContain("from '@/lib/on-route/destination'");
-    expect(TRAIL).toContain('groupRoutesByDestination(searchRoutes, modalQuery.trim())');
+    expect(TRAIL).toContain('groupRoutesByDestination(searchRoutes, query)');
+    // Место из ссылки с карточки встаёт в ту же выдачу (24.11) — поведение
+    // держит вызовом и рендером tests/unit/trail-linked-place.test.tsx.
+    expect(TRAIL).toContain('withLinkedPlace(grouped.destinations, linkedPlace, query)');
   });
 
   it('выбор цели фиксирует карточку места — состояние сбрасывается при новом поиске/закрытии', () => {
@@ -124,7 +127,7 @@ describe('клик по карте создаёт coordinate-цель (PR 3 ро
     expect(at).toBeGreaterThan(0);
     const body = TRAIL.slice(at, TRAIL.indexOf('\n  }\n', at));
     expect(body).toContain('hasOptions ?');
-    expect(body).toContain('Путь не найден');
+    expect(body).toContain('Путь не найден в каталоге');
   });
 
   it('LeafletMap.onMapClick — отдельный проп, отличный от onMarkerClick', () => {

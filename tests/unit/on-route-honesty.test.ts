@@ -233,7 +233,7 @@ describe('экран соответствует моменту, а не отчи
     // добавилась проверка coordIsTrustworthy — тишина не должна была
     // означать «координата подтверждена»).
     expect(SCREEN).toMatch(/if \(targetCoordSource && !coordIsTrustworthy\(targetCoordSource\)\)/);
-    expect(SCREEN).toMatch(/return null;\n  \}, \[gpsError, fix, gpsMessage, isOffline, compassState, waypoints, currentWpIdx\]\)/);
+    expect(SCREEN).toMatch(/return null;\n  \}, \[gpsError, fix, gpsMessage, coarseFixAccuracy, isOffline, compassState, waypoints, currentWpIdx\]\)/);
     expect(SCREEN).not.toMatch(/'Сеть есть'/);
   });
 
