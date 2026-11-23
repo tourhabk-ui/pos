@@ -9,7 +9,8 @@ import { ZONE_COORDS } from '@/lib/planner/engine';
 import { AVACHA_ZONE_CENTER, placePoint } from '@/lib/planner/place-point';
 import { assignCatalogFreeDays, publicPlacePath, type SelfPlace } from '@/lib/planner/self-fill';
 import { NO_TOUR_DAY_TITLE } from '@/lib/planner/honest-days';
-import { dateOutsideRecordedWindow, recordedMinAge, tourGate } from '@/lib/planner/tour-gates';
+import { dateOutsideRecordedWindow, recordedMinAge, redParkFromCard, tourGate } from '@/lib/planner/tour-gates';
+import { isSeasonalClosure } from '@/lib/safety/park-closure';
 import { estimateGroup, type EstimateDay, type EstimateProfile } from '@/lib/planner/estimate';
 import { resolvingTourPath } from '@/lib/tours/tour-url';
 import type { DayPlan } from '@/lib/planner/engine';
@@ -87,6 +88,42 @@ describe('ворота тура', () => {
   it('без даты поездки возраст всё равно режет, закрытие парка — нет', () => {
     expect(tourGate({ ...base, date: null, ageText: 'от 12 лет' })?.reason).toBe('age');
     expect(tourGate({ ...base, date: null, parkClosed: true })).toBeNull();
+  });
+
+  const klyu = 'Ключевской — маршруты закрыты на зимний сезон: Передвижение в районах вулканов крайне опасно';
+  const seasonal = 'Маршруты природного парка «Налычево» закрыты на период межсезонья';
+
+  it('красное закрытие парка не прячется за closed=false и пустым окном', () => {
+    expect(isSeasonalClosure(klyu)).toBe(false);
+    expect(isSeasonalClosure(seasonal)).toBe(true);
+    expect(redParkFromCard({ level: 'red', closed: false, openFrom: null, openTo: null, summary: klyu })).toBe(true);
+    expect(redParkFromCard({ level: 'red', closed: false, openFrom: null, openTo: null, summary: seasonal })).toBe(false);
+    expect(redParkFromCard({ level: 'red', closed: false, openFrom: null, openTo: null, summary: '' })).toBe(false);
+    expect(redParkFromCard({ level: 'yellow', closed: false, openFrom: null, openTo: null, summary: klyu })).toBe(false);
+    const g = tourGate({
+      ...base, parkClosed: false, offOrientation: false, placeLevel: 'red', placeClosed: false, parkSummary: klyu,
+    });
+    expect(g?.reason).toBe('park');
+    expect(g?.clause).toMatch(/закрытие парка/);
+  });
+
+  it('возраст, парк и не сезон — в одной строке; межсезонье красным не становится', () => {
+    const g = tourGate({
+      ...base, ageText: 'от 12 лет', placeLevel: 'red', placeClosed: false, parkSummary: klyu,
+    });
+    expect(g?.reason).toBe('age');
+    expect(g?.clause).toMatch(/от 12 лет/);
+    expect(g?.clause).toMatch(/парк у места тура закрыт/);
+    expect(g?.clause).toMatch(/не сезон/);
+    const dated = tourGate({
+      ...base, kind: 'dated', ageText: 'от 12 лет', placeLevel: 'red', placeClosed: false, parkSummary: klyu,
+    });
+    expect(dated?.clause).toMatch(/парк у места тура закрыт/);
+    expect(dated?.clause).not.toMatch(/не сезон/);
+    expect(tourGate({
+      ...base, parkClosed: true, placeLevel: 'red', placeClosed: false, parkSummary: seasonal,
+    })).toBeNull();
+    expect(recordedMinAge('от 21 лет')).toBe(21);
   });
 });
 

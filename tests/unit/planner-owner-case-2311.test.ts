@@ -145,7 +145,11 @@ describe('PDF владельца 24.11–04.12 (23.11)', () => {
       // Пустого дня с летним туром нет, и старого заголовка тоже.
       expect(rec.days.map((d) => d.title)).not.toContain('Подходящего тура на эти даты нет');
       expect(rec.days.every((d) => !d.title.startsWith('Подходящего тура'))).toBe(true);
-      expect(rec.days.filter((d) => d.title === NO_TOUR_DAY_TITLE).length).toBeLessThanOrEqual(1);
+      expect(tourIds(rec)).not.toContain('t-thermal5');
+      expect(text(rec)).toMatch(/основу автоплана/);
+      // Пятидневку в основу не ставим, поэтому пустых дней больше одного:
+      // облёты с выездами на своих местах, остальное не забито термами.
+      expect(rec.days.filter((d) => d.title === NO_TOUR_DAY_TITLE).length).toBeLessThanOrEqual(4);
     });
   }
 
