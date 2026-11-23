@@ -37,6 +37,8 @@ export const MODERATED_TOUR_COLUMNS = [
   'difficulty',
   'duration_hours', 'duration_type', 'multi_day_count',
   'location_name', 'location_type', 'latitude', 'longitude',
+  // Главное место — связь «тур → место»: по ней карточка места показывает тур.
+  'main_place_id',
   'season_start', 'season_end', 'seasonal_only',
 ] as const;
 
@@ -78,6 +80,7 @@ export const TOUR_FIELD_LABELS: Record<ModeratedTourColumn, string> = {
   location_type: 'Вид места',
   latitude: 'Широта',
   longitude: 'Долгота',
+  main_place_id: 'Главное место',
   season_start: 'Начало сезона',
   season_end: 'Конец сезона',
   seasonal_only: 'Только в сезон',
@@ -238,7 +241,33 @@ function photosOf(v: unknown): string[] {
 }
 
 /** Значение поля словами — для строки «было / стало». */
-export function tourValueText(field: ModeratedTourColumn, value: unknown): string {
+/**
+ * Что нужно знать, чтобы назвать значение словами. Главное место хранится
+ * адресом записи (`places.id`), а человеку нужно имя: его читает тот, кто
+ * строит дифф. `null` — имена прочитать не удалось: это не «места нет» (§4.0).
+ */
+export interface TourValueContext {
+  placeNames?: ReadonlyMap<string, string> | null;
+}
+
+/** Адреса мест, названные в строках и правках: по ним читаются имена. */
+export function mainPlaceIdsOf(...rows: Array<Record<string, unknown> | null | undefined>): string[] {
+  const ids = new Set<string>();
+  for (const row of rows) {
+    const id = row?.main_place_id;
+    if (typeof id === 'string' && id.trim() !== '') ids.add(id);
+  }
+  return [...ids];
+}
+
+function mainPlaceText(value: unknown, ctx: TourValueContext | undefined): string {
+  const id = String(value);
+  const names = ctx?.placeNames;
+  if (names === undefined || names === null) return `место ${id} (название не прочитано)`;
+  return names.get(id) ?? `место не найдено в справочнике (${id})`;
+}
+
+export function tourValueText(field: ModeratedTourColumn, value: unknown, ctx?: TourValueContext): string {
   // У отметки пустого нет: «не записано» читается как «нет».
   if (YES_NO.has(field)) return value === true ? 'да' : 'нет';
   if (isBlank(value)) return EMPTY;
@@ -263,6 +292,7 @@ export function tourValueText(field: ModeratedTourColumn, value: unknown): strin
   if (field === 'difficulty') return difficultyLabel(String(value), true) || String(value);
   if (field === 'duration_type') return DURATION_TYPE_WORDS[String(value)] ?? String(value);
   if (field === 'location_type') return locationTypeLabel(String(value));
+  if (field === 'main_place_id') return mainPlaceText(value, ctx);
   if (field === 'photos' || field === 'tour_image') {
     const n = photosOf(value).length;
     return `снимков: ${n}`;
@@ -286,15 +316,15 @@ export function tourValueText(field: ModeratedTourColumn, value: unknown): strin
 }
 
 /** Дифф «было / стало» по полям правки, в порядке списка полей. */
-export function tourEditChanges(live: Record<string, unknown>, patch: TourContentPatch): TourEditChange[] {
+export function tourEditChanges(live: Record<string, unknown>, patch: TourContentPatch, ctx?: TourValueContext): TourEditChange[] {
   const out: TourEditChange[] = [];
   for (const field of MODERATED_TOUR_COLUMNS) {
     if (!(field in patch)) continue;
     const change: TourEditChange = {
       field,
       label: TOUR_FIELD_LABELS[field],
-      before: tourValueText(field, live[field]),
-      after: tourValueText(field, patch[field]),
+      before: tourValueText(field, live[field], ctx),
+      after: tourValueText(field, patch[field], ctx),
     };
     if (TOUR_PHOTO_FIELDS.includes(field)) {
       change.beforePhotos = photosOf(live[field]);

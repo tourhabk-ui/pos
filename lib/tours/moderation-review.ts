@@ -20,10 +20,11 @@ import { draftMayApply } from '@/lib/moderation/gate';
 import { writeTourPatch, type TourPatchInput } from '@/lib/tours/tour-write';
 import {
   MODERATED_TOUR_COLUMNS, TOUR_FIELD_LABELS, TOUR_PHOTO_FIELDS,
-  canonicalJson, effectiveContent, tourEditChanges, tourValueText,
-  type ModeratedTourColumn, type PendingTourEdit, type TourContentLine, type TourContentPatch,
+  canonicalJson, effectiveContent, mainPlaceIdsOf, tourEditChanges, tourValueText,
+  type ModeratedTourColumn, type PendingTourEdit, type TourContentLine, type TourContentPatch, type TourValueContext,
 } from '@/lib/tours/moderation';
-import { cleanPatch, fieldsOf, isoTime as iso } from '@/lib/tours/moderation-read';
+import { MainPlaceRejected } from '@/lib/tours/main-place';
+import { cleanPatch, fieldsOf, isoTime as iso, loadPlaceNames } from '@/lib/tours/moderation-read';
 import { photoAddressesOf, rejectedPhotoAddresses } from '@/lib/tours/photo-address';
 import { LIVE_CONTENT_COLUMNS } from '@/lib/tours/moderation-store';
 
@@ -57,11 +58,11 @@ function photosOf(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((p): p is string => typeof p === 'string' && p.trim().length > 0) : [];
 }
 
-function contentLines(content: Record<ModeratedTourColumn, unknown>): TourContentLine[] {
+function contentLines(content: Record<ModeratedTourColumn, unknown>, ctx: TourValueContext): TourContentLine[] {
   return MODERATED_TOUR_COLUMNS.map((field) => ({
     field,
     label: TOUR_FIELD_LABELS[field],
-    text: tourValueText(field, content[field]),
+    text: tourValueText(field, content[field], ctx),
     ...(TOUR_PHOTO_FIELDS.includes(field) ? { photos: photosOf(content[field]) } : {}),
   }));
 }
@@ -80,6 +81,10 @@ export async function listPendingTourEdits(): Promise<{ outcome: 'ok'; edits: Pe
         ORDER BY e.created_at ASC
         LIMIT 200`,
     );
+    // Главное место в карточке — именем: одно чтение на всю очередь. Не
+    // прочиталось — карточки говорят «название не прочитано», очередь цела.
+    const placeNames = await loadPlaceNames(mainPlaceIdsOf(...rows.flatMap((row) => [row, cleanPatch(row.e_patch)])));
+    const ctx: TourValueContext = { placeNames };
     const edits = rows.map((row): PendingTourEdit => {
       const patch = cleanPatch(row.e_patch);
       const wantsPublish = row.e_wants_publish === true && row.is_published !== true;
@@ -92,8 +97,8 @@ export async function listPendingTourEdits(): Promise<{ outcome: 'ok'; edits: Pe
         partnerName: row.partner_name,
         partnerCategory: row.partner_category,
         kind: wantsPublish ? 'publish' : 'edit',
-        changes: tourEditChanges(row, patch),
-        content: contentLines(content),
+        changes: tourEditChanges(row, patch, ctx),
+        content: contentLines(content, ctx),
         seen: seenToken(row, patch, wantsPublish),
         since: iso(row.e_updated_at) ?? '',
       };
@@ -125,6 +130,8 @@ export type DecideTourEdit =
   | { outcome: 'changed' }
   /** В правке новый адрес снимка, который не снимок: одобрить нельзя, только вернуть. */
   | { outcome: 'bad_photo' }
+  /** Главное место из правки скрыто или слито, пока правка ждала: одобрить нельзя. */
+  | { outcome: 'place_gone' }
   | { outcome: 'not_found' }
   | { outcome: 'db_error' };
 
@@ -145,7 +152,7 @@ const LOCK_EDIT_SQL = `SELECT e.id::text AS id, e.tour_id::text AS tour_id, e.pa
     WHERE e.id = $1::uuid
     FOR UPDATE OF e`;
 
-const LOCK_TOUR_SQL = `SELECT ot.title, ot.is_published, ot.main_place_id, ${LIVE_CONTENT_COLUMNS}
+const LOCK_TOUR_SQL = `SELECT ot.is_published, ${LIVE_CONTENT_COLUMNS}
      FROM operator_tours ot
     WHERE ot.id = $1::bigint AND ot.deleted_at IS NULL
     FOR UPDATE`;
@@ -250,6 +257,9 @@ export async function decideTourEdit(opts: {
     return { outcome: 'approved', ...base, title, published: wantsPublish };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => undefined);
+    // Место, выбранное владельцем, к одобрению скрыли или слили в другое:
+    // это не сбой базы, а правка, которую уже нельзя применить.
+    if (err instanceof MainPlaceRejected) return { outcome: 'place_gone' };
     console.error('[tour-edit] решение по правке не записано, SQLSTATE', sqlState(err));
     return { outcome: 'db_error' };
   } finally {
