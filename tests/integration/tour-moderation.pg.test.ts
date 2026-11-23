@@ -643,6 +643,16 @@ withPg('модерация правок тура', () => {
       const admin = await asAdmin(() => saveForm(tour, { photos: ['/api/admin/evo?action=rescue-scan'] }));
       expect(admin.status).toBe(400);
       expect((await liveOf(tour)).photos).toEqual(before);
+
+      // Черновик, который лёг до правила, со старым адресом внутри: форма владельца
+      // показывает его снимки и шлёт их обратно — сохранение не запирается.
+      const old = await addTour(OP, 'Форма: старый адрес в черновике', { published: true, price: 10000 });
+      await change(old, OP, { photos: ['/a.jpg', '/legacy/old.png'] });
+      const resaved = await saveForm(old, { photos: ['/a.jpg', '/legacy/old.png'], base_price: 12000 });
+      expect(resaved.status, JSON.stringify(resaved.body)).toBe(200);
+      expect(await waitingPatch(old)).toEqual({ photos: ['/a.jpg', '/legacy/old.png'], base_price: 12000 });
+      // Чужой адрес рядом со старыми всё равно отклонён.
+      expect((await saveForm(old, { photos: ['/a.jpg', '/legacy/old.png', '/legacy/new.png'] })).status).toBe(400);
     });
 
     it('новый тур: «снимок» с адресом ручки сайта не создаётся', async () => {
