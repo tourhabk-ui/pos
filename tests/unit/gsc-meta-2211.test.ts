@@ -12,7 +12,7 @@ const STATIC = {
     file: 'app/routes/(list)/page.tsx',
     title: 'Маршруты к вулканам Камчатки — сложность и сезон',
     description:
-      'Пешие и автомобильные маршруты к вулканам Камчатки: точки пути, сложность, сезон и опасности. В каталоге также маршруты к источникам и озёрам.',
+      'Для первой поездки обычно выбирают Авачинский или Горелый: оба близко к городу. Сезон — июль–сентябрь. В каталоге также маршруты к источникам и озёрам.',
   },
   weather: {
     file: 'app/weather/(list)/page.tsx',
@@ -37,7 +37,9 @@ describe('сниппеты под страницы GSC 18–20.11 без кли�
     expect(v.title).toMatch(/Авачинским и Корякским/);
     expect(v.description).toMatch(/1250 м/);
     expect(v.description).toMatch(/свободного посещения/);
-    expect(v.leadAnswer?.text).toMatch(/между вулканами Авачинский и Корякский/);
+    expect(v.title).toMatch(/между Авачинским и Корякским/);
+    expect(v.description).toMatch(/между Авачинским и Корякским/);
+    expect(v.leadAnswer?.text).toMatch(/между Авачинским и Корякским/);
 
     const k = PLACE_SEARCH_META['ozero-kronotskoe'];
     expect(k.title).toMatch(/245 км²/);
@@ -46,7 +48,8 @@ describe('сниппеты под страницы GSC 18–20.11 без кли�
     expect(k.description).not.toMatch(/Где оно на карте/);
 
     const t = PLACE_SEARCH_META.terpuk;
-    expect(t.title).toMatch(/щитовой вулкан/);
+    expect(t.title).toMatch(/^Вулкан Терпук/);
+    expect(t.title).toMatch(/щитовой/);
     expect(t.description).toMatch(/2500–3000/);
     expect(t.description).toMatch(/Седанкинском доле/);
     expect(t.description).not.toMatch(/что о нём известно/);

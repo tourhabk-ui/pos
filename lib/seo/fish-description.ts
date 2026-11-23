@@ -34,6 +34,12 @@ export const FISH_SEARCH_META: Readonly<Record<string, FishSearchMeta>> = {
     description:
       'На Камчатке форелью чаще всего называют микижу — радужную форель. Живёт в холодных ручьях и горных озёрах. Сезон — май — сентябрь. Рекорд в природе — до 6,5 кг.',
   },
+  // Викторина «царь лососей»: страница есть, в GSC 18–21.11 её не было.
+  chavycha: {
+    title: 'Чавыча на Камчатке — царь лососей',
+    description:
+      'Самый крупный тихоокеанский лосось: её называют царём лососей, царём-рыбой и королевским лососем (king salmon). Сезон хода — 1 июня — 15 июля.',
+  },
 };
 
 export function fishSearchMeta(id: string | null | undefined): FishSearchMeta | null {

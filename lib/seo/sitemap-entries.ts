@@ -198,9 +198,8 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     { url: `${BASE}/legal/privacy`,        lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.4 },
     { url: `${BASE}/legal/terms`,          lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.4 },
     { url: `${BASE}/legal/offer`,          lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.4 },
-    // Английские переводы политики и соглашения (17.11) — оригинал русский, пара в hreflang.
-    { url: `${BASE}/en/legal/privacy`,     lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.3 },
-    { url: `${BASE}/en/legal/terms`,       lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.3 },
+    // Английские переводы en/legal закрыты noindex (24.11): оригинал русский,
+    // в карту сайта не идут. Пара hreflang на страницах сохраняется.
   ];
 
   // Категории и зонные срезы каталога — динамически, только живые (≥3
