@@ -164,17 +164,22 @@ export async function maxSendToUser(
 }
 
 /**
- * Утилита: найти все чаты бота (для определения channel_id).
- * Вызывать вручную из /api/max/setup для поиска канала.
+ * Чаты, которые бот уже видел или которые записаны в окружении.
+ * GET /chats снят, живой MAX здесь не вызывается. Названия нет, пока
+ * не приходило chat_title_changed: тогда title — null, это не пустое имя.
  */
 export async function maxListChats(): Promise<{ ok: boolean; chats?: unknown[]; error?: string }> {
-  const api = getApi();
-  if (!api) return { ok: false, error: 'MAX_BOT_TOKEN not set' };
-
+  if (!process.env.MAX_BOT_TOKEN) return { ok: false, error: 'MAX_BOT_TOKEN not set' };
   try {
-    const res = await api.getAllChats();
-    return { ok: true, chats: (res as unknown as { chats: unknown[] }).chats ?? [] };
+    // Динамический импорт: модуль чатов тянет пул, а пул читает config при
+    // загрузке. Статический импорт отсюда ронял тесты, которые подменяют
+    // config не целиком (уведомление гостю жилья).
+    const { listRememberedMaxChats } = await import('@/lib/max/bot-chats');
+    const chats = await listRememberedMaxChats();
+    return { ok: true, chats };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : 'MAX API error' };
+    const message = e instanceof Error ? e.message : 'не прочитал чаты бота';
+    console.error(`[max/bot-chats] список не прочитан: ${message}`);
+    return { ok: false, error: message };
   }
 }

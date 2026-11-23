@@ -22,6 +22,7 @@
  *     на успехе, отказ на отказе, ни одной при пропуске по аренде окна.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { MAX_BOT_UPDATE_TYPES } from '@/lib/max/update-types';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
@@ -299,7 +300,9 @@ describe('max-webhook — отметка под ключом реестра max-
   it('подписка на месте — success', async () => {
     // Свой ответ на каждый вызов: крон зовёт MAX дважды (команды бота, затем
     // подписки), а тело одного Response читается один раз.
-    maxFetch.mockImplementation(async () => new Response(JSON.stringify({ subscriptions: [{ url: 'https://vedarai.ru/api/max/kuzmich' }] }), { status: 200 }));
+    maxFetch.mockImplementation(async () => new Response(JSON.stringify({
+      subscriptions: [{ url: 'https://vedarai.ru/api/max/kuzmich', update_types: [...MAX_BOT_UPDATE_TYPES] }],
+    }), { status: 200 }));
     const res = await call();
     expect(res.status).toBe(200);
     expect(runRows()).toEqual([{ agentId: agentOf('max-webhook'), status: 'success' }]);

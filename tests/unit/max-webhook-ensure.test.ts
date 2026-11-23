@@ -19,6 +19,7 @@
  * им. Иные интеграции чужих хостов — сведение, без красного.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { MAX_BOT_UPDATE_TYPES } from '@/lib/max/update-types';
 
 const WEBHOOK = 'https://vedarai.ru/api/max/kuzmich';
 
@@ -42,7 +43,9 @@ function fakeMax(initial: string[], opts: {
     let reply: Reply;
     if (method === 'GET') {
       lists += 1;
-      reply = opts.onList?.(lists) ?? new Response(JSON.stringify({ subscriptions: [...subs].map((u) => ({ url: u })) }), { status: 200 });
+      reply = opts.onList?.(lists) ?? new Response(JSON.stringify({
+        subscriptions: [...subs].map((u) => ({ url: u, update_types: [...MAX_BOT_UPDATE_TYPES] })),
+      }), { status: 200 });
     } else if (method === 'POST') {
       const target = (JSON.parse(String(init?.body)) as { url: string }).url;
       reply = opts.onPost ? opts.onPost(target, subs) : (subs.add(target), new Response(JSON.stringify({ success: true }), { status: 200 }));
@@ -91,7 +94,7 @@ describe('/api/cron/max-webhook — самолечение подписки', ()
   it('подписка на месте → noop, повторно не регистрирует', async () => {
     const fetchMock = vi.fn(async (url: string, opts?: { method?: string }) => {
       if (!opts || opts.method === 'GET' || opts.method === undefined) {
-        return new Response(JSON.stringify({ subscriptions: [{ url: WEBHOOK }] }), { status: 200 });
+        return new Response(JSON.stringify({ subscriptions: [{ url: WEBHOOK, update_types: [...MAX_BOT_UPDATE_TYPES] }] }), { status: 200 });
       }
       // Список команд бота ставится каждым прогоном (lib/max/bot-commands, 23.10).
       if (opts.method === 'PATCH' && url.endsWith('/me/commands')) return ok();
@@ -109,10 +112,32 @@ describe('/api/cron/max-webhook — самолечение подписки', ()
     expect(fetchMock.mock.calls.map((c) => (c[1] as { method?: string } | undefined)?.method ?? 'GET')).toEqual(['PATCH', 'GET']);
   });
 
+  it('адрес на месте, но без bot_added и bot_removed — подписка ставится заново', async () => {
+    const posted: unknown[] = [];
+    const fetchMock = vi.fn(async (url: string, opts?: { method?: string; body?: string }) => {
+      if (opts?.method === 'PATCH' && url.endsWith('/me/commands')) return ok();
+      if (opts?.method === 'POST') {
+        posted.push(JSON.parse(String(opts.body)));
+        return ok();
+      }
+      return new Response(JSON.stringify({
+        subscriptions: [{ url: WEBHOOK, update_types: ['bot_started', 'message_created', 'message_callback'] }],
+      }), { status: 200 });
+    });
+    vi.doMock('@/lib/max/max-fetch', () => ({ maxFetch: fetchMock }));
+
+    const res = await callRoute();
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.action).toBe('events_updated');
+    expect(body.reason).toBe('events_incomplete');
+    expect(posted).toEqual([{ url: WEBHOOK, update_types: [...MAX_BOT_UPDATE_TYPES] }]);
+  });
+
   it('команды бота не поставились — исход в ответе и в логе, а подписка решает цвет прогона', async () => {
     const fetchMock = vi.fn(async (url: string, opts?: { method?: string }) => {
       if (opts?.method === 'PATCH' && url.endsWith('/me/commands')) return new Response('{}', { status: 503 });
-      return new Response(JSON.stringify({ subscriptions: [{ url: WEBHOOK }] }), { status: 200 });
+      return new Response(JSON.stringify({ subscriptions: [{ url: WEBHOOK, update_types: [...MAX_BOT_UPDATE_TYPES] }] }), { status: 200 });
     });
     vi.doMock('@/lib/max/max-fetch', () => ({ maxFetch: fetchMock }));
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
