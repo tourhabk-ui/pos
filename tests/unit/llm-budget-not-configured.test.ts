@@ -10,20 +10,20 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const { poolQuery, recordCronRun, notifyBudgetAlert } = vi.hoisted(() => ({
+const { poolQuery, recordCronRun, notifyBudgetAlert, claimCronWindow } = vi.hoisted(() => ({
   poolQuery: vi.fn(),
   recordCronRun: vi.fn(),
   notifyBudgetAlert: vi.fn(async () => ({ ok: true })),
+  claimCronWindow: vi.fn(async (): Promise<'claimed' | 'held' | 'unknown'> => 'claimed'),
 }));
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: poolQuery } }));
 vi.mock('@/lib/agents/cron-heartbeat', () => ({ recordCronRun }));
 vi.mock('@/lib/telegram/admin-notify', () => ({ notifyBudgetAlert }));
-vi.mock('@/lib/agents/cron-lease', () => ({
-  claimCronWindow: vi.fn(async () => 'claimed'),
-  shouldRun: () => true,
-  leaseSkipBody: () => ({ ok: true, status: 'lease_held' }),
-}));
+vi.mock('@/lib/agents/cron-lease', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/agents/cron-lease')>('@/lib/agents/cron-lease');
+  return { ...actual, claimCronWindow };
+});
 
 import { GET } from '@/app/api/cron/llm-budget-check/route';
 import { readDailyBudget, BUDGET_UNSET_REASON, BUDGET_INVALID_REASON } from '@/lib/ai/daily-budget';
@@ -39,6 +39,8 @@ beforeEach(() => {
   poolQuery.mockReset();
   recordCronRun.mockReset();
   notifyBudgetAlert.mockClear();
+  claimCronWindow.mockReset();
+  claimCronWindow.mockResolvedValue('claimed');
   poolQuery.mockResolvedValue({ rows: [{ spent: '3.25', unknown_calls: '0' }] });
   process.env.CRON_SECRET = 'cron-test';
 });
@@ -101,5 +103,21 @@ describe('GET /api/cron/llm-budget-check без порога', () => {
     const body = await (await call()).json() as Body;
     expect(body.status).toBe('alert_sent');
     expect(notifyBudgetAlert).toHaveBeenCalledWith(3.25, 2);
+  });
+});
+
+describe('GET /api/cron/llm-budget-check: окно занято', () => {
+  it('пропуск аренды — не замер: журнал пуст, тело называет lease_held, HTTP 200', async () => {
+    claimCronWindow.mockResolvedValue('held');
+    process.env.AI_DAILY_BUDGET_USD = '10';
+    const res = await call();
+    const body = await res.json() as { success?: boolean; skipped?: string; agent_id?: string };
+    expect(res.status).toBe(200);
+    expect(body.skipped).toBe('lease_held');
+    expect(body.success).toBe(true);
+    expect(body.agent_id).toBe('llm-budget');
+    expect(recordCronRun).not.toHaveBeenCalled();
+    expect(poolQuery).not.toHaveBeenCalled();
+    expect(notifyBudgetAlert).not.toHaveBeenCalled();
   });
 });
