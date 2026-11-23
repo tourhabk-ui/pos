@@ -66,6 +66,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # Сводка ответа вместо тела: лог Actions публичный, а в телах бывают
+      # имена операторов, номера броней и свободный текст (перепись 23.11).
+      # Отказ checkout не должен отменять вызовы эндпоинтов: без скрипта шаг
+      # просто не напечатает сводку, исход решает код HTTP.
+      - name: Скрипт сводки ответа
+        continue-on-error: true
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts
+
       # ── SOS-мост (критично, было cron-sos-bridge.yml) ──────────────────
       - name: SOS Events Bridge
         id: sos_bridge
@@ -77,7 +87,7 @@ jobs:
           HTTP=$(curl -s -o /tmp/sos_bridge.json -w "%{http_code}" --max-time 60 \
             -H "Authorization: Bearer $CRON_SECRET" \
             "https://vedarai.ru/api/cron/sos-events-bridge")
-          echo "HTTP: $HTTP" && cat /tmp/sos_bridge.json 2>/dev/null || true
+          echo "HTTP: $HTTP" && node scripts/cron-body-summary.mjs /tmp/sos_bridge.json "$HTTP" || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
 
       # ── Danger Analysis (safety, было cron-danger-analysis.yml) ────────
@@ -91,7 +101,7 @@ jobs:
           HTTP=$(curl -s -o /tmp/danger.json -w "%{http_code}" --max-time 120 \
             -H "Authorization: Bearer $CRON_SECRET" \
             "https://vedarai.ru/api/cron/danger-analysis")
-          echo "HTTP: $HTTP" && cat /tmp/danger.json 2>/dev/null || true
+          echo "HTTP: $HTTP" && node scripts/cron-body-summary.mjs /tmp/danger.json "$HTTP" || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
 
       # ── Rescue (safety-tier, было cron-rescue.yml) ──────────────────────
@@ -109,7 +119,7 @@ jobs:
             "https://vedarai.ru/api/cron/rescue" \
             -H "Authorization: Bearer $CRON_SECRET")
           echo "Rescue HTTP: $HTTP"
-          cat /tmp/rescue.json 2>/dev/null || true
+          node scripts/cron-body-summary.mjs /tmp/rescue.json "$HTTP" || true
           if [ "$HTTP" = "200" ]; then
             echo "Rescue Scan OK"
           else
@@ -139,7 +149,7 @@ jobs:
             -H "Authorization: Bearer $CRON_SECRET")
 
           echo "Worker HTTP: $HTTP"
-          cat /tmp/worker.json 2>/dev/null || true
+          node scripts/cron-body-summary.mjs /tmp/worker.json "$HTTP" || true
 
           if [ "$HTTP" != "200" ]; then
             echo "Kernel worker failed: HTTP $HTTP"
@@ -190,7 +200,7 @@ jobs:
             -H "Authorization: Bearer $CRON_SECRET")
 
           echo "HTTP: $HTTP"
-          cat /tmp/leads.json 2>/dev/null || true
+          node scripts/cron-body-summary.mjs /tmp/leads.json "$HTTP" || true
 
           if [ "$HTTP" = "200" ]; then
             echo "Leads processing OK"
@@ -216,7 +226,7 @@ jobs:
             -H "Authorization: Bearer $CRON_SECRET")
 
           echo "Follow-ups HTTP: $HTTP"
-          cat /tmp/followups.json 2>/dev/null || true
+          node scripts/cron-body-summary.mjs /tmp/followups.json "$HTTP" || true
 
       # ── Telegram Webhook Watchdog (было cron-tg-watchdog.yml) ──────────
       - name: Check and repair Telegram webhook
@@ -229,7 +239,7 @@ jobs:
           HTTP=$(curl -s -o /tmp/tg_watchdog.json -w "%{http_code}" --max-time 30 \
             -H "Authorization: Bearer $CRON_SECRET" \
             "https://vedarai.ru/api/cron/telegram-webhook-watchdog")
-          echo "HTTP: $HTTP" && cat /tmp/tg_watchdog.json 2>/dev/null || true
+          echo "HTTP: $HTTP" && node scripts/cron-body-summary.mjs /tmp/tg_watchdog.json "$HTTP" || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
 
       # ── Синхронизация маркетплейсов (было cron-channel-sync.yml) ───────
@@ -243,7 +253,7 @@ jobs:
           HTTP=$(curl -s -o /tmp/channel_sync.json -w "%{http_code}" --max-time 120 \
             -H "Authorization: Bearer $CRON_SECRET" \
             "https://vedarai.ru/api/cron/channel-sync")
-          echo "HTTP: $HTTP" && cat /tmp/channel_sync.json 2>/dev/null || true
+          echo "HTTP: $HTTP" && node scripts/cron-body-summary.mjs /tmp/channel_sync.json "$HTTP" || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
 
       # ── Сводка вулканов КФ ФИЦ ЕГС РАН (24.09) ─────────────────────────
@@ -261,7 +271,7 @@ jobs:
           HTTP=$(curl -s -o /tmp/emsd_vmon.json -w "%{http_code}" --max-time 60 \
             -H "Authorization: Bearer $CRON_SECRET" \
             "https://vedarai.ru/api/cron/emsd-vmon-sync")
-          echo "HTTP: $HTTP" && cat /tmp/emsd_vmon.json 2>/dev/null || true
+          echo "HTTP: $HTTP" && node scripts/cron-body-summary.mjs /tmp/emsd_vmon.json "$HTTP" || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
 
       # ── Прогноз Камчатского УГМС (29.10) ────────────────────────────────
@@ -277,7 +287,7 @@ jobs:
           HTTP=$(curl -s -o /tmp/ugms_forecast.json -w "%{http_code}" --max-time 60 \
             -H "Authorization: Bearer $CRON_SECRET" \
             "https://vedarai.ru/api/cron/ugms-forecast")
-          echo "HTTP: $HTTP" && cat /tmp/ugms_forecast.json 2>/dev/null || true
+          echo "HTTP: $HTTP" && node scripts/cron-body-summary.mjs /tmp/ugms_forecast.json "$HTTP" || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
 
       # ── Запросы мест без ответа оператора (29.09) ──────────────────────
@@ -295,7 +305,7 @@ jobs:
           HTTP=$(curl -s -o /tmp/seat_expire.json -w "%{http_code}" --max-time 60 \
             -H "Authorization: Bearer $CRON_SECRET" \
             "https://vedarai.ru/api/cron/seat-requests-expire")
-          echo "HTTP: $HTTP" && cat /tmp/seat_expire.json 2>/dev/null || true
+          echo "HTTP: $HTTP" && node scripts/cron-body-summary.mjs /tmp/seat_expire.json "$HTTP" || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
 
       # ── Сообщения после ответа оператора (11.11, план «после отказа», 2б) ─
@@ -315,7 +325,7 @@ jobs:
           HTTP=$(curl -s -o /tmp/answer_notices.json -w "%{http_code}" --max-time 180 \
             -H "Authorization: Bearer $CRON_SECRET" \
             "https://vedarai.ru/api/cron/answer-notices")
-          echo "HTTP: $HTTP" && cat /tmp/answer_notices.json 2>/dev/null || true
+          echo "HTTP: $HTTP" && node scripts/cron-body-summary.mjs /tmp/answer_notices.json "$HTTP" || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
 
       # ── Напоминания о сроке задач CRM (09.10, #2325 шаг 1в-2) ──────────
@@ -332,7 +342,7 @@ jobs:
           HTTP=$(curl -s -o /tmp/crm_reminders.json -w "%{http_code}" --max-time 60 \
             -H "Authorization: Bearer $CRON_SECRET" \
             "https://vedarai.ru/api/cron/crm-reminders")
-          echo "HTTP: $HTTP" && cat /tmp/crm_reminders.json 2>/dev/null || true
+          echo "HTTP: $HTTP" && node scripts/cron-body-summary.mjs /tmp/crm_reminders.json "$HTTP" || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
 
       # ── Сверка с PTWC (29.10) ───────────────────────────────────────────
@@ -349,7 +359,7 @@ jobs:
           HTTP=$(curl -s -o /tmp/ptwc_check.json -w "%{http_code}" --max-time 60 \
             -H "Authorization: Bearer $CRON_SECRET" \
             "https://vedarai.ru/api/cron/ptwc-check")
-          echo "HTTP: $HTTP" && cat /tmp/ptwc_check.json 2>/dev/null || true
+          echo "HTTP: $HTTP" && node scripts/cron-body-summary.mjs /tmp/ptwc_check.json "$HTTP" || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
 
       # ── Уведомления агентам об изменении заявок (29.10) ─────────────────
@@ -370,7 +380,7 @@ jobs:
           HTTP=$(curl -s -o /tmp/agent_request_notify.json -w "%{http_code}" --max-time 60 \
             -H "Authorization: Bearer $CRON_SECRET" \
             "https://vedarai.ru/api/cron/agent-request-notify")
-          echo "HTTP: $HTTP" && cat /tmp/agent_request_notify.json 2>/dev/null || true
+          echo "HTTP: $HTTP" && node scripts/cron-body-summary.mjs /tmp/agent_request_notify.json "$HTTP" || true
           [ "$HTTP" = "200" ] && echo "OK" || { echo "FAIL $HTTP"; exit 1; }
 
       # ── Итог: job краснеет, если хоть один шаг отказал ──────────────────

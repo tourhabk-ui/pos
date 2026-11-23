@@ -16,6 +16,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # Сводка ответа вместо тела: лог Actions публичный, а в телах бывают
+      # имена операторов, номера броней и свободный текст (перепись 23.11).
+      # Отказ checkout не должен отменять вызовы эндпоинтов: без скрипта шаг
+      # просто не напечатает сводку, исход решает код HTTP.
+      - name: Скрипт сводки ответа
+        continue-on-error: true
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts
+
       - name: Complete bookings whose tour has ended
         id: autocomplete
         continue-on-error: true
@@ -33,7 +43,7 @@ jobs:
             -H "Authorization: Bearer $CRON_SECRET")
 
           echo "HTTP: $HTTP"
-          cat /tmp/auto_complete_resp.json 2>/dev/null || true
+          node scripts/cron-body-summary.mjs /tmp/auto_complete_resp.json "$HTTP" || true
 
           if [ "$HTTP" != "200" ]; then
             echo "Unexpected HTTP $HTTP"
@@ -55,7 +65,7 @@ jobs:
             -H "Authorization: Bearer $CRON_SECRET")
 
           echo "HTTP: $HTTP"
-          cat /tmp/review_request_resp.json 2>/dev/null || true
+          node scripts/cron-body-summary.mjs /tmp/review_request_resp.json "$HTTP" || true
 
           if [ "$HTTP" = "200" ]; then
             echo "Review requests sent OK"

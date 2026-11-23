@@ -121,7 +121,9 @@ jobs:
             "https://vedarai.ru/api/cron/mcp-census?days=30") || true
           echo "mcp-census: HTTP $CODE"
           if [ "$CODE" = "200" ]; then
-            jq '.' /tmp/mcp.json || cat /tmp/mcp.json
+            # Без `arg_value`: это фрагмент запроса к инструменту — слова человека,
+            # а лог публичный (перепись 23.11). Значения читаются в панели MCP.
+            jq 'del(.errors_external[]?.arg_value)' /tmp/mcp.json || echo "mcp-census: тело не разобрано — не печатается"
             # clients null — перепись клиентов не прочиталась, а не «никого не было».
             LINE=$(jq -r 'if .clients == null then "MCP: перепись клиентов не прочиталась — \(.failed_measures)" else "MCP за \(.window_days) дн., клиенты openai/anthropic/perplexity: " + ([.clients[] | select(.client | test("openai|chatgpt|anthropic|claude|perplexity"; "i")) | "\(.client) (\(.origin), \(.calls))"] | if length == 0 then "ни одного" else join(", ") end) end' /tmp/mcp.json)
             echo "$LINE"

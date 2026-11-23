@@ -75,12 +75,6 @@ jobs:
         run: |
           bash scripts/ci/wait-for-contract.sh
 
-          # Вердикт словами — первым, чтобы читающий не разбирал JSON ради него.
-          python3 - <<'PY'
-          import json
-          with open('/tmp/ledger.json') as f:
-              d = json.load(f)
-          print('ВЕРДИКТ:', d.get('verdict', '(нет)'))
-          print()
-          print(json.dumps(d, ensure_ascii=False, indent=2))
-          PY
+          # Вердикт и ответ; автор и причина у записей человека скрыты — лог
+          # публичный. Чистка — в скрипте и проверяется запуском (23.11).
+          node scripts/ledger-check-print.mjs /tmp/ledger.json

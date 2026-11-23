@@ -40,6 +40,13 @@ export function watchdogStepVerdict(http, bodyText) {
     if (last.delivery === 'failed') {
       return { exitCode: 1, lines: [`::error::Сторож собрал тревогу, но до владельца она не дошла (${last.age_min} мин назад): ${short(last.reason)}`] };
     }
+    // Сторож упал с исключением: запись «failed» без исхода доставки (её пишет
+    // catch роута). Держатель окна зовёт сторожа каждые полчаса, запись всегда
+    // свежая — без этой ветки постоянно падающий сторож оставался зелёным на
+    // единственном внешнем наблюдателе (ревью #3766). Текст ошибки не печатаем.
+    if (last.status === 'failed') {
+      return { exitCode: 1, lines: [`::error::Последний прогон сторожа упал (${last.age_min} мин назад) — проверки не выполнялись`] };
+    }
     if (typeof last.age_min === 'number' && last.age_min > LAST_RUN_STALE_MIN) {
       return { exitCode: 1, lines: [`::error::Окно сторожа занято, а записи о прогоне нет ${last.age_min} мин — держатель окна мог упасть, платформу сейчас никто не сторожит`] };
     }

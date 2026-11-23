@@ -307,6 +307,19 @@ describe('вторая нога (шаг workflow) следит за сторож
     expect(v.lines.join('\n')).toContain('до владельца она не дошла (12 мин назад)');
   });
 
+  // Ревью #3766: catch роута пишет «failed» без исхода доставки, и запись
+  // всегда свежая — постоянно падающий сторож оставался зелёным.
+  it('окно занято, последний прогон упал с исключением — красный, без текста ошибки', () => {
+    const v = watchdogStepVerdict(200, skipped({ status: 'failed', age_min: 10, delivery: null, reason: null }));
+    expect(v.exitCode).toBe(1);
+    expect(v.lines.join('\n')).toContain('Последний прогон сторожа упал (10 мин назад)');
+  });
+
+  it('окно занято, часть проверок не выполнилась (partial) — не красный: о проверках скажет сам прогон', () => {
+    const v = watchdogStepVerdict(200, skipped({ status: 'partial', age_min: 10, delivery: 'nothing_to_send', reason: null }));
+    expect(v.exitCode).toBe(0);
+  });
+
   it('окно занято, а записи о прогоне давно нет — красный: держатель мог упасть', () => {
     const v = watchdogStepVerdict(200, skipped({ status: 'success', age_min: LAST_RUN_STALE_MIN + 1, delivery: 'delivered', reason: null }));
     expect(v.exitCode).toBe(1);
