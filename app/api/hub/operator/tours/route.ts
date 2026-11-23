@@ -43,14 +43,12 @@ export async function GET(request: NextRequest) {
     // «не прочитано», а не «проверки нет»; сам список от этого не падает.
     const ids = data.rows.map((r) => String(r.id));
     const edits = await loadOwnTourEdits(ids, new Map());
-    const rows = data.rows.map((r) => ({
-      ...r,
-      review: edits === null ? 'unknown' as const : tourReviewMark(edits.get(String(r.id))),
-    }));
-
     return NextResponse.json({
       success: true,
-      data: rows,
+      data: data.rows.map((r) => ({
+        ...r,
+        review: edits === null ? 'unknown' as const : tourReviewMark(edits.get(String(r.id))),
+      })),
       pagination: {
         total: data.total,
         limit: data.limit,

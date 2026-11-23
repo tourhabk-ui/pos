@@ -7,7 +7,7 @@
  * модерацию судит tests/integration/tour-moderation.pg.test.ts.
  */
 export async function approveTourEdit(tourId: string): Promise<void> {
-  const { listPendingTourEdits, decideTourEdit } = await import('@/lib/tours/moderation-store');
+  const { listPendingTourEdits, decideTourEdit } = await import('@/lib/tours/moderation-review');
   const listed = await listPendingTourEdits();
   if (listed.outcome !== 'ok') throw new Error('очередь правок не прочитана');
   const edit = listed.edits.find((e) => e.tourId === String(tourId));
@@ -18,7 +18,7 @@ export async function approveTourEdit(tourId: string): Promise<void> {
 
 /** Сколько правок тура ждёт проверки. */
 export async function pendingTourEdits(tourId: string): Promise<number> {
-  const { listPendingTourEdits } = await import('@/lib/tours/moderation-store');
+  const { listPendingTourEdits } = await import('@/lib/tours/moderation-review');
   const listed = await listPendingTourEdits();
   if (listed.outcome !== 'ok') throw new Error('очередь правок не прочитана');
   return listed.edits.filter((e) => e.tourId === String(tourId)).length;

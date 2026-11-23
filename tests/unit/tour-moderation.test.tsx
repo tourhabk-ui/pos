@@ -30,6 +30,8 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/components/auth/Protected', () => ({ Protected: ({ children }: { children: React.ReactNode }) => children }));
 
 const h = vi.hoisted(() => ({
+  withdraw: vi.fn(),
+  guidePartner: vi.fn(),
   decide: vi.fn(),
   notify: vi.fn(async () => undefined),
   ping: vi.fn(),
@@ -38,10 +40,16 @@ const h = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/auth/middleware', () => ({
   requireAdmin: vi.fn(async () => ({ userId: 'c4000000-0000-4000-8000-0000000002ad', role: 'admin' })),
+  requireRole: vi.fn(async () => ({ userId: 'c4000000-0000-4000-8000-000000000301', role: 'guide' })),
+}));
+vi.mock('@/lib/auth/guide-helpers', () => ({ getGuidePartnerId: h.guidePartner }));
+vi.mock('@/lib/tours/moderation-review', async (orig) => ({
+  ...(await orig<typeof import('@/lib/tours/moderation-review')>()),
+  decideTourEdit: h.decide,
 }));
 vi.mock('@/lib/tours/moderation-store', async (orig) => ({
   ...(await orig<typeof import('@/lib/tours/moderation-store')>()),
-  decideTourEdit: h.decide,
+  withdrawTourEdit: h.withdraw,
 }));
 vi.mock('@/lib/seo/indexnow', () => ({ pingTourChanged: h.ping }));
 vi.mock('@/lib/partners/reach', () => ({ reachForPartner: h.reach }));
@@ -659,6 +667,35 @@ describe('дверь решения: POST /api/admin/moderation/tour-edits/[id]'
   });
 });
 
+describe('отзыв правки гидом: DELETE /api/guide/own/tours/[id]/edit', () => {
+  const del = async (id: string) => {
+    const { DELETE } = await import('@/app/api/guide/own/tours/[id]/edit/route');
+    const res = await DELETE(new NextRequest(`http://localhost/api/guide/own/tours/${id}/edit`, { method: 'DELETE' }), { params: Promise.resolve({ id }) });
+    return { status: res.status, body: await res.json() };
+  };
+  beforeEach(() => { h.withdraw.mockReset(); h.guidePartner.mockReset().mockResolvedValue('g1'); });
+
+  it('отзывается правка своей карточки: владение — в самом удалении', async () => {
+    h.withdraw.mockResolvedValue('withdrawn');
+    const r = await del('12');
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ success: true, message: 'Отозвано с проверки. На сайте — то, что было.' });
+    expect(h.withdraw).toHaveBeenCalledWith('12', 'g1');
+  });
+
+  it('правки нет — 404; база не ответила — 503, а не «нет»; номер не число — 400; карточки гида нет — 404', async () => {
+    h.withdraw.mockResolvedValue('none');
+    expect((await del('12')).status).toBe(404);
+    h.withdraw.mockResolvedValue('db_error');
+    expect((await del('12')).status).toBe(503);
+    h.withdraw.mockClear();
+    expect((await del('12; drop')).status).toBe(400);
+    h.guidePartner.mockResolvedValue(null);
+    expect((await del('12')).status).toBe(404);
+    expect(h.withdraw).not.toHaveBeenCalled();
+  });
+});
+
 // ─── Запреты ──────────────────────────────────────────────────────────────────
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -677,7 +714,7 @@ const OWNER_DOOR = /^(app\/api\/(hub\/operator|operator|guide)\/|lib\/(guides|cr
 describe('запреты', () => {
   it('общую запись тура зовут только единая дверь и одобрение — владелец мимо них не пишет', () => {
     const callers = SOURCES.filter((f) => /\bwriteTourPatch\(/.test(read(f)));
-    expect(callers.sort()).toEqual(['lib/tours/moderation-store.ts', 'lib/tours/tour-change.ts', 'lib/tours/tour-write.ts']);
+    expect(callers.sort()).toEqual(['lib/tours/moderation-review.ts', 'lib/tours/tour-change.ts', 'lib/tours/tour-write.ts']);
   });
 
   it('в дверях владельца нет своего UPDATE содержания тура и своей публикации', () => {
@@ -699,19 +736,29 @@ describe('запреты', () => {
   it('таблицу черновиков читают только названные файлы; публичного чтения нет', () => {
     const readers = SOURCES.filter((f) => /\boperator_tour_edits\b/.test(read(f))).sort();
     expect(readers).toEqual([
+      'lib/account/erase.ts',            // удаление аккаунта: таблица названа в ERASE_KEEP с причиной, SQL к ней нет
       'lib/guides/tour-edit/store.ts',   // «тур идёт через проверку» — слова чата гида перед сохранением
       'lib/partners/readiness-store.ts', // счёт «на проверке» в чек-листе готовности
-      'lib/tours/moderation-store.ts',   // черновик, очередь, решение
+      'lib/tours/moderation-read.ts',    // правки владельца для его кабинета — только чтение
+      'lib/tours/moderation-review.ts',  // очередь администратора и решение
+      'lib/tours/moderation-store.ts',   // черновик: положить и отозвать
       'lib/tours/moderation.ts',         // упоминание в шапке правила
     ]);
+    // Читающий модуль не пишет: ни INSERT, ни UPDATE, ни DELETE.
+    expect(read('lib/tours/moderation-read.ts')).not.toMatch(/\b(INSERT INTO|UPDATE|DELETE FROM)\b/);
   });
 
   it('склад черновиков и единую дверь подключают только кабинеты владельца и админка', () => {
-    const users = SOURCES.filter((f) => /from '@\/lib\/tours\/(moderation-store|tour-change)'/.test(read(f)));
+    const users = SOURCES.filter((f) => /from '@\/lib\/tours\/(moderation-store|moderation-read|tour-change)'/.test(read(f)));
     const outside = users.filter((f) => !OWNER_DOOR.test(f)
-      && !/^app\/api\/admin\/moderation\/tour-edits\//.test(f)
-      && !['components/admin/TourEditQueue.tsx', 'lib/tours/tour-change.ts'].includes(f));
+      && !['lib/tours/moderation-store.ts', 'lib/tours/moderation-review.ts', 'lib/tours/tour-change.ts'].includes(f));
     expect(outside).toEqual([]);
+    // Решение — только у дверей администратора: владелец свою правку не одобряет.
+    const deciders = SOURCES.filter((f) => /from '@\/lib\/tours\/moderation-review'/.test(read(f))).sort();
+    expect(deciders).toEqual([
+      'app/api/admin/moderation/tour-edits/[id]/route.ts',
+      'app/api/admin/moderation/tour-edits/route.ts',
+    ]);
     // Витрина судит тур одним шлюзом и о черновиках не знает.
     expect(read('lib/tours/public-visibility.ts')).not.toMatch(/operator_tour_edits|moderation-store/);
   });

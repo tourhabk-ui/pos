@@ -25,9 +25,14 @@ import type { TourChange } from '@/lib/tours/tour-change';
 vi.mock('next/cache', () => ({ unstable_cache: (fn: () => unknown) => fn }));
 // Вошедший — владелец кабинета оператора (USER ниже): двери судятся целиком,
 // подменён только разбор JWT. Модель подменена ответом-заготовкой.
+// `who` переключает вошедшего на администратора — тем же роутом он правит витрину.
+const who = vi.hoisted(() => ({
+  userId: 'c4000000-0000-4000-8000-000000000201', // = USER
+  role: 'operator' as 'operator' | 'admin',
+}));
 vi.mock('@/lib/auth/middleware', async (orig) => ({
   ...(await orig<typeof import('@/lib/auth/middleware')>()),
-  requireOperator: vi.fn(async () => ({ userId: 'c4000000-0000-4000-8000-000000000201', role: 'operator' })), // = USER
+  requireOperator: vi.fn(async () => ({ userId: who.userId, role: who.role })),
   requireAdmin: vi.fn(async () => ({ userId: 'c4000000-0000-4000-8000-0000000002ad', role: 'admin' })), // = ADMIN
 }));
 // Транспорт сообщения владельцу подменён: настоящие чаты из тестов не тревожим.
@@ -113,13 +118,13 @@ withPg('модерация правок тура', () => {
   };
 
   const queue = async () => {
-    const { listPendingTourEdits } = await import('@/lib/tours/moderation-store');
+    const { listPendingTourEdits } = await import('@/lib/tours/moderation-review');
     const listed = await listPendingTourEdits();
     if (listed.outcome !== 'ok') throw new Error('очередь не прочитана');
     return listed.edits;
   };
   const decide = async (id: string, action: 'approve' | 'reject', seen: string | null, reason: string | null = null) => {
-    const { decideTourEdit } = await import('@/lib/tours/moderation-store');
+    const { decideTourEdit } = await import('@/lib/tours/moderation-review');
     return decideTourEdit({ id, action, reason, moderatedBy: ADMIN, seen });
   };
   const pendingCount = async (tourId: string) => Number((await pool.query(
@@ -485,6 +490,109 @@ withPg('модерация правок тура', () => {
       expect(hidden).toMatchObject({ success: true, is_published: false, message: 'Тур снят с публикации' });
       expect(hidden.pending_review).toBeUndefined();
       expect(await onStorefront(shownTour)).toBe(false);
+    });
+  });
+
+  describe('кабинет оператора: форма тура и её двери', () => {
+    const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
+    const openForm = async (id: string) => {
+      const { GET } = await import('@/app/api/hub/operator/tours/[id]/route');
+      const res = await GET(new NextRequest(`http://localhost/api/hub/operator/tours/${id}`), ctx(id));
+      return { status: res.status, body: await res.json() };
+    };
+    const saveForm = async (id: string, body: unknown) => {
+      const { PATCH } = await import('@/app/api/hub/operator/tours/[id]/route');
+      const res = await PATCH(new NextRequest(`http://localhost/api/hub/operator/tours/${id}`, { method: 'PATCH', body: JSON.stringify(body) }), ctx(id));
+      return { status: res.status, body: await res.json() };
+    };
+    const asAdmin = async <T,>(fn: () => Promise<T>): Promise<T> => {
+      who.userId = ADMIN; who.role = 'admin';
+      try { return await fn(); } finally { who.userId = USER; who.role = 'operator'; }
+    };
+    const waitingPatch = async (tourId: string) => (await pool.query<{ patch: Record<string, unknown> }>(
+      `SELECT patch FROM operator_tour_edits WHERE tour_id = $1::bigint AND moderation_status = 'pending'`, [tourId],
+    )).rows[0]?.patch ?? null;
+
+    it('владелец: форма показывает его правку, а не витрину; состояние — «на проверке» с диффом', async () => {
+      const tour = await addTour(OP, 'Форма: правка на проверке', { published: true, price: 10000 });
+      await change(tour, OP, { base_price: 12000 });
+      const r = await openForm(tour);
+      expect(r.status).toBe(200);
+      expect(Number(r.body.data.base_price)).toBe(12000);
+      expect(r.body.data.moderation).toMatchObject({ state: 'pending', published: true, direct: false });
+      expect(r.body.data.moderation.pending.changes.map((c: { field: string }) => c.field)).toEqual(['base_price']);
+      expect(sp(r.body.data.moderation.pending.changes[0].before)).toBe('10 000 ₽');
+      // Сохранение формы без правок черновик не стирает: форма прислала те же значения.
+      const again = await saveForm(tour, { base_price: 12000 });
+      expect(again.status).toBe(200);
+      expect(await waitingPatch(tour)).toEqual({ base_price: 12000 });
+      expect((await liveOf(tour)).base_price).toBe(10000);
+    });
+
+    it('владелец: содержание — на проверку и ответ это называет; число мест и скрытие — сразу', async () => {
+      const tour = await addTour(OP, 'Форма: сохранение', { published: true, price: 10000 });
+      const r = await saveForm(tour, { base_price: 13000, max_participants: 5, is_active: false });
+      expect(r.status).toBe(200);
+      expect(r.body.pending.fields).toEqual(['base_price']);
+      expect(r.body.pending.notice).toBe('Правка отправлена на проверку (цена). На витрине пока прежняя версия.');
+      const live = await liveOf(tour);
+      expect(live).toMatchObject({ base_price: 10000, max_participants: 5, is_active: false, is_published: true });
+    });
+
+    it('владелец: галочка публикации из формы тур не публикует — только просит', async () => {
+      const tour = await addTour(OP, 'Форма: публикация');
+      const r = await saveForm(tour, { is_published: true });
+      expect(r.status).toBe(200);
+      expect(r.body.pending.wantsPublish).toBe(true);
+      expect((await liveOf(tour)).is_published).toBe(false);
+      expect(await onStorefront(tour)).toBe(false);
+      expect((await openForm(tour)).body.data.moderation).toMatchObject({ state: 'pending', published: false });
+    });
+
+    it('администратор: в форме версия с сайта; его правка пишется напрямую и чужой черновик не применяет', async () => {
+      const tour = await addTour(OP, 'Форма: администратор', { published: true, price: 10000 });
+      await change(tour, OP, { base_price: 12000 });
+      const seen = await asAdmin(() => openForm(tour));
+      expect(Number(seen.body.data.base_price)).toBe(10000);
+      expect(seen.body.data.moderation).toMatchObject({ direct: true, state: 'pending' });
+      const saved = await asAdmin(() => saveForm(tour, { title: 'Форма: имя от администратора' }));
+      expect(saved.status).toBe(200);
+      expect(saved.body.pending).toBeNull();
+      const live = await liveOf(tour);
+      expect(live.title).toBe('Форма: имя от администратора');
+      expect(live.base_price).toBe(10000);
+      expect(await waitingPatch(tour)).toEqual({ base_price: 12000 });
+      // Администратор публикует сам — он и есть проверка.
+      const draft = await addTour(OP, 'Форма: администратор публикует');
+      await asAdmin(() => saveForm(draft, { is_published: true }));
+      expect(await onStorefront(draft)).toBe(true);
+    });
+
+    it('отзыв правки: свой тур — черновика нет, форма снова показывает витрину; чужой — 404', async () => {
+      const tour = await addTour(OP, 'Форма: отзыв', { published: true, price: 10000 });
+      await change(tour, OP, { base_price: 12000 });
+      const foreign = await addTour(OTHER, 'Форма: чужой отзыв', { published: true, price: 10000 });
+      await change(foreign, OTHER, { base_price: 12000 });
+      const { DELETE } = await import('@/app/api/hub/operator/tours/[id]/edit/route');
+      const del = async (id: string) => (await DELETE(new NextRequest(`http://localhost/api/hub/operator/tours/${id}/edit`, { method: 'DELETE' }), ctx(id))).status;
+      expect(await del(foreign)).toBe(404);
+      expect(await waitingPatch(foreign)).toEqual({ base_price: 12000 });
+      expect(await del(tour)).toBe(200);
+      expect(await waitingPatch(tour)).toBeNull();
+      const form = await openForm(tour);
+      expect(Number(form.body.data.base_price)).toBe(10000);
+      expect(form.body.data.moderation.state).toBe('live');
+      expect(await del(tour)).toBe(404);
+      // Чужой черновик этого теста дальше не нужен: соседние тесты считают правки партнёра OTHER.
+      await pool.query(`DELETE FROM operator_tour_edits WHERE tour_id = $1::bigint`, [foreign]);
+    });
+
+    it('чужой тур форма не открывает и не сохраняет', async () => {
+      const foreign = await addTour(OTHER, 'Форма: чужой тур', { published: true, price: 10000 });
+      expect((await openForm(foreign)).status).toBe(404);
+      expect((await saveForm(foreign, { base_price: 1 })).status).toBe(404);
+      expect(await waitingPatch(foreign)).toBeNull();
+      expect((await liveOf(foreign)).base_price).toBe(10000);
     });
   });
 

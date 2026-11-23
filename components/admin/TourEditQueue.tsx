@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { AlertCircle, Check, Loader2, X } from 'lucide-react';
-import type { PendingTourEdit } from '@/lib/tours/moderation-store';
+import type { PendingTourEdit } from '@/lib/tours/moderation';
 import { TourEditDiff, TourEditValue } from '@/components/tours/TourEditDiff';
 
 /** Карточка очереди — то, что отдаёт GET /api/admin/moderation/tour-edits. */

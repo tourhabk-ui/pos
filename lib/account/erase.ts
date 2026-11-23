@@ -1509,6 +1509,11 @@ export const ERASE_KEEP: Readonly<Record<string, KeepEntry>> = {
   operator_tours: {
     reason: 'ссылка created_by — на автора строки тура; notes, price_note, safety_notes — о туре, а не о человеке',
   },
+  operator_tour_edits: {
+    reason: 'черновик правки тура (1507): created_by — кто из кабинета партнёра сохранил правку, moderated_by — администратор, '
+      + 'который её решил; patch и live_before — поля тура (название, тексты, цена, снимки), moderation_reason — причина по туру. '
+      + 'Это данные тура партнёра, как сама строка operator_tours, а не данные этого человека',
+  },
   'sos_events.notes': {
     reason: 'служебная отметка об исходе сигнала («снят через 24ч», архив) — пишет система, а не человек; имя, телефон и адрес стираются шагом',
   },

@@ -23,7 +23,7 @@ import { publishBlockersSql } from '@/lib/guides/own-tour-publish';
 import { normalizeField } from '@/lib/guides/tour-edit/store';
 import { editorClips, photoCreditsOf, type EditorClip } from '@/lib/tours/editor-media';
 import type { TourProgramStep } from '@/lib/tours/tour-write';
-import { loadOwnTourEdits, type OwnTourEdit } from '@/lib/tours/moderation-store';
+import { loadOwnTourEdits, type OwnTourEdit } from '@/lib/tours/moderation-read';
 import { tourModerationState, type TourEditChange, type TourModerationState } from '@/lib/tours/moderation';
 
 /**

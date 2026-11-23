@@ -7,7 +7,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/middleware';
-import { listPendingTourEdits } from '@/lib/tours/moderation-store';
+import { listPendingTourEdits } from '@/lib/tours/moderation-review';
 
 export const dynamic = 'force-dynamic';
 

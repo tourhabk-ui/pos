@@ -20,7 +20,7 @@ import { requireAdmin } from '@/lib/auth/middleware';
 import { notifyPartnerEditDecisionQuietly } from '@/lib/notifications/partner-edit-notify';
 import { pingTourChanged } from '@/lib/seo/indexnow';
 import { tourCabinetPath, tourFieldsWords } from '@/lib/tours/moderation';
-import { decideTourEdit } from '@/lib/tours/moderation-store';
+import { decideTourEdit } from '@/lib/tours/moderation-review';
 
 export const dynamic = 'force-dynamic';
 

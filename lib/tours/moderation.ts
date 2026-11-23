@@ -12,7 +12,9 @@
  * выезд в день выезда, не дожидаясь никого.
  *
  * Здесь только правило и слова — без базы, чтобы его читали и экраны.
- * База — lib/tours/moderation-store.ts, единая дверь владельца —
+ * Черновик — lib/tours/moderation-store.ts, очередь и решение —
+ * lib/tours/moderation-review.ts, чтение правок владельца —
+ * lib/tours/moderation-read.ts, единая дверь владельца —
  * lib/tours/tour-change.ts.
  */
 
@@ -286,4 +288,31 @@ export function tourReviewMark(
   if (edit?.pending) return edit.pending.wantsPublish ? 'pending_publish' : 'pending_edit';
   if (edit?.rejected) return 'rejected';
   return null;
+}
+
+// ─── Очередь администратора: что отдаёт список ───────────────────────────────
+
+export interface TourContentLine {
+  field: ModeratedTourColumn;
+  label: string;
+  text: string;
+  photos?: string[];
+}
+
+export interface PendingTourEdit {
+  id: string;
+  tourId: string;
+  tourTitle: string;
+  partnerId: string;
+  partnerName: string;
+  partnerCategory: string | null;
+  /** Новый тур просится на витрину либо правка уже опубликованного. */
+  kind: 'publish' | 'edit';
+  /** Что меняется против витрины. */
+  changes: TourEditChange[];
+  /** Всё содержание, каким оно станет: новому туру диффа мало. */
+  content: TourContentLine[];
+  /** Отпечаток содержания: решение возвращает его обратно. */
+  seen: string;
+  since: string;
 }
