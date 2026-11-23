@@ -46,6 +46,8 @@ import { requireOperator } from '@/lib/auth/middleware';
 import { managerMay, permissionDenied, requireOperatorTeam } from '@/lib/operators/team-access';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { pool } from '@/lib/db-pool';
+import { transaction } from '@/lib/database';
+import { proposePricingRule, requestRuleRemoval } from '@/lib/tours/pricing-rule-door';
 import { z } from 'zod';
 import {
   OPERATOR_RULE_TYPES, discountToMultiplier, type OperatorRuleType,
@@ -64,14 +66,17 @@ const SaveSchema = z.object({
   guestsMin: z.coerce.number().int().min(2).max(50).optional(),
 });
 
-async function ownTourOrNull(operatorId: string, tourId: number): Promise<boolean> {
-  const { rows } = await pool.query<{ id: string }>(
-    `SELECT id::text AS id FROM operator_tours
-      WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL`,
-    [tourId, operatorId],
-  );
-  return rows.length > 0;
-}
+/** Что сказать владельцу после просьбы — словами исхода, а не общим «сохранено». */
+const RULE_ASKED_WORDS = {
+  pending: 'Скидка отправлена на проверку. Туристы увидят её после одобрения администратором.',
+  already_live: 'Такая скидка уже действует.',
+  already_pending: 'Такая скидка уже ждёт проверки.',
+} as const;
+
+const RULE_REMOVED_WORDS = {
+  withdrawn: 'Скидка убрана: на цену она не влияла.',
+  removal_pending: 'Просьба снять скидку отправлена на проверку. До решения администратора скидка действует.',
+} as const;
 
 export async function GET(request: NextRequest) {
   const auth = await requireOperator(request);
@@ -82,16 +87,21 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // Проверка правила (1512): действует только «approved»; остальное владелец
+    // видит со своим статусом и причиной отказа. На тур и род строк теперь
+    // может быть две: действующее правило и просьба о новом.
     const { rows } = await pool.query(
       `SELECT ot.id::text AS tour_id, ot.title, ot.base_price, ot.price_unit,
               pr.id::text AS rule_id, pr.rule_type, pr.multiplier,
-              pr.days_before_max, pr.guests_min, pr.is_active
+              pr.days_before_max, pr.guests_min, pr.is_active,
+              pr.moderation_status, pr.moderation_reason,
+              pr.removal_requested_at IS NOT NULL AS removal_asked
          FROM operator_tours ot
          LEFT JOIN tour_pricing_rules pr
            ON pr.operator_tour_id = ot.id AND pr.is_active = TRUE
           AND pr.rule_type = ANY($2::text[])
         WHERE ot.operator_id = $1 AND ot.deleted_at IS NULL AND ot.is_active = TRUE
-        ORDER BY ot.title, pr.rule_type`,
+        ORDER BY ot.title, pr.rule_type, pr.id`,
       [operatorId, [...OPERATOR_RULE_TYPES]],
     );
     return NextResponse.json({ success: true, data: rows });
@@ -136,35 +146,31 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    if (!await ownTourOrNull(operatorId, d.tourId)) {
+    const multiplier = discountToMultiplier(d.percent);
+    // Скидка меняет цену, которую видит турист, — на сайт она выходит только
+    // после проверки администратором (слово владельца 23.11; дверь одна —
+    // lib/tours/pricing-rule-door). Одно правило рода на тур: новая просьба
+    // заменяет прежнюю неодобренную, действующая скидка действует до решения.
+    const asked = await transaction((client) => proposePricingRule(client, {
+      operatorId,
+      requestedBy: z.string().uuid().safeParse(auth.userId).success ? auth.userId : null,
+      tourId: d.tourId,
+      ruleType: d.ruleType,
+      multiplier,
+      daysBeforeMin: d.ruleType === 'last_minute' ? 0 : null,
+      daysBeforeMax: d.ruleType === 'last_minute' ? d.daysBefore ?? null : null,
+      guestsMin: d.ruleType === 'group_discount' ? d.guestsMin ?? null : null,
+    }));
+    if (asked.outcome === 'not_found') {
       return NextResponse.json({ success: false, error: 'Тур не найден' }, { status: 404 });
     }
-
-    const multiplier = discountToMultiplier(d.percent);
-
-    // Одно правило одного рода на тур: две «скидки на последние места»
-        // перемножились бы, и −15% с −15% дали бы −27,75%.
-    const saved = await pool.query<{ id: string }>(
-      `WITH off AS (
-         UPDATE tour_pricing_rules SET is_active = FALSE
-          WHERE operator_tour_id = $1 AND rule_type = $2 AND is_active = TRUE
-         RETURNING id
-       )
-       INSERT INTO tour_pricing_rules
-         (operator_tour_id, rule_type, multiplier, days_before_min, days_before_max, guests_min, is_active,
-          moderation_status)
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE, 'approved')
-       RETURNING id::text AS id`,
-      [
-        d.tourId,
-        d.ruleType,
-        multiplier,
-        d.ruleType === 'last_minute' ? 0 : null,
-        d.ruleType === 'last_minute' ? d.daysBefore : null,
-        d.ruleType === 'group_discount' ? d.guestsMin : null,
-      ],
-    );
-    return NextResponse.json({ success: true, id: saved.rows[0]?.id, multiplier }, { status: 201 });
+    return NextResponse.json({
+      success: true,
+      id: asked.ruleId,
+      multiplier,
+      state: asked.outcome,
+      message: RULE_ASKED_WORDS[asked.outcome],
+    }, { status: asked.outcome === 'pending' ? 201 : 200 });
   } catch (err) {
     const code = err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : '?';
     console.error(`[hub/operator/pricing-rules] скидка не сохранена (SQLSTATE ${code}): ${err instanceof Error ? err.message : String(err)}`);
@@ -183,21 +189,15 @@ export async function DELETE(request: NextRequest) {
   if (!id) return NextResponse.json({ success: false, error: 'id обязателен' }, { status: 400 });
 
   try {
-    // Владение проверяется В ЗАПРОСЕ: id правила сам по себе не говорит, чей
-    // это тур, а отдельная проверка до удаления оставила бы окно.
-    const { rowCount } = await pool.query(
-      `UPDATE tour_pricing_rules pr SET is_active = FALSE
-         WHERE pr.id = $1
-           AND EXISTS (
-             SELECT 1 FROM operator_tours ot
-              WHERE ot.id = pr.operator_tour_id AND ot.operator_id = $2
-           )`,
-      [id, operatorId],
-    );
-    if (!rowCount) {
+    if (!/^\d{1,18}$/.test(id)) return NextResponse.json({ success: false, error: 'Скидка не найдена' }, { status: 404 });
+    // Владение проверяется в самой двери: id правила сам по себе не говорит,
+    // чей это тур. Действующую скидку снимает администратор по просьбе —
+    // снятие поднимает цену на сайте; неодобренную владелец убирает сам.
+    const removed = await transaction((client) => requestRuleRemoval(client, { operatorId, ruleId: id }));
+    if (removed.outcome === 'not_found') {
       return NextResponse.json({ success: false, error: 'Скидка не найдена' }, { status: 404 });
     }
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, state: removed.outcome, message: RULE_REMOVED_WORDS[removed.outcome] });
   } catch (err) {
     const code = err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : '?';
     console.error(`[hub/operator/pricing-rules] скидка не снята (SQLSTATE ${code}): ${err instanceof Error ? err.message : String(err)}`);

@@ -11,12 +11,14 @@
  *  - оба читателя цены (карточка / бронь и пакетный расчёт для каналов)
  *    не видят правил «на проверке», отклонённых и выключенных;
  *  - правило, которое просят снять, действует до решения;
- *  - двери администратора и владельца пишут правило действующим.
+ *  - дверь администратора пишет правило действующим, двери владельца
+ *    (скидки, наценка на выходные, подтверждение цены из чата) — на проверку:
+ *    владение, замена просьбы, снятие, гонка двух просьб.
  *
  * Своя база `pricing_rule_moderation_test`. Без KERNEL_PG_TEST_URL файл
  * честно пропускается — «не прогнано», а не «прошло».
  */
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -104,20 +106,21 @@ withPg('правила цены: действует только провере�
     soon = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
 
     await pool.query(`INSERT INTO users (id, email, name, password_hash, role) VALUES ($1, 'rule-admin@example.test', 'Администратор', 'x', 'admin')`, [ADMIN]);
-    await pool.query(
-      `INSERT INTO partners (id, name, category, contact, profile_status, is_public, max_chat_id)
-       VALUES ($1, 'Оператор', 'operator', '{}'::jsonb, 'approved', TRUE, 555003)`,
-      [OP],
-    );
-    // Владелец карточки OP и чужая карточка — для дверей кабинета.
     await pool.query(`INSERT INTO users (id, email, name, password_hash, role) VALUES ($1, 'rule-owner@example.test', 'Тест', 'x', 'operator')`, [USER]);
-    await pool.query(`UPDATE partners SET user_id = $2 WHERE id = $1`, [OP, USER]);
+    await pool.query(
+      `INSERT INTO partners (id, name, category, contact, profile_status, is_public, max_chat_id, user_id)
+       VALUES ($1, 'Оператор', 'operator', '{}'::jsonb, 'approved', TRUE, 555003, $2)`,
+      [OP, USER],
+    );
     await pool.query(
       `INSERT INTO partners (id, name, category, contact, profile_status, is_public)
        VALUES ($1, 'Другой оператор', 'operator', '{}'::jsonb, 'approved', TRUE)`,
       [OP2],
     );
   }, 300_000);
+
+  // Счётчики сообщений и пингов — на один тест: «никому не писали» судится с нуля.
+  beforeEach(() => { sent.alerts.length = 0; pings.tours.length = 0; });
 
   afterAll(async () => {
     await pool?.end();
@@ -217,57 +220,291 @@ withPg('правила цены: действует только провере�
     expect(await multipliers(tour)).toEqual([0.9]);
   });
 
-  it('наценка на выходные из кабинета владельца — действующая (до очереди наценок поведение прежнее)', async () => {
-    const tour = await addTour('Наценка на выходные');
-    const { setWeekendMarkup, listWeekendMarkups } = await import('@/lib/tours/operator-markup');
-    expect(await setWeekendMarkup(pool, OP, [Number(tour)], 15)).toEqual([Number(tour)]);
-    const row = (await pool.query(`SELECT moderation_status, rule_type FROM tour_pricing_rules WHERE operator_tour_id = $1::bigint AND is_active = TRUE`, [tour])).rows[0];
-    expect(row).toEqual({ moderation_status: 'approved', rule_type: 'weekend_sat_sun' });
-    expect((await listWeekendMarkups(pool, OP)).find((m) => m.tourId === Number(tour))?.percent).toBe(15);
-    // Чужой тур наценка не трогает.
-    const foreign = await addTour('Чужая наценка на выходные', { owner: OP2 });
-    expect(await setWeekendMarkup(pool, OP, [Number(foreign)], 15)).toEqual([]);
-    expect((await pool.query(`SELECT 1 FROM tour_pricing_rules WHERE operator_tour_id = $1::bigint`, [foreign])).rowCount).toBe(0);
-  });
-
-  // Пока двери владельца не переведены на «на проверку», скидка из кабинета
-  // обязана действовать сразу: умолчание колонки — «на проверке», и правило,
-  // записанное без статуса, молча перестало бы менять цену.
-  it('скидка из кабинета владельца — действующая сразу; новая заменяет прежнюю; снятие — сразу', async () => {
-    const tour = await addTour('Скидка из кабинета');
-    const route = await import('@/app/api/hub/operator/pricing-rules/route');
-    const ask = async (tourId: string, percent: number) => {
-      const res = await route.POST(new NextRequest('http://localhost/api/hub/operator/pricing-rules', {
-        method: 'POST', body: JSON.stringify({ tourId: Number(tourId), ruleType: 'last_minute', percent, daysBefore: 7 }),
-      }));
-      return { status: res.status, body: (await res.json()) as { id?: string } };
-    };
-    const drop = async (id: string) => (await route.DELETE(
-      new NextRequest(`http://localhost/api/hub/operator/pricing-rules?id=${id}`, { method: 'DELETE' }),
-    )).status;
-    const rows = async (tourId: string) => (await pool.query(
-      `SELECT pr.multiplier::float8 AS m, pr.moderation_status AS status, pr.is_active AS active
-         FROM tour_pricing_rules pr WHERE pr.operator_tour_id = $1::bigint ORDER BY pr.id`, [tourId],
+  describe('двери владельца: скидка и наценка идут на проверку', () => {
+    const rulesOf = async (tour: string) => (await pool.query<{
+      id: string; type: string; m: number; status: string; active: boolean; removal: boolean; by: string | null;
+    }>(
+      `SELECT id::text AS id, rule_type AS type, multiplier::float8 AS m, moderation_status AS status, is_active AS active,
+              removal_requested_at IS NOT NULL AS removal, requested_by::text AS by
+         FROM tour_pricing_rules pr WHERE operator_tour_id = $1::bigint ORDER BY pr.id`, [tour],
     )).rows;
+    const call = async (path: string, method: 'POST' | 'DELETE' | 'GET', body?: unknown) => {
+      const mod = path.startsWith('/api/hub/operator/weekend-markup')
+        ? await import('@/app/api/hub/operator/weekend-markup/route')
+        : await import('@/app/api/hub/operator/pricing-rules/route');
+      const res = await mod[method](new NextRequest(`http://localhost${path}`, {
+        method, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      }));
+      return { status: res.status, body: await res.json() };
+    };
+    const askDiscount = (tour: string, percent: number, extra: Record<string, unknown> = { ruleType: 'last_minute', daysBefore: 7 }) =>
+      call('/api/hub/operator/pricing-rules', 'POST', { tourId: Number(tour), percent, ...extra });
+    const dropDiscount = (id: string) => call(`/api/hub/operator/pricing-rules?id=${id}`, 'DELETE');
+    const askMarkup = (tour: string, percent: number) => call('/api/hub/operator/weekend-markup', 'POST', { tourId: Number(tour), percent });
+    const dropMarkup = (query: string) => call(`/api/hub/operator/weekend-markup?${query}`, 'DELETE');
+    const markupOf = async (tour: string) => {
+      const { listWeekendMarkups } = await import('@/lib/tours/operator-markup');
+      return (await listWeekendMarkups(pool, OP)).find((m) => m.tourId === Number(tour))!;
+    };
+    /** Решение администратора — той же дверью, что и в кабинете: карточка очереди и её отпечаток. */
+    const decideRule = async (id: string, action: 'approve' | 'reject', reason?: string) => {
+      const list = await import('@/app/api/admin/moderation/pricing-rules/route');
+      const cards = (await (await list.GET(new NextRequest('http://localhost/api/admin/moderation/pricing-rules'))).json()) as {
+        data: { rules: Array<{ id: string; seen: string }> };
+      };
+      const seen = cards.data.rules.find((r) => r.id === id)?.seen;
+      const { POST } = await import('@/app/api/admin/moderation/pricing-rules/[id]/route');
+      const res = await POST(
+        new NextRequest(`http://localhost/api/admin/moderation/pricing-rules/${id}`, { method: 'POST', body: JSON.stringify({ action, seen, reason }) }),
+        { params: Promise.resolve({ id }) },
+      );
+      expect(res.status, JSON.stringify(await res.clone().json())).toBe(200);
+    };
 
-    const first = await ask(tour, 15);
-    expect(first.status, JSON.stringify(first.body)).toBe(201);
-    expect(await rows(tour)).toEqual([{ m: 0.85, status: 'approved', active: true }]);
-    expect(await multipliers(tour)).toEqual([0.85]);
-    // Вторая скидка того же рода не перемножается с первой.
-    const second = await ask(tour, 25);
-    expect(await rows(tour)).toEqual([{ m: 0.85, status: 'approved', active: false }, { m: 0.75, status: 'approved', active: true }]);
-    expect(await multipliers(tour)).toEqual([0.75]);
-    expect(await drop(second.body.id!)).toBe(200);
-    expect(await multipliers(tour)).toEqual([]);
+    it('скидка из кабинета ждёт проверки и цену не меняет; повтор — «уже ждёт», второй строки нет', async () => {
+      const tour = await addTour('Дверь: новая скидка');
+      const asked = await askDiscount(tour, 15);
+      expect(asked.status, JSON.stringify(asked.body)).toBe(201);
+      expect(asked.body).toMatchObject({ success: true, state: 'pending' });
+      expect(await rulesOf(tour)).toEqual([
+        { id: asked.body.id, type: 'last_minute', m: 0.85, status: 'pending', active: true, removal: false, by: USER },
+      ]);
+      // На сайте цена прежняя — у обоих читателей.
+      expect(await multipliers(tour)).toEqual([]);
+      expect((await bulkPrice(tour)).finalPrice).toBe(20000);
+      // Та же просьба ещё раз: строка та же, а не вторая.
+      const again = await askDiscount(tour, 15);
+      expect(again.status).toBe(200);
+      expect(again.body).toMatchObject({ state: 'already_pending', id: asked.body.id });
+      expect(await rulesOf(tour)).toHaveLength(1);
+      // Владелец видит свою просьбу со статусом.
+      const list = await call('/api/hub/operator/pricing-rules', 'GET');
+      const mine = (list.body.data as Array<Record<string, unknown>>).filter((r) => r.tour_id === tour);
+      expect(mine).toEqual([expect.objectContaining({ rule_id: asked.body.id, moderation_status: 'pending', removal_asked: false })]);
+      // После одобрения скидка действует.
+      await decideRule(asked.body.id, 'approve');
+      expect(await multipliers(tour)).toEqual([0.85]);
+    });
 
-    // Чужой тур: скидка не записана, чужое правило не снято.
-    const foreign = await addTour('Чужая скидка', { owner: OP2 });
-    expect((await ask(foreign, 15)).status).toBe(404);
-    expect(await rows(foreign)).toEqual([]);
-    const theirs = await addRule(foreign, 0.9, { status: 'approved' });
-    expect(await drop(theirs.id)).toBe(404);
-    expect(await rows(foreign)).toEqual([{ m: 0.9, status: 'approved', active: true }]);
+    it('новая просьба заменяет прежнюю неодобренную; действующая скидка действует до решения', async () => {
+      const tour = await addTour('Дверь: замена просьбы');
+      const live = await addRule(tour, 0.9, { status: 'approved' });
+      const first = await askDiscount(tour, 20);
+      expect(first.body.state).toBe('pending');
+      expect(await multipliers(tour)).toEqual([0.9]);
+      const second = await askDiscount(tour, 25);
+      expect(second.body.state).toBe('pending');
+      expect(second.body.id).not.toBe(first.body.id);
+      // Ждёт одна просьба — последняя; действующее правило не тронуто.
+      expect((await rulesOf(tour)).map((r) => [r.id, r.status, r.active])).toEqual([
+        [live.id, 'approved', true],
+        [first.body.id, 'pending', false],
+        [second.body.id, 'pending', true],
+      ]);
+      expect(await multipliers(tour)).toEqual([0.9]);
+      // Одобрение новой выключает прежнюю: две скидки не перемножаются.
+      await decideRule(second.body.id, 'approve');
+      expect(await multipliers(tour)).toEqual([0.75]);
+      // Та же скидка, что уже действует: проверять нечего, просьбы сняты.
+      const pendingAgain = await askDiscount(tour, 30);
+      const same = await askDiscount(tour, 25);
+      expect(same.status).toBe(200);
+      expect(same.body).toMatchObject({ state: 'already_live', id: second.body.id });
+      expect((await rulesOf(tour)).find((r) => r.id === pendingAgain.body.id)).toMatchObject({ active: false });
+      expect(await multipliers(tour)).toEqual([0.75]);
+    });
+
+    it('другое окно дней при том же проценте — другая скидка, и она тоже ждёт проверки', async () => {
+      const tour = await addTour('Дверь: другое условие');
+      await addRule(tour, 0.9, { status: 'approved' }); // −10% за 7 дней
+      const wider = await askDiscount(tour, 10, { ruleType: 'last_minute', daysBefore: 30 });
+      expect(wider.body.state).toBe('pending');
+      const group = await askDiscount(tour, 10, { ruleType: 'group_discount', guestsMin: 4 });
+      // Скидка другого рода — отдельная просьба, прежнюю не снимает.
+      expect(group.body.state).toBe('pending');
+      expect((await rulesOf(tour)).filter((r) => r.active && r.status === 'pending').map((r) => r.type).sort())
+        .toEqual(['group_discount', 'last_minute']);
+      // То же с размером группы: «от 6 человек» — не та скидка, что «от 4».
+      await decideRule(group.body.id, 'approve');
+      expect((await askDiscount(tour, 10, { ruleType: 'group_discount', guestsMin: 4 })).body.state).toBe('already_live');
+      expect((await askDiscount(tour, 10, { ruleType: 'group_discount', guestsMin: 6 })).body.state).toBe('pending');
+      // И с процентом: тот же размер группы, другая скидка.
+      expect((await askDiscount(tour, 12, { ruleType: 'group_discount', guestsMin: 4 })).body.state).toBe('pending');
+    });
+
+    it('снять действующую — просьба, до решения действует; неодобренную владелец убирает сразу', async () => {
+      const tour = await addTour('Дверь: снятие');
+      const live = await addRule(tour, 0.9, { status: 'approved' });
+      const asked = await dropDiscount(live.id);
+      expect(asked.status).toBe(200);
+      expect(asked.body.state).toBe('removal_pending');
+      expect(await rulesOf(tour)).toEqual([expect.objectContaining({ id: live.id, status: 'approved', active: true, removal: true })]);
+      expect(await multipliers(tour)).toEqual([0.9]);
+      // Повторная просьба время первой не сдвигает.
+      const at = (await pool.query(`SELECT removal_requested_at AS at FROM tour_pricing_rules WHERE id = $1::bigint`, [live.id])).rows[0].at;
+      expect((await dropDiscount(live.id)).body.state).toBe('removal_pending');
+      expect((await pool.query(`SELECT removal_requested_at AS at FROM tour_pricing_rules WHERE id = $1::bigint`, [live.id])).rows[0].at).toEqual(at);
+      // Владелец передумал и попросил ту же скидку: просьба о снятии отменена.
+      expect((await askDiscount(tour, 10)).body.state).toBe('already_live');
+      expect((await rulesOf(tour))[0]).toMatchObject({ removal: false, active: true });
+      // Неодобренная просьба убирается сразу, действующая скидка при этом не тронута.
+      const fresh = await askDiscount(tour, 30);
+      const gone = await dropDiscount(fresh.body.id);
+      expect(gone.body.state).toBe('withdrawn');
+      expect((await rulesOf(tour)).map((r) => [r.id, r.active, r.removal])).toEqual([[live.id, true, false], [fresh.body.id, false, false]]);
+      // Убранного правила больше нет.
+      expect((await dropDiscount(fresh.body.id)).status).toBe(404);
+      // Администратор одобрил снятие — цена базовая.
+      await dropDiscount(live.id);
+      await decideRule(live.id, 'approve');
+      expect(await multipliers(tour)).toEqual([]);
+    });
+
+    it('чужой тур, чужое правило и удалённый тур — 404, и ни одной записи', async () => {
+      const foreign = await addTour('Дверь: чужой тур', { owner: OP2 });
+      expect((await askDiscount(foreign, 15)).status).toBe(404);
+      expect((await askMarkup(foreign, 15)).status).toBe(404);
+      expect(await rulesOf(foreign)).toEqual([]);
+      const theirs = await addRule(foreign, 0.9, { status: 'approved' });
+      const theirAsk = await addRule(foreign, 0.8, { status: 'pending' });
+      expect((await dropDiscount(theirs.id)).status).toBe(404);
+      expect((await dropDiscount(theirAsk.id)).status).toBe(404);
+      expect((await dropMarkup(`ruleId=${theirAsk.id}`)).status).toBe(404);
+      expect((await dropMarkup(`tourId=${foreign}`)).status).toBe(404);
+      expect((await rulesOf(foreign)).map((r) => [r.id, r.active, r.removal])).toEqual([[theirs.id, true, false], [theirAsk.id, true, false]]);
+      // Свой, но удалённый тур.
+      const deleted = await addTour('Дверь: удалённый тур');
+      const old = await addRule(deleted, 0.9, { status: 'approved' });
+      await pool.query(`UPDATE operator_tours SET deleted_at = NOW() WHERE id = $1::bigint`, [deleted]);
+      expect((await askDiscount(deleted, 15)).status).toBe(404);
+      expect((await dropDiscount(old.id)).status).toBe(404);
+      expect((await rulesOf(deleted)).map((r) => [r.active, r.removal])).toEqual([[true, false]]);
+    });
+
+    it('у тура, которого нет на сайте, правило тоже ждёт проверки', async () => {
+      // Иначе наценка, заведённая до публикации, вышла бы на сайт вместе с туром никем не виденной.
+      const tour = await addTour('Дверь: тур не на сайте', { published: false });
+      expect((await askDiscount(tour, 15)).body.state).toBe('pending');
+      expect((await askMarkup(tour, 20)).body.state).toBe('pending');
+      expect((await rulesOf(tour)).map((r) => r.status)).toEqual(['pending', 'pending']);
+      expect(await multipliers(tour)).toEqual([]);
+    });
+
+    it('наценка на выходные: просьба; отозвать просьбу — не значит просить снять действующую', async () => {
+      const tour = await addTour('Дверь: наценка на выходные');
+      const asked = await askMarkup(tour, 15);
+      expect(asked.status, JSON.stringify(asked.body)).toBe(201);
+      expect(asked.body.state).toBe('pending');
+      expect(await multipliers(tour)).toEqual([]);
+      const before = await markupOf(tour);
+      expect(before).toMatchObject({ percent: null, ruleId: null, removalAsked: false, request: { percent: 15, status: 'pending', reason: null } });
+      expect((await rulesOf(tour))[0]).toMatchObject({ type: 'weekend_sat_sun', by: USER });
+      await decideRule(before.request!.ruleId, 'approve');
+      expect(await markupOf(tour)).toMatchObject({ percent: 15, ruleId: before.request!.ruleId, request: null });
+      expect(await multipliers(tour)).toEqual([1.15]);
+      // Та же наценка ещё раз — «уже действует», без новой строки.
+      const same = await askMarkup(tour, 15);
+      expect(same.status).toBe(200);
+      expect(same.body.state).toBe('already_live');
+      // Новая просьба рядом с действующей: владелец видит обе раздельно.
+      expect((await askMarkup(tour, 20)).body.state).toBe('pending');
+      const both = await markupOf(tour);
+      expect(both).toMatchObject({ percent: 15, removalAsked: false, request: { percent: 20, status: 'pending' } });
+      // Отозвал просьбу: действующая наценка действует, снять её никто не просил.
+      const back = await dropMarkup(`ruleId=${both.request!.ruleId}`);
+      expect(back.body.state).toBe('withdrawn');
+      expect(await markupOf(tour)).toMatchObject({ percent: 15, removalAsked: false, request: null });
+      // Скидку через экран наценки не убрать: род правила другой.
+      const discount = await askDiscount(tour, 10);
+      expect((await dropMarkup(`ruleId=${discount.body.id}`)).status).toBe(404);
+      expect((await rulesOf(tour)).find((r) => r.id === discount.body.id)).toMatchObject({ active: true });
+      // Снять действующую — просьба; до решения действует.
+      const off = await dropMarkup(`ruleId=${both.ruleId}`);
+      expect(off.body.state).toBe('removal_pending');
+      expect(await markupOf(tour)).toMatchObject({ percent: 15, removalAsked: true });
+      expect(await multipliers(tour)).toEqual([1.15]);
+      // Не число и ни одного параметра — отказ без записи.
+      expect((await dropMarkup('ruleId=1%3B')).status).toBe(404);
+      expect((await dropMarkup('')).status).toBe(400);
+    });
+
+    it('снять все наценки тура (как из чата): действующая — просьбой, ждущая — сразу', async () => {
+      const tour = await addTour('Дверь: снять наценки тура');
+      const live = await addRule(tour, 1.1, { status: 'approved' });
+      await pool.query(`UPDATE tour_pricing_rules SET rule_type = 'weekend_sat_sun', days_before_min = NULL, days_before_max = NULL WHERE id = $1::bigint`, [live.id]);
+      await askMarkup(tour, 25);
+      const off = await dropMarkup(`tourId=${tour}`);
+      expect(off.body.state).toBe('removal_pending');
+      expect(await markupOf(tour)).toMatchObject({ percent: 10, removalAsked: true, request: null });
+      // У тура без наценок снимать нечего — и это не просьба.
+      const empty = await addTour('Дверь: наценок нет');
+      const none = await dropMarkup(`tourId=${empty}`);
+      expect(none.status).toBe(200);
+      expect(none.body.state).toBe('withdrawn');
+      expect(await rulesOf(empty)).toEqual([]);
+    });
+
+    it('отклонённую просьбу владелец видит с причиной; новая просьба её заменяет', async () => {
+      const tour = await addTour('Дверь: отказ');
+      const asked = await askMarkup(tour, 30);
+      const rule = (await markupOf(tour)).request!.ruleId;
+      expect(asked.body.state).toBe('pending');
+      await decideRule(rule, 'reject', 'Наценка 30% без объяснения — уточните.');
+      expect(await markupOf(tour)).toMatchObject({
+        percent: null, request: { ruleId: rule, percent: 30, status: 'rejected', reason: 'Наценка 30% без объяснения — уточните.' },
+      });
+      expect(await multipliers(tour)).toEqual([]);
+      // Та же наценка после отказа — новая просьба, а не «уже ждёт».
+      const again = await askMarkup(tour, 30);
+      expect(again.body.state).toBe('pending');
+      const now = await markupOf(tour);
+      expect(now.request).toMatchObject({ percent: 30, status: 'pending', reason: null });
+      expect(now.request!.ruleId).not.toBe(rule);
+      expect((await rulesOf(tour)).find((r) => r.id === rule)).toMatchObject({ active: false, status: 'rejected' });
+    });
+
+    it('наценка из чата (подтверждение цены) уходит на проверку, а не на сайт', async () => {
+      const tour = await addTour('Дверь: наценка из чата');
+      const { createPendingChange, confirmPendingChange } = await import('@/lib/crm/price-change');
+      const now = Date.now();
+      const preview = {
+        change: { kind: 'weekend_markup' as const, percent: 10, tourIds: 'all' as const }, sampleDate: soon,
+        tours: [{ tourId: Number(tour), title: 'Дверь: наценка из чата', baseBefore: 20000, baseAfter: 20000, saturdayBefore: 20000, saturdayAfter: 22000, tiersOverride: false }],
+      };
+      const id = await createPendingChange(pool, OP, preview as never, now);
+      expect(await confirmPendingChange(pool, OP, id, USER, now)).toEqual({ outcome: 'applied', applied: [], pending: [Number(tour)], skipped: [] });
+      expect(await rulesOf(tour)).toEqual([expect.objectContaining({ type: 'weekend_sat_sun', m: 1.1, status: 'pending', active: true, by: USER })]);
+      expect(await multipliers(tour)).toEqual([]);
+    });
+
+    it('две просьбы разом: вторая ждёт первую и заменяет её — двух ждущих правил не остаётся', async () => {
+      const tour = await addTour('Дверь: гонка просьб');
+      const { proposePricingRule } = await import('@/lib/tours/pricing-rule-door');
+      const want = (multiplier: number) => ({
+        operatorId: OP, requestedBy: USER, tourId: tour, ruleType: 'last_minute', multiplier, daysBeforeMin: 0, daysBeforeMax: 7,
+      });
+      const first = await pool.connect();
+      const second = await pool.connect();
+      try {
+        await first.query('BEGIN');
+        await proposePricingRule(first, want(0.9));
+        await second.query('BEGIN');
+        let settled = false;
+        const racing = proposePricingRule(second, want(0.8)).then((r) => { settled = true; return r; });
+        // Пока первая не зафиксирована, вторая стоит на замке строки тура.
+        await new Promise((r) => setTimeout(r, 400));
+        expect(settled).toBe(false);
+        await first.query('COMMIT');
+        expect((await racing).outcome).toBe('pending');
+        await second.query('COMMIT');
+      } finally {
+        await first.query('ROLLBACK').catch(() => {});
+        await second.query('ROLLBACK').catch(() => {});
+        first.release();
+        second.release();
+      }
+      expect((await rulesOf(tour)).filter((r) => r.active).map((r) => [r.m, r.status])).toEqual([[0.8, 'pending']]);
+    });
   });
 
   describe('очередь администратора и решение', () => {

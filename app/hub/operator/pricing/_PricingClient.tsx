@@ -11,6 +11,11 @@
  * рядом с ценой, чтобы видеть результат до сохранения. Общий редактор правил
  * (сезоны, надбавка за заполненность, раннее бронирование) остаётся у
  * администратора — там цена растёт, и такие решения не отдаются.
+ *
+ * С 23.11 скидка выходит на сайт после проверки администратором (слово
+ * владельца: «цена тура меняется только через одну дверь»; миграция 1512).
+ * У тура и рода поэтому может быть сразу два правила: действующее и просьба
+ * о новом — экран показывает оба и говорит, что туристы видят сейчас.
  */
 
 import WeekendMarkup from './_WeekendMarkup';
@@ -22,6 +27,7 @@ import {
 } from '@/lib/tours/operator-discount';
 import { bookingTotal } from '@/lib/tours/booking-total';
 import { finalUnitPrice } from '@/lib/tours/pricing-rule-match';
+import { PricingRuleStatus } from '@/components/operator/PricingRuleStatus';
 
 interface Row {
   tour_id: string;
@@ -33,6 +39,20 @@ interface Row {
   multiplier: string | null;
   days_before_max: number | null;
   guests_min: number | null;
+  /** Проверка правила (1512): на сайте действует только `approved`. */
+  moderation_status?: string | null;
+  moderation_reason?: string | null;
+  removal_asked?: boolean | null;
+}
+
+interface RuleView { id: string; percent: number | null; daysBefore: number | null; guestsMin: number | null }
+
+/** Правила одного рода у тура: что действует на сайте и о чём владелец попросил. */
+export interface RuleSlot {
+  live: RuleView | null;
+  /** Действующую скидку просят снять: до решения она действует. */
+  removalAsked: boolean;
+  request: (RuleView & { status: 'pending' | 'rejected'; reason: string | null }) | null;
 }
 
 interface TourRules {
@@ -40,15 +60,27 @@ interface TourRules {
   title: string;
   basePrice: number;
   priceUnit: string | null;
-  rules: Partial<Record<OperatorRuleType, { id: string; percent: number | null; daysBefore: number | null; guestsMin: number | null }>>;
+  rules: Partial<Record<OperatorRuleType, RuleSlot>>;
+}
+
+/** Правило словами владельца: «−15% за 7 дн. до выезда». */
+export function discountWords(type: OperatorRuleType, rule: RuleView): string {
+  const pct = rule.percent === null ? 'процент не прочитан' : `−${rule.percent}%`;
+  return type === 'last_minute'
+    ? `${pct} за ${rule.daysBefore ?? '?'} дн. до выезда`
+    : `${pct} от ${rule.guestsMin ?? '?'} чел.`;
 }
 
 function formatPrice(p: number): string {
   return new Intl.NumberFormat('ru-RU').format(Math.round(p)) + ' ₽';
 }
 
-/** Строки одного тура — в один объект: на тур не больше одного правила рода. */
-function groupRows(rows: Row[]): TourRules[] {
+/**
+ * Строки одного тура — в один объект. На тур и род — не больше одного
+ * действующего правила и одной просьбы (ждущей или отклонённой): строки идут
+ * по возрастанию id, поздняя просьба заменяет раннюю.
+ */
+export function groupRows(rows: Row[]): TourRules[] {
   const byTour = new Map<string, TourRules>();
   for (const r of rows) {
     let t = byTour.get(r.tour_id);
@@ -63,12 +95,23 @@ function groupRows(rows: Row[]): TourRules[] {
       byTour.set(r.tour_id, t);
     }
     if (r.rule_id && r.rule_type && (OPERATOR_RULE_TYPES as readonly string[]).includes(r.rule_type)) {
-      t.rules[r.rule_type as OperatorRuleType] = {
+      const type = r.rule_type as OperatorRuleType;
+      const slot: RuleSlot = t.rules[type] ?? { live: null, removalAsked: false, request: null };
+      const view: RuleView = {
         id: r.rule_id,
         percent: r.multiplier !== null ? multiplierToDiscount(r.multiplier) : null,
         daysBefore: r.days_before_max,
         guestsMin: r.guests_min,
       };
+      // Статус не пришёл (старый ответ) — правило не считается действующим
+      // молча: «не знаю» здесь равно «ждёт проверки», а не «на сайте».
+      if (r.moderation_status === 'approved') {
+        slot.live = view;
+        slot.removalAsked = r.removal_asked === true;
+      } else {
+        slot.request = { ...view, status: r.moderation_status === 'rejected' ? 'rejected' : 'pending', reason: r.moderation_reason ?? null };
+      }
+      t.rules[type] = slot;
     }
   }
   return [...byTour.values()];
@@ -79,6 +122,7 @@ export default function PricingClient() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [savedWords, setSavedWords] = useState('');
 
   /** Черновики полей: ключ «тур:род». Пустой — берём то, что уже назначено. */
   const [draft, setDraft] = useState<Record<string, { percent: string; cond: string }>>({});
@@ -100,7 +144,7 @@ export default function PricingClient() {
 
   useEffect(() => { void load(); }, [load]);
 
-  function draftOf(tourId: string, type: OperatorRuleType, current: TourRules['rules'][OperatorRuleType]) {
+  function draftOf(tourId: string, type: OperatorRuleType, current: RuleView | null) {
     const key = `${tourId}:${type}`;
     const d = draft[key];
     if (d) return d;
@@ -112,7 +156,7 @@ export default function PricingClient() {
     };
   }
 
-  function setDraftField(tourId: string, type: OperatorRuleType, field: 'percent' | 'cond', value: string, current: TourRules['rules'][OperatorRuleType]) {
+  function setDraftField(tourId: string, type: OperatorRuleType, field: 'percent' | 'cond', value: string, current: RuleView | null) {
     const key = `${tourId}:${type}`;
     const base = draftOf(tourId, type, current);
     setDraft((prev) => ({ ...prev, [key]: { ...base, [field]: value } }));
@@ -120,7 +164,7 @@ export default function PricingClient() {
     setError(null);
   }
 
-  async function save(tourId: string, type: OperatorRuleType, current: TourRules['rules'][OperatorRuleType]) {
+  async function save(tourId: string, type: OperatorRuleType, current: RuleView | null) {
     const d = draftOf(tourId, type, current);
     const percent = parseInt(d.percent, 10);
     const cond = parseInt(d.cond, 10);
@@ -145,10 +189,12 @@ export default function PricingClient() {
           ...(type === 'last_minute' ? { daysBefore: cond } : { guestsMin: cond }),
         }),
       });
-      const data = await r.json() as { success?: boolean; error?: string };
+      const data = await r.json() as { success?: boolean; error?: string; message?: string };
       if (!r.ok || data.success !== true) throw new Error(data.error ?? `не сохранилось (HTTP ${r.status})`);
       setDraft((prev) => { const n = { ...prev }; delete n[`${tourId}:${type}`]; return n; });
       setSaved(`${tourId}:${type}`);
+      // Что именно произошло, говорит сервер: «на проверку», «уже действует», «уже ждёт».
+      setSavedWords(data.message ?? 'Отправлено на проверку');
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось сохранить скидку');
@@ -162,10 +208,11 @@ export default function PricingClient() {
     setError(null);
     try {
       const r = await fetch(`/api/hub/operator/pricing-rules?id=${encodeURIComponent(ruleId)}`, { method: 'DELETE' });
-      const data = await r.json() as { success?: boolean; error?: string };
+      const data = await r.json() as { success?: boolean; error?: string; message?: string };
       if (!r.ok || data.success !== true) throw new Error(data.error ?? `не снялось (HTTP ${r.status})`);
       setDraft((prev) => { const n = { ...prev }; delete n[`${tourId}:${type}`]; return n; });
-      setSaved(null);
+      setSaved(`${tourId}:${type}`);
+      setSavedWords(data.message ?? 'Готово');
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось снять скидку');
@@ -189,7 +236,8 @@ export default function PricingClient() {
       <div>
         <h1 className="ds-h1">Скидки</h1>
         <p className="mt-1 text-sm text-[var(--text-secondary)]">
-          Турист видит цену со скидкой сразу, как выберет дату, — и ровно эту сумму получит в заявке.
+          Скидка начинает действовать после проверки администратором. Турист увидит цену со скидкой,
+          как выберет дату, — и ровно эту сумму получит в заявке.
         </p>
       </div>
 
@@ -216,7 +264,9 @@ export default function PricingClient() {
           </div>
 
           {OPERATOR_RULE_TYPES.map((type) => {
-            const current = t.rules[type];
+            const slot: RuleSlot = t.rules[type] ?? { live: null, removalAsked: false, request: null };
+            // В поля — то, о чём владелец просил последним; нет просьбы — то, что действует.
+            const current: RuleView | null = slot.request ?? slot.live;
             const d = draftOf(t.tourId, type, current);
             const key = `${t.tourId}:${type}`;
             const percent = parseInt(d.percent, 10);
@@ -284,45 +334,47 @@ export default function PricingClient() {
                     {busy === key
                       ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
                       : <Percent className="h-4 w-4" />}
-                    {current ? 'Изменить' : 'Назначить'}
+                    Отправить на проверку
                   </button>
-                  {current && (
+                  {slot.live && !slot.removalAsked && (
                     <button
                       type="button"
-                      onClick={() => void remove(t.tourId, type, current.id)}
+                      onClick={() => void remove(t.tourId, type, slot.live!.id)}
                       disabled={busy === key}
                       className="ds-btn ds-btn-secondary text-sm disabled:opacity-50"
                       style={{ minHeight: 44 }}
                     >
-                      <Trash2 className="h-4 w-4" />Снять
+                      <Trash2 className="h-4 w-4" />Попросить снять
                     </button>
                   )}
                 </div>
 
                 <p className="min-h-[1.25rem] text-sm" aria-live="polite">
-                  {preview !== null ? (
+                  {preview !== null && (
                     <span className="text-[var(--text-secondary)]">
-                      Турист увидит{' '}
+                      С такой скидкой турист увидит{' '}
                       <span className="font-semibold text-[var(--text-primary)]">{formatPrice(preview)}</span>
                       {' '}вместо {formatPrice(t.basePrice)}
                       {type === 'group_discount' ? ` при ${Math.max(2, parseInt(d.cond, 10) || 2)} чел.` : ''}
                     </span>
-                  ) : current ? (
-                    <span className="text-[var(--text-secondary)]">
-                      Назначено: −{current.percent}%{' '}
-                      {type === 'last_minute'
-                        ? `за ${current.daysBefore} дн. до выезда`
-                        : `от ${current.guestsMin} чел.`}
-                    </span>
-                  ) : (
-                    <span className="text-[var(--text-muted)]">Скидка не назначена</span>
                   )}
                   {saved === key && (
-                    <span className="ml-2 inline-flex items-center gap-1 text-[var(--success)]">
-                      <Check className="h-4 w-4" />сохранено
+                    <span className="ml-2 inline-flex items-center gap-1 text-[var(--text-primary)]" data-testid="pricing-saved">
+                      <Check className="h-4 w-4 text-[var(--success)]" />{savedWords}
                     </span>
                   )}
                 </p>
+
+                <PricingRuleStatus
+                  noun="скидка"
+                  live={slot.live ? discountWords(type, slot.live) : null}
+                  removalAsked={slot.removalAsked}
+                  request={slot.request
+                    ? { words: discountWords(type, slot.request), status: slot.request.status, reason: slot.request.reason }
+                    : null}
+                  busy={busy === key}
+                  onWithdraw={() => { if (slot.request) void remove(t.tourId, type, slot.request.id); }}
+                />
               </div>
             );
           })}

@@ -6,8 +6,12 @@ import { CHANGE_TTL_MS, confirmPendingChange, confirmUrl, createPendingChange, l
 // готовности 23.11). Здесь она подменена: судим, что подтверждение сверяет
 // цену с предпросмотром и раскладывает туры по трём спискам. Сама дверь и
 // очередь проверяются на PostgreSQL — tests/integration/tour-moderation.pg.test.ts.
-const door = vi.hoisted(() => ({ save: vi.fn() }));
+const door = vi.hoisted(() => ({ save: vi.fn(), markup: vi.fn() }));
 vi.mock('@/lib/tours/tour-change', () => ({ saveTourChange: door.save }));
+// Наценка на выходные — второй канал цены и тоже дверь с проверкой
+// (lib/tours/pricing-rule-door через operator-markup); её судит PostgreSQL —
+// tests/integration/pricing-rule-moderation.pg.test.ts.
+vi.mock('@/lib/tours/operator-markup', () => ({ setWeekendMarkup: door.markup }));
 
 const ID = '11111111-2222-3333-4444-555555555555';
 const NOW = Date.parse('2026-11-03T08:00:00Z');
@@ -77,9 +81,21 @@ describe('подтверждение цен — K.ai B3', () => {
     expect(await confirmPendingChange(db(open('base_price')), 'op', ID, 'u', NOW))
       .toEqual({ outcome: 'applied', applied: [], pending: [7], skipped: [] });
   });
-  it('наценка: через setWeekendMarkup', async () => {
+  it('наценка: уходит на проверку — тур в списке «ждёт», а не «изменено»', async () => {
+    door.markup.mockReset().mockResolvedValue({ tours: [7], pending: [7] });
     const d = db(open('weekend_markup'));
-    expect(await confirmPendingChange(d, 'op', ID, 'u', NOW)).toMatchObject({ outcome: 'applied', applied: [7] });
-    expect(d.calls.some(([s]: any) => s.includes("'weekend_sat_sun', $2"))).toBe(true);
+    expect(await confirmPendingChange(d, 'op', ID, 'u', NOW)).toEqual({ outcome: 'applied', applied: [], pending: [7], skipped: [] });
+    // Показанный процент, туры предпросмотра, от имени подтвердившего.
+    expect(door.markup.mock.calls[0].slice(1)).toEqual(['op', [7], 10, 'u']);
+    // Своей записи правила у подтверждения нет.
+    expect(d.calls.some(([s]: any) => /tour_pricing_rules/.test(s))).toBe(false);
+  });
+  it('наценка: такая уже действует — «изменено»; тур не этой карточки — пропущен', async () => {
+    door.markup.mockReset().mockResolvedValue({ tours: [7], pending: [] });
+    expect(await confirmPendingChange(db(open('weekend_markup')), 'op', ID, 'u', NOW))
+      .toEqual({ outcome: 'applied', applied: [7], pending: [], skipped: [] });
+    door.markup.mockReset().mockResolvedValue({ tours: [], pending: [] });
+    expect(await confirmPendingChange(db(open('weekend_markup')), 'op', ID, 'u', NOW))
+      .toEqual({ outcome: 'applied', applied: [], pending: [], skipped: [7] });
   });
 });
