@@ -85,7 +85,10 @@ export async function GET(
       return NextResponse.json({ error: 'Не удалось прочитать правку на проверке, попробуйте позже' }, { status: 503 });
     }
     const edit = edits.get(String(tourId)) ?? { pending: null, rejected: null };
-    const shown = { ...tour, ...(edit.pending?.patch ?? {}) } as typeof tour;
+    // Администратор правит саму витрину: чужой черновик в его форму не
+    // подмешивается, иначе «Сохранить» записало бы правку владельца в живую
+    // строку в обход очереди и без решения по ней.
+    const shown = (isAdmin ? tour : { ...tour, ...(edit.pending?.patch ?? {}) }) as typeof tour;
 
     // Клипы — с адресами для превью в форме, подписи — только строки (08.11,
     // те же правила, что у формы гида: lib/tours/editor-media).
@@ -100,6 +103,8 @@ export async function GET(
             published: tour.is_published === true, pending: edit.pending !== null, rejected: edit.rejected !== null,
           }),
           published: tour.is_published === true,
+          // Администратор публикует и снимает сам, владелец — через проверку.
+          direct: isAdmin,
           pending: edit.pending
             ? { changes: edit.pending.changes, wantsPublish: edit.pending.wantsPublish, since: edit.pending.since }
             : null,

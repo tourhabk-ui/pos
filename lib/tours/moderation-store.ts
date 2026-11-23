@@ -332,6 +332,10 @@ export type DecideTourEdit =
       fields: ModeratedTourColumn[];
       /** Одобрение поставило тур на витрину впервые. */
       published: boolean;
+      /** Правка просила первую публикацию (у отказа — «тур не опубликован»). */
+      askedPublish: boolean;
+      /** Категория карточки владельца — в какой кабинет вести из сообщения. */
+      partnerCategory: string | null;
     }
   | { outcome: 'already' }
   | { outcome: 'changed' }
@@ -345,13 +349,15 @@ interface LockedEdit {
   patch: unknown;
   wants_publish: boolean;
   moderation_status: string;
+  partner_category: string | null;
 }
 
-const LOCK_EDIT_SQL = `SELECT id::text AS id, tour_id::text AS tour_id, partner_id::text AS partner_id,
-          patch, wants_publish, moderation_status
-     FROM operator_tour_edits
-    WHERE id = $1::uuid
-    FOR UPDATE`;
+const LOCK_EDIT_SQL = `SELECT e.id::text AS id, e.tour_id::text AS tour_id, e.partner_id::text AS partner_id,
+          e.patch, e.wants_publish, e.moderation_status,
+          (SELECT p.category FROM partners p WHERE p.id = e.partner_id) AS partner_category
+     FROM operator_tour_edits e
+    WHERE e.id = $1::uuid
+    FOR UPDATE OF e`;
 
 const LOCK_TOUR_SQL = `SELECT ot.title, ot.is_published, ot.main_place_id, ${LIVE_CONTENT_COLUMNS}
      FROM operator_tours ot
@@ -412,7 +418,10 @@ export async function decideTourEdit(opts: {
     const fields = fieldsOf(patch);
     const wantsPublish = edit.wants_publish === true && live.is_published !== true;
     const title = String((patch.title as string | undefined) ?? live.title ?? '');
-    const base = { partnerId: edit.partner_id, tourId: edit.tour_id, fields };
+    const base = {
+      partnerId: edit.partner_id, tourId: edit.tour_id, fields,
+      askedPublish: wantsPublish, partnerCategory: edit.partner_category,
+    };
 
     if (opts.action === 'reject') {
       const done = await client.query(DECIDE_SQL, [edit.id, 'rejected', opts.reason, opts.moderatedBy, null]);

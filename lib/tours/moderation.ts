@@ -254,3 +254,13 @@ export function pendingNotice(fields: readonly ModeratedTourColumn[], wantsPubli
   }
   return `Правка отправлена на проверку (${list}). На витрине пока прежняя версия.`;
 }
+
+/** Кабинет, где владелец правит свои туры: у гида он свой. */
+export function tourCabinetPath(partnerCategory: string | null): string {
+  return partnerCategory === 'guide' ? '/hub/guide/own' : '/hub/operator/tours';
+}
+
+/** Список полей словами — «цена, фото»: для сообщений о решении. */
+export function tourFieldsWords(fields: readonly ModeratedTourColumn[]): string {
+  return fields.map((f) => TOUR_FIELD_LABELS[f].toLowerCase()).join(', ');
+}

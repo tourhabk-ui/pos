@@ -29,6 +29,20 @@ vi.mock('@/lib/auth/middleware', async (orig) => ({
   ...(await orig<typeof import('@/lib/auth/middleware')>()),
   requireOperator: vi.fn(async () => ({ userId: 'c4000000-0000-4000-8000-000000000201', role: 'operator' })), // = USER
 }));
+// Крючок перед транзакцией: «кто-то поправил тур, пока инструмент думал».
+const tx = vi.hoisted(() => ({ before: null as null | (() => Promise<void>) }));
+vi.mock('@/lib/database', async (orig) => {
+  const real = await orig<typeof import('@/lib/database')>();
+  return {
+    ...real,
+    transaction: async <T,>(cb: Parameters<typeof real.transaction<T>>[0]) => {
+      const before = tx.before;
+      tx.before = null;
+      if (before) await before();
+      return real.transaction(cb);
+    },
+  };
+});
 const ai = vi.hoisted(() => ({ answer: '{}' }));
 vi.mock('@/lib/ai/providers', async (orig) => ({
   ...(await orig<typeof import('@/lib/ai/providers')>()),
@@ -425,6 +439,17 @@ withPg('модерация правок тура', () => {
       expect(out.note).toContain('На витрине пока прежняя версия');
       expect((await liveOf(tour)).base_price).toBe(10000);
       expect((await pendingPatch(tour))?.patch).toEqual({ base_price: 11000 });
+    });
+
+    it('ИИ-чат оператора: тур поправили между чтением и записью — конфликт, черновика нет', async () => {
+      const tour = await addTour(OP, 'ИИ-чат: конфликт', { published: true, price: 10000 });
+      const { getOperatorTools } = await import('@/lib/agents/sdk/operator-tools');
+      const tool = getOperatorTools(OP, 'seed-conflict').find((t) => t.name === 'update_tour_price')!;
+      tx.before = async () => { await pool.query(`UPDATE operator_tours SET updated_at = NOW() + interval '1 second' WHERE id = $1::bigint`, [tour]); };
+      const out = JSON.parse(await tool.execute({ tour_id: tour, new_price: '11000' }));
+      expect(out.error).toContain('изменён параллельно');
+      expect((await liveOf(tour)).base_price).toBe(10000);
+      expect(await pendingPatch(tour)).toBeNull();
     });
 
     it('ИИ-чат оператора: «опубликуй» — просьба; «сними с публикации» — сразу', async () => {

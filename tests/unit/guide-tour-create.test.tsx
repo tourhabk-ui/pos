@@ -316,19 +316,22 @@ describe('раздел «Свои туры»: «Мои туры» рендеро
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it('черновик с пробелом — перечень и без «Опубликовать»; готовый — «Опубликовать»; на сайте — ссылка и «Снять с сайта»', async () => {
+  // С 23.11 (план готовности, этап 4) публикацию ставит одобрение администратора:
+  // кнопка гида — просьба, и называется так.
+  it('черновик с пробелом — перечень и без кнопки; готовый — «Отправить на проверку»; на сайте — ссылка и «Снять с сайта»', async () => {
     const done = vi.fn();
     render(<OwnToursManager tours={[ON, READY, GAP]} onDone={done} />);
     const gap = within(screen.getByTestId('own-tour-13'));
     expect(gap.getByText('нет описания тура')).toBeTruthy();
-    expect(gap.queryByRole('button', { name: /Опубликовать/ })).toBeNull();
+    expect(gap.queryByRole('button', { name: /Отправить на проверку/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Опубликовать/ })).toBeNull();
     expect(gap.getByText('черновик — туристы не видят')).toBeTruthy();
     const on = within(screen.getByTestId('own-tour-11'));
     expect(on.getByRole('link', { name: 'Горелый' }).getAttribute('href')).toBe('/catalog/tours/11');
     fireEvent.click(on.getByRole('button', { name: /Снять с сайта/ }));
     await waitFor(() => expect(done).toHaveBeenCalled());
     expect(calls.at(-1)).toEqual({ url: '/api/guide/own/tours/11/publish', method: 'POST', body: { publish: false } });
-    fireEvent.click(within(screen.getByTestId('own-tour-12')).getByRole('button', { name: /Опубликовать/ }));
+    fireEvent.click(within(screen.getByTestId('own-tour-12')).getByRole('button', { name: /Отправить на проверку/ }));
     await waitFor(() => expect(calls.at(-1)?.body).toEqual({ publish: true }));
     expect(calls.at(-1)?.url).toBe('/api/guide/own/tours/12/publish');
   });

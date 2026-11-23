@@ -20,9 +20,10 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Loader2, Plus, Globe, EyeOff, Pencil } from 'lucide-react';
+import { Loader2, Plus, Globe, EyeOff, Pencil, RotateCcw } from 'lucide-react';
 import type { OwnTour } from '@/lib/guides/own-tours';
-import { ownTourStateWords, publishBlockerLabel } from '@/lib/guides/own-tour-words';
+import { ownTourReviewWords, publishBlockerLabel } from '@/lib/guides/own-tour-words';
+import { TourEditDiff } from '@/components/tours/TourEditDiff';
 import { PRICE_UNIT_LABELS } from '@/lib/tours/labels';
 import {
   ProgramEditor, ListField, PhotosField, VideosField, MaterialsConsent, extrasGaps, extrasBody, LIST_LABELS,
@@ -85,9 +86,11 @@ export function formGaps(v: FormValues): string[] {
   return gaps;
 }
 
-async function send(url: string, method: 'POST' | 'PATCH', body: unknown): Promise<{ ok: boolean; json: Record<string, unknown> | null }> {
+async function send(url: string, method: 'POST' | 'PATCH' | 'DELETE', body?: unknown): Promise<{ ok: boolean; json: Record<string, unknown> | null }> {
   try {
-    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const res = await fetch(url, method === 'DELETE'
+      ? { method }
+      : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const json = await res.json().catch(() => null) as Record<string, unknown> | null;
     return { ok: res.ok && json?.success === true, json };
   } catch {
@@ -135,7 +138,13 @@ export function OwnTourForm({ tour, onDone, onCancel }: {
       setError(typeof r.json?.error === 'string' ? r.json.error : 'Не записано — попробуйте ещё раз');
       return;
     }
-    onDone(tour ? `«${v.title.trim()}»: сохранено.` : `Создан черновик «${v.title.trim()}». Туристы его пока не видят — опубликуйте, когда будете готовы.`);
+    // Содержание тура на сайте идёт через проверку: «сохранено» без оговорки
+    // читалось бы как «уже на сайте» (план готовности 23.11, этап 4).
+    const pending = (r.json?.pending ?? null) as { notice?: unknown } | null;
+    const notice = typeof pending?.notice === 'string' ? pending.notice : null;
+    onDone(tour
+      ? (notice ? `«${v.title.trim()}»: ${notice}` : `«${v.title.trim()}»: сохранено.`)
+      : `Создан черновик «${v.title.trim()}». Туристы его пока не видят — отправьте на проверку, когда будете готовы.`);
   };
 
   const id = tour ? `own-tour-${tour.id}` : 'own-tour-new';
@@ -239,8 +248,24 @@ export function OwnTourCard({ tour, onDone }: { tour: OwnTour; onDone: (msg: str
       setError(typeof r.json?.error === 'string' ? r.json.error : 'Не записано — попробуйте ещё раз');
       return;
     }
-    onDone(typeof r.json?.message === 'string' ? r.json.message : publish ? 'Опубликовано' : 'Снято с сайта');
+    onDone(typeof r.json?.message === 'string' ? r.json.message : publish ? 'Отправлено на проверку' : 'Снято с сайта');
   };
+
+  const withdraw = async () => {
+    setBusy(true);
+    setError(null);
+    const r = await send(`/api/guide/own/tours/${tour.id}/edit`, 'DELETE');
+    setBusy(false);
+    if (!r.ok) {
+      setError(typeof r.json?.error === 'string' ? r.json.error : 'Не отозвано — попробуйте ещё раз');
+      return;
+    }
+    onDone(typeof r.json?.message === 'string' ? r.json.message : 'Отозвано с проверки');
+  };
+
+  const review = tour.moderation ?? null;
+  const waiting = review?.state === 'pending' ? review.pending : null;
+  const returned = review?.state === 'rejected' ? review.rejected : null;
 
   if (editing) {
     return <OwnTourForm tour={tour} onDone={(m) => { setEditing(false); onDone(m); }} onCancel={() => setEditing(false)} />;
@@ -251,7 +276,7 @@ export function OwnTourCard({ tour, onDone }: { tour: OwnTour; onDone: (msg: str
         {onSite
           ? <Link href={`/catalog/tours/${tour.id}`} className="font-medium text-[var(--ocean)]">{tour.title}</Link>
           : <span className="font-medium text-[var(--text-primary)]">{tour.title}</span>}
-        <span className="text-sm text-[var(--text-secondary)]">{ownTourStateWords(onSite)}</span>
+        <span className="text-sm text-[var(--text-secondary)]">{ownTourReviewWords(onSite, review)}</span>
       </div>
       <p className="text-sm text-[var(--text-secondary)]">
         {priceText(tour)} · группа {tour.max_participants === null ? 'не записана' : `до ${tour.max_participants} чел.`}
@@ -265,14 +290,41 @@ export function OwnTourCard({ tour, onDone }: { tour: OwnTour; onDone: (msg: str
           </ul>
         </div>
       )}
+      {waiting && (
+        <div className="text-sm space-y-2" role="status" data-testid="own-tour-review">
+          <p className="text-[var(--text-primary)]">
+            {waiting.wantsPublish
+              ? 'Тур ждёт проверки администратором: на сайт он выйдет после одобрения.'
+              : 'Правка ждёт проверки администратором: на сайте пока прежняя версия.'}
+          </p>
+          <TourEditDiff changes={waiting.changes} />
+        </div>
+      )}
+      {returned && (
+        <div className="text-sm" role="status" data-testid="own-tour-review">
+          <p className="text-[var(--text-primary)]">
+            {returned.wantsPublish ? 'Тур возвращён на доработку.' : 'Правка отклонена — на сайте прежняя версия.'}
+          </p>
+          <p className="text-[var(--text-secondary)] whitespace-pre-wrap break-words">
+            {returned.reason ? `Причина: ${returned.reason}` : 'Причина не записана.'}
+          </p>
+        </div>
+      )}
       <div className="flex flex-wrap gap-2">
         {onSite ? (
           <button type="button" className="ds-btn ds-btn-secondary" disabled={busy} onClick={() => void toggle(false)}>
             {busy ? <Loader2 size={14} className="animate-spin" /> : <EyeOff size={14} />} Снять с сайта
           </button>
-        ) : blockers.length === 0 && (
+        ) : blockers.length === 0 && !waiting?.wantsPublish && (
           <button type="button" className="ds-btn ds-btn-primary" disabled={busy} onClick={() => void toggle(true)}>
-            {busy ? <Loader2 size={14} className="animate-spin" /> : <Globe size={14} />} Опубликовать
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <Globe size={14} />}
+            {/* Одобренный и скрытый тур возвращается сразу; остальным публикацию ставит проверка. */}
+            {tour.is_published ? ' Вернуть на сайт' : ' Отправить на проверку'}
+          </button>
+        )}
+        {waiting && (
+          <button type="button" className="ds-btn ds-btn-secondary" disabled={busy} onClick={() => void withdraw()}>
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />} {waiting.wantsPublish ? 'Отозвать с проверки' : 'Отозвать правку'}
           </button>
         )}
         <button type="button" className="ds-btn ds-btn-secondary" disabled={busy} onClick={() => setEditing(true)}>

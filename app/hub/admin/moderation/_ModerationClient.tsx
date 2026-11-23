@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Protected } from '@/components/auth/Protected';
 import { RentalEditQueue, type RentalEditCard } from '@/components/admin/RentalEditQueue';
 import { CharterPriceEditQueue, type CharterPriceEditCard } from '@/components/admin/CharterPriceEditQueue';
+import { TourEditQueue, type TourEditCard } from '@/components/admin/TourEditQueue';
 import { Shield, Check, X, Loader2, Star, MessageSquare, AlertCircle } from 'lucide-react';
 
 interface PendingReview {
@@ -27,6 +28,12 @@ export default function ModerationClient() {
   const [priceEditsError, setPriceEditsError] = useState('');
   const [actingPriceEdit, setActingPriceEdit] = useState<string | null>(null);
   const [priceEditActionError, setPriceEditActionError] = useState('');
+  // Туры и правки туров (1507, план готовности 23.11, этап 4): своя очередь, тот же порядок решения.
+  const [tourEdits, setTourEdits] = useState<TourEditCard[]>([]);
+  const [tourEditsLoading, setTourEditsLoading] = useState(true);
+  const [tourEditsError, setTourEditsError] = useState('');
+  const [actingTourEdit, setActingTourEdit] = useState<string | null>(null);
+  const [tourEditActionError, setTourEditActionError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -88,9 +95,52 @@ export default function ModerationClient() {
     }
   }, []);
 
+  const loadTourEdits = useCallback(async () => {
+    setTourEditsLoading(true);
+    setTourEditsError('');
+    try {
+      const res = await fetch('/api/admin/moderation/tour-edits');
+      const json = await res.json().catch(() => null) as { success?: boolean; error?: string; data?: { edits?: TourEditCard[] } } | null;
+      if (!res.ok || !json?.success) throw new Error(json?.error ?? `HTTP ${res.status}`);
+      setTourEdits(Array.isArray(json.data?.edits) ? json.data.edits : []);
+    } catch (e) {
+      setTourEditsError(e instanceof Error ? e.message : 'Не смог загрузить правки туров');
+    } finally {
+      setTourEditsLoading(false);
+    }
+  }, []);
+
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadTourEdits(); }, [loadTourEdits]);
   useEffect(() => { loadEdits(); }, [loadEdits]);
   useEffect(() => { loadPriceEdits(); }, [loadPriceEdits]);
+
+  async function decideTourEdit(id: string, action: 'approve' | 'reject', reason?: string) {
+    // Одобряется то, что видно в карточке: её отпечаток едет с решением, и
+    // сервер не применит правку, дописанную после показа.
+    const shown = tourEdits.find((row) => row.id === id);
+    if (action === 'approve' && !shown) return;
+    setActingTourEdit(id);
+    setTourEditActionError('');
+    let stale = false;
+    try {
+      const res = await fetch(`/api/admin/moderation/tour-edits/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(action === 'reject' ? { action, reason } : { action, seen: shown?.seen }),
+      });
+      const json = await res.json().catch(() => null) as { success?: boolean; error?: string } | null;
+      stale = res.status === 409 || res.status === 404;
+      if (!res.ok || !json?.success) throw new Error(json?.error ?? `HTTP ${res.status}`);
+      setTourEdits((prev) => prev.filter((row) => row.id !== id));
+    } catch (e) {
+      setTourEditActionError(e instanceof Error ? e.message : 'Не смог записать решение');
+    } finally {
+      setActingTourEdit(null);
+    }
+    // Правка изменилась, решение уже есть или тур удалён — карточка устарела, показать свежую.
+    if (stale) await loadTourEdits();
+  }
 
   async function decidePriceEdit(id: string, action: 'approve' | 'reject', reason?: string) {
     // Одобряется то, что видно в карточке: все поля черновика едут с решением.
@@ -177,6 +227,17 @@ export default function ModerationClient() {
             </span>
           )}
         </div>
+
+        <TourEditQueue
+          loading={tourEditsLoading}
+          error={tourEditsError}
+          edits={tourEdits}
+          actingId={actingTourEdit}
+          actionError={tourEditActionError}
+          onRetry={loadTourEdits}
+          onApprove={(id) => decideTourEdit(id, 'approve')}
+          onReject={(id, reason) => decideTourEdit(id, 'reject', reason)}
+        />
 
         <RentalEditQueue
           loading={editsLoading}

@@ -20,7 +20,7 @@ import type { PersonalLeadOutcome } from '@/lib/notifications/lead-notify';
 import { reachForPartner } from '@/lib/partners/reach';
 import { escapeHtml } from '@/lib/text/escape-html';
 
-export type EditSubject = 'charter' | 'car_rental';
+export type EditSubject = 'charter' | 'car_rental' | 'tour';
 
 export interface EditDecisionNotice {
   partnerId: string;
@@ -30,19 +30,50 @@ export interface EditDecisionNotice {
   outcome: 'approved' | 'rejected';
   /** Причина отказа модератора; у одобрения null. */
   reason: string | null;
+  /**
+   * Только у тура (план готовности 23.11, этап 4): правка просила первую
+   * публикацию — тогда решение о туре целиком, а не о правке.
+   */
+  firstPublication?: boolean;
+  /** Только у тура: что менялось, словами («цена, фото»). */
+  fieldsWords?: string;
+  /** Только у тура: кабинет зависит от роли владельца (оператор или гид). */
+  cabinetPath?: string;
 }
 
 const CABINET_PATH: Record<EditSubject, string> = {
   charter: '/hub/carrier',
   car_rental: '/hub/carrier/rental',
+  tour: '/hub/operator/tours',
 };
 
-const SUBJECT_WORD: Record<EditSubject, string> = {
+const SUBJECT_WORD: Record<Exclude<EditSubject, 'tour'>, string> = {
   charter: 'прайса',
   car_rental: 'прайса проката',
 };
 
+/**
+ * Решение по туру. В тексте — название тура, какие поля менялись и причина
+ * модератора: ни имён, ни телефонов туристов здесь быть не может.
+ */
+function tourDecisionText(n: EditDecisionNotice): string {
+  const title = `«${escapeHtml(n.label)}»`;
+  const what = n.fieldsWords ? ` (${escapeHtml(n.fieldsWords)})` : '';
+  if (n.outcome === 'approved') {
+    return n.firstPublication
+      ? ['<b>Тур одобрен</b>', `${title}: проверка пройдена, тур опубликован.`].join('\n')
+      : ['<b>Правка тура одобрена</b>', `${title}: правка на сайте${what}.`].join('\n');
+  }
+  return [
+    n.firstPublication ? '<b>Тур не опубликован</b>' : '<b>Правка тура отклонена</b>',
+    n.firstPublication ? `${title}: на сайт не вышел.` : `${title}: на сайте прежняя версия${what}.`,
+    n.reason ? `Причина: ${escapeHtml(n.reason)}` : 'Причина не записана.',
+    'Исправить и отправить на проверку ещё раз можно в кабинете на сайте.',
+  ].join('\n');
+}
+
 export function editDecisionText(n: EditDecisionNotice): string {
+  if (n.subject === 'tour') return tourDecisionText(n);
   const label = escapeHtml(n.label);
   if (n.outcome === 'approved') {
     return [
@@ -72,7 +103,7 @@ export async function notifyPartnerEditDecision(n: EditDecisionNotice): Promise<
   const res = await sendPdAlert({
     text,
     stub: text,
-    buttons: [{ text: 'Кабинет на сайте', url: `${getPublicBaseUrl()}${CABINET_PATH[n.subject]}` }],
+    buttons: [{ text: 'Кабинет на сайте', url: `${getPublicBaseUrl()}${n.cabinetPath ?? CABINET_PATH[n.subject]}` }],
     to: { maxChatId: reach.maxChatId, telegramChatId: reach.telegramChatId },
   });
   if (res.channel === 'max' && res.delivered) return { state: 'delivered', channel: 'max' };
