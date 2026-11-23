@@ -105,8 +105,10 @@ describe('писатели чистят ПД до записи', () => {
 
   it('kb-gap не печатает темы в ответ — он уходит в лог GitHub Actions', () => {
     const gap = read('app/api/cron/kb-gap/route.ts');
-    const body = gap.slice(gap.lastIndexOf('return NextResponse.json({'));
+    const saved = gap.indexOf('topics_saved: saved.length');
+    expect(saved).toBeGreaterThan(-1);
+    const body = gap.slice(gap.lastIndexOf('return NextResponse.json({', saved), saved + 40);
     expect(body).toMatch(/topics_saved: saved\.length/);
-    expect(body).not.toMatch(/\btopics: saved\b/);
+    expect(gap).not.toMatch(/\btopics: saved\b/);
   });
 });

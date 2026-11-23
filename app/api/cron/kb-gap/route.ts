@@ -21,6 +21,7 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { redactPII } from '@/lib/security/pii-redact';
 import { withSpendAgent } from '@/lib/ai/usage-context';
+import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 
 export const dynamic = 'force-dynamic';
 
@@ -79,7 +80,9 @@ export async function GET(request: NextRequest) {
   if (!timingSafeCompare(secret, process.env.CRON_SECRET ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const startedAt = Date.now();
 
+  try {
   const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 
   // Найти сессии с признаками незнания в ответах бота
@@ -116,6 +119,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (unknownQuestions.length === 0) {
+    recordCronRun('kb-gap', startedAt, 'success', { items: 0 });
     return NextResponse.json({ success: true, message: 'Нет пробелов в знаниях', gaps_found: 0 });
   }
 
@@ -173,6 +177,8 @@ ${unknownQuestions.slice(0, 50).map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
     if (stored) saved.push(topic);
   }
 
+  recordCronRun('kb-gap', startedAt, 'success', { items: saved.length });
+
   return NextResponse.json({
     success: true,
     gaps_found: unknownQuestions.length,
@@ -184,5 +190,10 @@ ${unknownQuestions.slice(0, 50).map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
     // проверка MCP 29.09). Темы видны в agent_knowledge.
     timestamp: new Date().toISOString(),
   });
+  } catch (err) {
+    console.error('[kb-gap]', err instanceof Error ? err.message : err);
+    recordCronRun('kb-gap', startedAt, 'failed', { error: 'пробелы не разобраны' });
+    return NextResponse.json({ success: false, error: 'пробелы не разобраны' }, { status: 500 });
+  }
   });
 }
