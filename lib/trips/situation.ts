@@ -38,8 +38,14 @@ export interface SituationInput {
   officials: OfficialAlert[] | 'failed';
   /** У тура нет зоны маршрута, а зональные предупреждения есть — сверить нельзя. */
   officialsUnassessed: boolean;
-  /** Оценка опасности зоны; null — зона не оценивается; 'failed' — не прочиталась. */
-  zoneDanger: ZoneDangerInput | null | 'failed';
+  /**
+   * Оценка опасности зоны. null — зона не оценивается вовсе; 'failed' — не
+   * прочиталась; 'absent' — зона оценивается, но действующей оценки сейчас
+   * нет (оценка живёт два часа: агент не отработал или пропустил зону при
+   * неживом приёме тревог). До 23.11 'absent' и null были одним значением, и
+   * отсутствие оценки читалось как «спокойно».
+   */
+  zoneDanger: ZoneDangerInput | null | 'failed' | 'absent';
 }
 
 export interface Situation {
@@ -75,6 +81,7 @@ export function judgeSituation(input: SituationInput): Situation {
 
   const z = input.zoneDanger;
   if (z === 'failed') unchecked.push('оценку опасности зоны — не прочиталась');
+  else if (z === 'absent') unchecked.push('оценку опасности зоны — действующей оценки сейчас нет');
   else if (z && (z.level === 'high' || z.level === 'critical')) risks.push(`опасность в зоне «${z.name}»: ${LEVEL_WORD[z.level]}`);
 
   const kind: SituationKind = risks.length > 0 ? 'risk' : unchecked.length > 0 ? 'unknown' : 'calm';

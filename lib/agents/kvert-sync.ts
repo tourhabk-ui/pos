@@ -19,7 +19,8 @@
 
 import { pool } from '@/lib/db-pool';
 import { parseVonaFeed, parseAccSummary, parseActivitySections, normalizeVolcanoName, latestVonaNumber, type AccColor, type ParsedVona } from '@/lib/services/safety/kvert-vona';
-import { buildKvertColorAlert, isAccColor } from '@/lib/services/safety/kvert-color-alerts';
+import { buildKvertColorAlert, isAccColor, kvertAlertIdPrefix } from '@/lib/services/safety/kvert-color-alerts';
+import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { saveEvent } from '@/lib/services/safety/seismic-parser';
 import { describeActivityRu, describeVonaRu } from '@/lib/services/safety/kvert-activity-ru';
 import { brightDataFetch, brightDataAvailable } from '@/lib/services/ingest/brightdata-unlocker';
@@ -243,6 +244,8 @@ export interface KvertSyncResult {
    * volcano_status мог обновиться, а алерт для разведки — нет.
    */
   alerts_inserted?: number;
+  /** Вулканы, чьё событие о смене кода записано без зоны: их нет в карте зон. */
+  alerts_unzoned?: string[];
 }
 
 /**
@@ -324,7 +327,7 @@ async function loadAviationColors(): Promise<Map<string, AccColor>> {
  * Ошибка записи алерта не откатывает уже сохранённый volcano_status:
  * код на карточке важнее, чем строка в ленте разведки.
  */
-async function maybeInsertColorAlert(opts: {
+export async function maybeInsertColorAlert(opts: {
   slug: string;
   volcanoName: string;
   prev: AccColor | null;
@@ -333,17 +336,67 @@ async function maybeInsertColorAlert(opts: {
   observedAt: Date | null;
   summary: string | null;
   ashHeightM: number | null;
-}): Promise<boolean> {
+}): Promise<{ inserted: boolean; unzoned: boolean }> {
   const event = buildKvertColorAlert(opts);
-  if (!event) return false;
+  if (!event) return { inserted: false, unzoned: false };
+  const unzoned = event.affected_zones.length === 0;
   try {
     const st = await saveEvent(event);
-    return st === 'inserted';
+    // Код вернулся к прежнему («красный → зелёный → красный» с той же датой
+    // наблюдения): событие с таким id уже есть и погашено сменой кода —
+    // вставка его не трогает. Без оживления красный код остался бы без строки.
+    const revived = st === 'inserted' ? false : await reviveColorAlert(event);
+    // Код сменился — прежнее событие этого вулкана больше не правда. Без
+    // этого после «красный → зелёный» строка «красный код» жила в ленте ещё
+    // до пяти суток рядом со строкой «зелёный» (23.11).
+    await retractPreviousColorAlerts(opts.slug, event.source_id);
+    return { inserted: st === 'inserted' || revived, unzoned };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[kvert-sync] ${opts.volcanoName}: алерт в external_alerts не записался:`, msg);
-    return false;
+    return { inserted: false, unzoned: false };
   }
+}
+
+/**
+ * Оживляет погашенное событие о коде: срок — от «сейчас», слова — нынешней
+ * смены. Живое событие не трогает (его срок ведёт `saveEvent`). Отметка
+ * отправленного пуша остаётся: второй раз тот же код людям не уходит.
+ */
+export async function reviveColorAlert(event: {
+  source_id: string; expires_hours: number; title: string; description: string;
+}): Promise<boolean> {
+  const r = await pool.query<{ id: string }>(
+    `UPDATE external_alerts
+        SET expires_at = ${UTC_WALL_NOW_SQL} + make_interval(hours => $2::int),
+            title = $3::text,
+            description = $4::text
+      WHERE external_id = $1::text
+        AND expires_at <= ${UTC_WALL_NOW_SQL}
+      RETURNING id::text`,
+    [event.source_id, event.expires_hours, event.title, event.description],
+  );
+  return r.rows.length > 0;
+}
+
+/**
+ * Гасит прежние события о коде вулкана: срок действия сокращается до
+ * «сейчас», строка остаётся в базе (приём `retractStaticAlerts` в
+ * wildfire-firms). Сравнение по началу `external_id` без LIKE: в имени
+ * вулкана бывает подчёркивание, а для LIKE это подстановочный знак.
+ */
+export async function retractPreviousColorAlerts(slug: string, keepExternalId: string): Promise<number> {
+  const prefix = kvertAlertIdPrefix(slug);
+  const r = await pool.query<{ id: string }>(
+    `UPDATE external_alerts
+        SET expires_at = ${UTC_WALL_NOW_SQL}
+      WHERE LEFT(external_id, LENGTH($1::text)) = $1::text
+        AND external_id <> $2::text
+        AND expires_at > ${UTC_WALL_NOW_SQL}
+      RETURNING id::text`,
+    [prefix, keepExternalId],
+  );
+  return r.rows.length;
 }
 
 export async function syncKvertAcc(): Promise<KvertSyncResult> {
@@ -494,7 +547,7 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
       }
       const prev = prevColors.get(v.nameSlug) ?? null;
       prevColors.set(v.nameSlug, v.color);
-      if (await maybeInsertColorAlert({
+      const alert = await maybeInsertColorAlert({
         slug: v.nameSlug,
         volcanoName: v.nameRu,
         prev,
@@ -503,9 +556,11 @@ export async function syncKvertAcc(): Promise<KvertSyncResult> {
         observedAt: v.observedAt,
         summary: rec.summary,
         ashHeightM: rec.ashHeightM,
-      })) {
-        result.alerts_inserted = (result.alerts_inserted ?? 0) + 1;
-      }
+      });
+      if (alert.inserted) result.alerts_inserted = (result.alerts_inserted ?? 0) + 1;
+      // Вулкана нет в карте зон: событие записано без зоны — это названо, а
+      // не спрятано (зону не выдумываем).
+      if (alert.unzoned) (result.alerts_unzoned ??= []).push(v.nameRu);
     } catch (err) {
       // Пустой catch здесь превращал отказ записи в «места нет» — а это
       // разные беды и чинятся они в разных местах.

@@ -141,7 +141,9 @@ vi.mock('@/lib/trips/situation-store', async (importOriginal) => {
     liveSources: () => ({
       forecast: async () => store.forecast,
       officials: async () => [],
-      zone: async () => null,
+      // Действующая низкая оценка: с 23.11 отсутствие оценки — «не знаем»,
+      // а не «спокойно», и «спокойный» прогон обязан её иметь.
+      zone: async () => ({ name: 'Авачинская зона', level: 'low' as const }),
     }),
   };
 });
@@ -236,5 +238,56 @@ describe('крон trip-reminders: туристу и оператору — то
     const { GET } = await import('@/app/api/cron/trip-reminders/route');
     const res = await GET(new Request('http://localhost/api/cron/trip-reminders') as never);
     expect(res.status).toBe(401);
+  });
+});
+
+/**
+ * Аудит 23.11: нет действующей оценки зоны — это «не знаем», а не «спокойно».
+ * Оценка живёт два часа; если агент опасности не отработал или пропустил зону
+ * при неживом приёме тревог, строки во вьюхе нет. До правки такой выезд
+ * получал «спокойно: … предупреждений по зоне тура нет».
+ */
+describe('обстановка по выезду: зона без действующей оценки', () => {
+  it('judgeSituation: absent — не спокойно, причина названа', () => {
+    const s = judgeSituation({ weather: { kind: 'calm', description: 'ясно' }, officials: [], officialsUnassessed: false, zoneDanger: 'absent' });
+    expect(s.kind).toBe('unknown');
+    expect(situationLine(s)).toContain('действующей оценки сейчас нет');
+    expect(situationLine(s)).not.toContain('спокойно');
+  });
+
+  it('список оцениваемых зон совпадает со списком агента опасности', async () => {
+    const { DANGER_ASSESSED_ZONES } = await import('@/lib/trips/situation-store');
+    const { ZONES } = await import('@/lib/agents/agencies/danger-analyst-agency');
+    expect([...DANGER_ASSESSED_ZONES].sort()).toEqual([...ZONES].sort());
+  });
+
+  const tour = (zone: string | null) => ({
+    tourId: 1, operatorId: 'op', title: 'Тур', date: '2026-11-25', lat: null, lng: null,
+    zone, parks: [], travellers: 2,
+  });
+  const sources = (zone: unknown) => ({
+    forecast: async () => { throw new Error('не зовётся: координат нет'); },
+    officials: async () => [],
+    zone: async () => zone,
+  });
+
+  it('situationFor: у оцениваемой зоны нет строки — «не смог проверить», не «спокойно»', async () => {
+    const { situationFor } = await import('@/lib/trips/situation-store');
+    const s = await situationFor(tour('avachinsky') as never, sources(null) as never);
+    expect(s.kind).toBe('unknown');
+    expect(s.unchecked.join(' ')).toContain('оценку опасности зоны');
+  });
+
+  it('situationFor: оценка есть и она низкая — зона в «не проверено» не попадает', async () => {
+    const { situationFor } = await import('@/lib/trips/situation-store');
+    const s = await situationFor(tour('avachinsky') as never, sources({ name: 'Авачинская', level: 'low' }) as never);
+    expect(s.unchecked.join(' ')).not.toContain('оценку опасности зоны');
+    expect(s.risks).toEqual([]);
+  });
+
+  it('situationFor: южную зону агент не оценивает — отсутствие строки не делает выезд «непроверенным»', async () => {
+    const { situationFor } = await import('@/lib/trips/situation-store');
+    const s = await situationFor(tour('southern') as never, sources(null) as never);
+    expect(s.unchecked.join(' ')).not.toContain('оценку опасности зоны');
   });
 });

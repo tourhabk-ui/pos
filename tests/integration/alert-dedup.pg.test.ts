@@ -666,4 +666,88 @@ withPg('дедуп external_alerts на настоящем PostgreSQL', () => {
       await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 'mig1467/%'`);
     });
   });
+  /**
+   * KVERT: смена кода гасит прежнее событие того же вулкана (23.11). Без этого
+   * после «красный → зелёный» строка «красный код» жила в ленте ещё до пяти
+   * суток. Сравнение — по началу external_id, а не LIKE: подчёркивание в имени
+   * вулкана для LIKE подстановочный знак.
+   */
+  describe('KVERT: прежнее событие о коде вулкана гасится', () => {
+    it('гасит только события этого вулкана и не трогает новое', async () => {
+      const { retractPreviousColorAlerts } = await import('@/lib/agents/kvert-sync');
+      // Порядок побайтовый (COLLATE "C"), как у `.sort()` ниже: правила сортировки
+      // базы в CI и локально разные — «_» и «X» меняются местами, а судим мы
+      // состав живых событий, не порядок.
+      const live = async () => (await pool.query<{ external_id: string }>(
+        `SELECT external_id FROM external_alerts
+          WHERE external_id LIKE 'kvert-acc/%' AND expires_at > (NOW() AT TIME ZONE 'UTC')
+          ORDER BY external_id COLLATE "C"`,
+      )).rows.map((r) => r.external_id);
+      await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 'kvert-acc/%'`);
+
+      const ev = (source_id: string, over: Partial<SeismicEvent> = {}) => sampleEvent({
+        source_id, source_url: 'http://kvert.febras.net/van/', alert_type: 'ash_cloud', severity: 2,
+        title: `KVERT ${source_id}`, description: `код ${source_id}`, affected_zones: ['northern'], expires_hours: 120, ...over,
+      });
+      await parser.saveEvent(ev('kvert-acc/malyi_semyachik/orange/2026-11-20'));
+      // Соседи: другой вулкан и имя, отличающееся там, где у первого подчёркивание.
+      await parser.saveEvent(ev('kvert-acc/sheveluch/orange/2026-11-20'));
+      await parser.saveEvent(ev('kvert-acc/malyiXsemyachik/orange/2026-11-20'));
+      const green = 'kvert-acc/malyi_semyachik/green/2026-11-23';
+      await parser.saveEvent(ev(green, { alert_type: 'info', severity: 0, expires_hours: 72 }));
+      expect(await live()).toHaveLength(4);
+
+      const retracted = await retractPreviousColorAlerts('malyi_semyachik', green);
+      expect(retracted).toBe(1);
+      expect(await live()).toEqual([
+        'kvert-acc/malyiXsemyachik/orange/2026-11-20',
+        green,
+        'kvert-acc/sheveluch/orange/2026-11-20',
+      ].sort());
+      // Повтор ничего не меняет.
+      expect(await retractPreviousColorAlerts('malyi_semyachik', green)).toBe(0);
+      await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 'kvert-acc/%'`);
+    });
+
+    // Код вернулся к прежнему с той же датой наблюдения: id события тот же,
+    // оно погашено сменой кода, и вставка (ON CONFLICT DO NOTHING) его не
+    // трогает. Без оживления красный код остался бы без строки в ленте.
+    it('красный → зелёный → снова красный в те же сутки: красное событие оживает, зелёное гаснет', async () => {
+      const { maybeInsertColorAlert } = await import('@/lib/agents/kvert-sync');
+      const rows = async () => (await pool.query<{ external_id: string; live: boolean; title: string; hours: number; zones: string[] }>(
+        `SELECT external_id, expires_at > (NOW() AT TIME ZONE 'UTC') AS live, title, affected_zones AS zones,
+                ROUND(EXTRACT(EPOCH FROM (expires_at - (NOW() AT TIME ZONE 'UTC'))) / 3600)::int AS hours
+           FROM external_alerts WHERE external_id LIKE 'kvert-acc/%' ORDER BY external_id COLLATE "C"`,
+      )).rows;
+      await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 'kvert-acc/%'`);
+
+      // Дата наблюдения у всех трёх смен одна — как у KVERT в один день.
+      const observedAt = new Date();
+      const day = observedAt.toISOString().slice(0, 10);
+      const change = (prev: 'orange' | 'red' | 'green', next: 'red' | 'green') => maybeInsertColorAlert({
+        slug: 'sheveluch', volcanoName: 'Шивелуч', prev, next, sourceUrl: null, observedAt, summary: null, ashHeightM: null,
+      });
+      const RED = `kvert-acc/sheveluch/red/${day}`;
+      const GREEN = `kvert-acc/sheveluch/green/${day}`;
+
+      expect(await change('orange', 'red')).toEqual({ inserted: true, unzoned: false });
+      expect((await rows()).map((r) => [r.external_id, r.live])).toEqual([[RED, true]]);
+
+      expect(await change('red', 'green')).toEqual({ inserted: true, unzoned: false });
+      expect((await rows()).map((r) => [r.external_id, r.live])).toEqual([[GREEN, true], [RED, false]]);
+
+      // Снова красный: id тот же, вставка его пропускает — событие оживает.
+      expect(await change('green', 'red')).toEqual({ inserted: true, unzoned: false });
+      const after = await rows();
+      expect(after.map((r) => [r.external_id, r.live])).toEqual([[GREEN, false], [RED, true]]);
+      const red = after.find((r) => r.external_id === RED);
+      expect(red?.title).toContain('(было: зелёный)');
+      expect(red?.hours).toBe(120);
+      expect(red?.zones).toEqual(['northern']);
+
+      // Тот же код повторно (смены нет) — события не создаётся и не трогается.
+      expect(await change('red', 'red')).toEqual({ inserted: false, unzoned: false });
+      await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 'kvert-acc/%'`);
+    });
+  });
 });
