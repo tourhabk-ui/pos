@@ -98,7 +98,7 @@ export const SAFETY_SECTIONS: readonly { id: string; heading: string; paragraphs
     id: 'pogoda',
     heading: 'Как следить за погодой и штормовыми предупреждениями?',
     paragraphs: [
-      `Погода на Камчатке часто меняет планы. ГУ МЧС по краю публикует экстренные предупреждения — в том числе о шторме, метели, размыве песчаных кос и гидрологической обстановке. Консультацию по неблагоприятным явлениям на маршруте даёт ЦУКС по телефону ${MCHS_CONSULT_PHONE}. Климат по месяцам разобран на странице погоды, текущий прогноз — в блоке обстановки выше и в разделе «Погода».`,
+      `Погода на Камчатке часто меняет планы. ГУ МЧС по краю публикует экстренные предупреждения — в том числе о шторме, метели, размыве песчаных кос и гидрологической обстановке. Консультацию по неблагоприятным явлениям на маршруте даёт ЦУКС по телефону ${MCHS_CONSULT_PHONE}. Климат по месяцам разобран на странице погоды, текущий прогноз — в блоке обстановки выше и в разделе «Погода». Когда планировать поездку — на странице «Когда ехать на Камчатку».`,
     ],
   },
   {
@@ -120,7 +120,7 @@ export const SAFETY_SECTIONS: readonly { id: string; heading: string; paragraphs
     id: 'svyaz',
     heading: 'Какая связь на маршруте?',
     paragraphs: [
-      `В Петропавловске-Камчатском работает сеть 4G, но на удалённых территориях связь ограничена или отсутствует: например, национальный парк «Командорские острова» прямо предупреждает об этом. Голосовые вызовы, SMS и короткие номера ${EMERGENCY_112}, ${EMERGENCY_101}, ${EMERGENCY_102} и ${EMERGENCY_103} в известных случаях ограничений мобильного интернета продолжали работать. Вне зоны сотовой сети для вызова помощи нужен спутниковый коммуникатор. Как подготовиться — на странице о связи и интернете и в разделе «Связь на маршруте».`,
+      `В Петропавловске-Камчатском работает сеть 4G, но на удалённых территориях связь ограничена или отсутствует: например, национальный парк «Командорские острова» прямо предупреждает об этом. Голосовые вызовы, SMS и короткие номера ${EMERGENCY_112}, ${EMERGENCY_101}, ${EMERGENCY_102} и ${EMERGENCY_103} в известных случаях ограничений мобильного интернета продолжали работать. Вне зоны сотовой сети для вызова помощи нужен спутниковый коммуникатор. Как подготовиться — на странице о связи и интернете и в разделе «Связь на маршруте». Что взять на случай сбоев связи, включая наличные и офлайн-карты, — на странице «Что взять с собой на Камчатку».`,
     ],
   },
   {
@@ -190,6 +190,8 @@ export const SAFETY_RELATED_INTRO =
 
 export const SAFETY_RELATED_LINKS = [
   { href: '/medvedi-kamchatki', label: 'Медведи Камчатки' },
+  { href: '/kogda-ehat-na-kamchatku', label: 'Когда ехать на Камчатку' },
+  { href: '/chto-vzyat-s-soboj-na-kamchatku', label: 'Что взять с собой на Камчатку' },
   { href: '/vulkany-kamchatki-yunesko', label: 'Вулканы Камчатки' },
   { href: '/kamchatka-samostoyatelno', label: 'Камчатка самостоятельно' },
   { href: '/pogoda-na-kamchatke-po-mesyacam', label: 'Погода на Камчатке по месяцам' },
@@ -217,6 +219,8 @@ export const SAFETY_SOURCES: readonly { label: string; href: string }[] = [
   { label: 'ГУ МЧС России по Камчатскому краю, правила поведения при угрозе и возникновении волны цунами', href: MCHS_TSUNAMI_URL },
   { label: 'Национальный парк «Командорские острова», путешественникам', href: COMMANDER_URL },
   { label: 'Ведар, медведи Камчатки', href: 'https://vedarai.ru/medvedi-kamchatki' },
+  { label: 'Ведар, когда ехать на Камчатку', href: 'https://vedarai.ru/kogda-ehat-na-kamchatku' },
+  { label: 'Ведар, что взять с собой на Камчатку', href: 'https://vedarai.ru/chto-vzyat-s-soboj-na-kamchatku' },
   { label: 'Ведар, Камчатка самостоятельно', href: 'https://vedarai.ru/kamchatka-samostoyatelno' },
   { label: 'Ведар, связь и интернет на Камчатке', href: 'https://vedarai.ru/svyaz-i-internet-na-kamchatke' },
   { label: 'Ведар, погода на Камчатке по месяцам', href: 'https://vedarai.ru/pogoda-na-kamchatke-po-mesyacam' },
@@ -225,6 +229,8 @@ export const SAFETY_SOURCES: readonly { label: string; href: string }[] = [
 
 /** Фрагменты, которые в тексте становятся ссылками. Более длинные — раньше. */
 export const SAFETY_TEXT_LINKS = [
+  { text: 'странице «Что взять с собой на Камчатку»', href: '/chto-vzyat-s-soboj-na-kamchatku', external: false },
+  { text: 'странице «Когда ехать на Камчатку»', href: '/kogda-ehat-na-kamchatku', external: false },
   { text: 'странице о медведях Камчатки', href: '/medvedi-kamchatki', external: false },
   { text: 'Обзор вулканов Камчатки', href: '/vulkany-kamchatki-yunesko', external: false },
   { text: 'вулкана Чикурачки', href: '/places/vulkan-chikurachki', external: false },

@@ -23,6 +23,7 @@ import type { ReactNode } from 'react';
 
 const PLANS_TEXT_LINKS = [
   { text: 'Когда ехать на Камчатку', href: '/kogda-ehat-na-kamchatku' },
+  { text: 'Что взять с собой на Камчатку', href: '/chto-vzyat-s-soboj-na-kamchatku' },
   { text: 'Безопасно ли ехать на Камчатку', href: '/safety' },
   { text: 'памятке перед маршрутом', href: '/prepare' },
   { text: 'регистрации в МЧС', href: '/prepare' },

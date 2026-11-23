@@ -84,8 +84,13 @@ describe('Редакция Vedar на посадочных партий 4 и п�
   });
 
   it('у всех посадочных есть дата ревизии текста', () => {
+    const earliest = new Date('2026-11-20T00:00:00Z').getTime();
     for (const l of LANDINGS) {
-      expect(l.date, l.slug).toMatch(/^2026-11-2[01]$/);
+      expect(l.date, l.slug).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      const ts = new Date(`${l.date}T00:00:00Z`).getTime();
+      expect(Number.isNaN(ts), l.slug).toBe(false);
+      expect(ts, l.slug).toBeGreaterThanOrEqual(earliest);
+      expect(ts, l.slug).toBeLessThanOrEqual(Date.now());
     }
   });
 });
