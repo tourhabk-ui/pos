@@ -41,7 +41,7 @@ concurrency:
     (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
     (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'agent-proposal') ||
     (github.event_name == 'issues' && github.event.action != 'labeled' && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association) && !contains(github.event.issue.body, '<!-- scout-proposal -->')) ||
-    (github.event_name == 'issues' && github.event.action != 'labeled' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))) ||
+    (github.event_name == 'issues' && github.event.action != 'labeled' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && !contains(github.event.issue.body, '<!-- scout-proposal -->')) ||
     (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
     (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
     )
@@ -65,16 +65,17 @@ jobs:
     # Репо публичный, поэтому чужие issues — по-прежнему только через лейбл
     # (его вешает владелец) или @claude-упоминание в комментарии владельца.
     #
-    # Предложение разведки (пометка `<!-- scout-proposal -->` в теле) заводит
-    # токен владельца, а не человек: «открыл владелец» для него не довод
-    # (аудит 23.11). Руку по нему запускает метка agent-proposal — её ставит
-    # человек, либо сама разведка при SCOUT_AUTOPR=1
-    # (lib/agents/scout-proposal-issue.ts).
+    # Предложение разведки, которое ждёт человека (пометка
+    # `<!-- scout-proposal -->` в теле), заводит токен владельца, а текст в
+    # нём — пересказ чужих лент: ни «открыл владелец», ни «@claude» в теле
+    # для него не довод (аудит и ревью 23.11). Руку по нему запускает человек:
+    # метка agent-proposal или комментарий с «@claude». При SCOUT_AUTOPR=1
+    # задача заводится без пометки (lib/agents/scout-proposal-issue.ts).
     if: |
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'agent-proposal') ||
       (github.event_name == 'issues' && github.event.action != 'labeled' && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association) && !contains(github.event.issue.body, '<!-- scout-proposal -->')) ||
-      (github.event_name == 'issues' && github.event.action != 'labeled' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))) ||
+      (github.event_name == 'issues' && github.event.action != 'labeled' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && !contains(github.event.issue.body, '<!-- scout-proposal -->')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
     runs-on: ubuntu-latest
