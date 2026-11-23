@@ -16,6 +16,8 @@ import { safePlannerReturn } from '@/lib/planner/login-gate';
 import { validatePassword, PASSWORD_RULE_HINT } from '@/lib/auth/password-rule';
 import { agentRoleOpen } from '@/lib/auth/agent-role';
 import { registerRoleFromSearch } from '@/lib/auth/register-link';
+import { OfferAcceptCheckbox } from '@/components/legal/OfferAcceptCheckbox';
+import { OFFER_REQUIRED_TEXT, offerRequiredFor } from '@/lib/legal/offer';
 
 type Mode = 'login' | 'register';
 type UserType = 'tourist' | 'partner';
@@ -79,6 +81,8 @@ export default function AuthPageClient() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [pdConsent, setPdConsent] = useState(false);
+  // Отметка «принимаю оферту» — только партнёру, который сторона оферты (этап 5).
+  const [offerAccepted, setOfferAccepted] = useState(false);
   // Ошибка регистрации у своего поля + ссылка на блок ошибки у кнопки. Общая
   // плашка сверху формы на телефоне уезжала за экран: «Зарегистрироваться»
   // жали, сервер отвечал 400, а человек видел, что «ничего не происходит».
@@ -195,6 +199,12 @@ export default function AuthPageClient() {
       setLoading(false);
       return;
     }
+    const needsOffer = userType === 'partner' && offerRequiredFor(partnerRoles);
+    if (needsOffer && !offerAccepted) {
+      showRegisterError(OFFER_REQUIRED_TEXT);
+      setLoading(false);
+      return;
+    }
 
     try {
       // Код приглашения, пойманный при входе на сайт (ReferralCapture). До этой
@@ -216,6 +226,8 @@ export default function AuthPageClient() {
           roles: userType === 'tourist' ? ['tourist'] : partnerRoles,
           referralCode: referralCode ?? undefined,
           pd_consent: true,
+          // Состояние галочки, а не литерал: сервер проверяет пришедшее.
+          ...(needsOffer ? { offer_accepted: offerAccepted } : {}),
         }),
       });
 
@@ -658,6 +670,11 @@ export default function AuthPageClient() {
                   в соответствии с 152-ФЗ
                 </span>
               </label>
+
+              {/* Оферта — партнёру, чьи услуги платформа размещает (этап 5 плана готовности) */}
+              {userType === 'partner' && offerRequiredFor(partnerRoles) && (
+                <OfferAcceptCheckbox checked={offerAccepted} onChange={setOfferAccepted} id="register-offer-accept" />
+              )}
 
               {error && (
                 <div

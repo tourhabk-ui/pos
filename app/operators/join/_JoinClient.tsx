@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { Mountain, Check, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { validatePassword, PASSWORD_RULE_HINT } from '@/lib/auth/password-rule';
 import { JOIN_PAGES } from '@/lib/partners/join-pages';
+import { OfferAcceptCheckbox } from '@/components/legal/OfferAcceptCheckbox';
+import { OFFER_REQUIRED_TEXT } from '@/lib/legal/offer';
 
 /** Цифра маршрутов приходит с сервера из базы; нет её — пункта нет (#1804). */
 const PERKS = [
@@ -32,6 +34,8 @@ export default function JoinClient({ routesLine }: { routesLine?: string | null 
     phone: '',
     telegram: '',
     pd_consent: false,
+    // Отметка «принимаю оферту»: туроператор — сторона оферты (этап 5 плана готовности).
+    offer_accepted: false,
   });
 
   function set(k: keyof typeof form, v: string | boolean) {
@@ -41,6 +45,7 @@ export default function JoinClient({ routesLine }: { routesLine?: string | null 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.pd_consent) { setError('Необходимо согласие на обработку персональных данных'); return; }
+    if (!form.offer_accepted) { setError(OFFER_REQUIRED_TEXT); return; }
     // То же правило, что проверит сервер (lib/auth/password-rule). Прежнее
     // «минимум 6» пропускало пароль, который сервер затем отвергал.
     const pwd = validatePassword(form.password);
@@ -63,6 +68,8 @@ export default function JoinClient({ routesLine }: { routesLine?: string | null 
           phone: form.phone.trim() || undefined,
           telegram: form.telegram.trim() || undefined,
           pd_consent: true,
+          // Состояние галочки, а не литерал: сервер проверяет пришедшее.
+          offer_accepted: form.offer_accepted,
         }),
       });
       const data = await res.json() as { success?: boolean; error?: string; user?: { id: string; role: string }; token?: string };
@@ -260,6 +267,8 @@ export default function JoinClient({ routesLine }: { routesLine?: string | null 
                 </Link>
               </span>
             </label>
+
+            <OfferAcceptCheckbox checked={form.offer_accepted} onChange={(v) => set('offer_accepted', v)} id="join-offer-accept" />
 
             {error && (
               <p className="text-sm px-3 py-2 rounded-md" style={{ background: 'var(--danger)/10', color: 'var(--danger)' }}>

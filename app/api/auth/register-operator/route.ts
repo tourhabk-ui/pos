@@ -1,3 +1,5 @@
+import { OFFER_REQUIRED_TEXT, isOfferRole } from '@/lib/legal/offer';
+import { recordOfferAcceptanceForUser } from '@/lib/legal/offer-acceptance';
 import { NextRequest, NextResponse } from 'next/server';
 import { SignJWT } from 'jose';
 import { z } from 'zod';
@@ -52,6 +54,9 @@ const Schema = z.object({
   email:        z.string().email('Неверный формат email'),
   password:     passwordSchema,
   pd_consent:   z.literal(true, { message: 'Необходимо согласие на обработку ПД' }),
+  // Отметка «принимаю оферту» (план готовности 23.11, этап 5): обязательна
+  // ролям — сторонам оферты; проверяется ниже по категории.
+  offer_accepted: z.boolean().optional(),
 });
 
 function getJWTSecret(): Uint8Array {
@@ -97,6 +102,12 @@ export async function POST(request: NextRequest) {
     if (category === 'agent' && !agentRoleOpen()) {
       return NextResponse.json({ success: false, error: AGENT_SIGNUP_CLOSED }, { status: 403 });
     }
+    // Оферта: вторая дверь регистрации партнёра не заводит его без отметки,
+    // которую требует первая (POST /api/auth/register).
+    const needsOffer = isOfferRole(category);
+    if (needsOffer && parsed.data.offer_accepted !== true) {
+      return NextResponse.json({ success: false, error: OFFER_REQUIRED_TEXT, code: 'offer_required' }, { status: 400 });
+    }
 
     client = await pool.connect();
 
@@ -137,6 +148,12 @@ export async function POST(request: NextRequest) {
       [user.id, companyName, category, description || companyName, contact, initialPartnerRating(category)]
     );
     const partner = partnerResult.rows[0];
+
+    // Акцепт оферты — в той же транзакции, что и карточка.
+    if (needsOffer) {
+      const logged = await recordOfferAcceptanceForUser(client, { userId: user.id as string, ip, source: 'registration' });
+      if (logged === 0) throw new Error('акцепт оферты не записан: карточка партнёра не найдена');
+    }
 
     // Audit trail
     await client.query(

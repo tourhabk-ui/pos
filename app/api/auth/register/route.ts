@@ -6,6 +6,8 @@ import { createToken } from '@/lib/auth/jwt';
 import { recordUserSession, SESSION_TTL_DAYS } from '@/lib/auth/session-record';
 import { createRateLimiter, getTrustedClientIp } from '@/lib/rate-limit';
 import { agentRoleOpen, requestsAgentRole, AGENT_SIGNUP_CLOSED } from '@/lib/auth/agent-role';
+import { OFFER_REQUIRED_TEXT, offerRequiredFor } from '@/lib/legal/offer';
+import { recordOfferAcceptanceForUser } from '@/lib/legal/offer-acceptance';
 
 const VALID_ROLES = ['tourist', 'operator', 'guide', 'transfer', 'agent', 'stay', 'gear', 'cars'] as const;
 // Роли, которым нужен партнёрский профиль (partners.category совпадает с ролью)
@@ -18,6 +20,10 @@ const RegisterSchema = z.object({
   role: z.enum(VALID_ROLES).optional(),
   roles: z.array(z.enum(VALID_ROLES)).optional(),
   pd_consent: z.literal(true, { message: 'Необходимо согласие на обработку персональных данных' }),
+  // Отметка «принимаю оферту» (план готовности 23.11, этап 5). Обязательна
+  // ролям — сторонам оферты; туристу и агенту не нужна, поэтому проверяется
+  // ниже по набору ролей, а не здесь.
+  offer_accepted: z.boolean().optional(),
   referralCode: z.string().max(20).optional(),
   // Контакты партнёра с формы /operators/join. До 25.09 форма их собирала и
   // НЕ отправляла: телефон и Telegram, введённые человеком, терялись молча.
@@ -67,6 +73,13 @@ export async function POST(request: NextRequest) {
     // Роль остаётся в VALID_ROLES: откроют оплату — дверь откроется сама.
     if (!agentRoleOpen() && requestsAgentRole(parsed.data.role, parsed.data.roles)) {
       return NextResponse.json({ success: false, error: AGENT_SIGNUP_CLOSED }, { status: 403 });
+    }
+
+    // Оферта (этап 5 плана готовности, 23.11): партнёр — сторона оферты — без
+    // отметки не заводится. Проверка поля, не попытка регистрации: до лимита.
+    const wantsOfferRole = offerRequiredFor(parsed.data.roles?.length ? parsed.data.roles : [parsed.data.role ?? 'tourist']);
+    if (wantsOfferRole && parsed.data.offer_accepted !== true) {
+      return NextResponse.json({ success: false, error: OFFER_REQUIRED_TEXT, code: 'offer_required' }, { status: 400 });
     }
 
     const ip = getTrustedClientIp(request.headers);
@@ -173,6 +186,14 @@ export async function POST(request: NextRequest) {
           [user.id, name, partnerRole, JSON.stringify({ email: email.toLowerCase(), ...contacts })]
         );
       }
+    }
+
+    // Акцепт оферты — в той же транзакции, что и карточка: либо партнёр
+    // заведён и акцепт записан, либо ни того, ни другого. По строке на
+    // карточку; версию ставит журнал сам (lib/legal/offer-acceptance).
+    if (wantsOfferRole) {
+      const logged = await recordOfferAcceptanceForUser(client, { userId: user.id as string, ip, source: 'registration' });
+      if (logged === 0) throw new Error('акцепт оферты не записан: карточка партнёра не найдена');
     }
 
     // Handle referral code
