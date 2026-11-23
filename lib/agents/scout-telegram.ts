@@ -30,6 +30,8 @@ export interface TelegramPost {
   url: string;
   /** Подпись источника — как у RSS-лент. */
   source: string;
+  /** Время поста из `<time datetime>`; нет в разметке — не записано. */
+  publishedAt?: string;
 }
 
 const TITLE_MAX = 140;
@@ -85,7 +87,12 @@ export function telegramPostText(html: string, postUrl: string): string {
 export function parseTelegramPreview(html: string, source: string): TelegramPost[] {
   const posts: TelegramPost[] = [];
   const blocks = html.split(/<div[^>]+class="[^"]*tgme_widget_message_wrap[^"]*"/i).slice(1);
-  for (const block of blocks) {
+  // Превью отдаёт около двадцати сообщений от СТАРЫХ к НОВЫМ. До 23.11 цикл
+  // брал первые POSTS_MAX блоков — пять самых старых: новость попадала в
+  // разведку, когда после неё выходило ещё пятнадцать постов. Идём с конца,
+  // на выходе — новые первыми, как у RSS-лент.
+  for (let i = blocks.length - 1; i >= 0 && posts.length < POSTS_MAX; i--) {
+    const block = blocks[i];
     const link = /<a[^>]+class="[^"]*tgme_widget_message_date[^"]*"[^>]+href="(https:\/\/t\.me\/[^"]+)"/i.exec(block)?.[1]
       ?? /href="(https:\/\/t\.me\/[A-Za-z0-9_]+\/\d+)"/i.exec(block)?.[1];
     const textHtml = /<div[^>]+class="[^"]*tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/i.exec(block)?.[1] ?? '';
@@ -93,8 +100,11 @@ export function parseTelegramPreview(html: string, source: string): TelegramPost
     const firstLine = text.split('\n').map(l => l.trim()).find(Boolean) ?? '';
     if (!link || firstLine.length < 6) continue;
     const title = firstLine.length > TITLE_MAX ? `${firstLine.slice(0, TITLE_MAX - 1)}…` : firstLine;
-    posts.push({ title, url: link, source });
-    if (posts.length >= POSTS_MAX) break;
+    // Время — из ссылки-даты самого поста (у пересланного сообщения внутри
+    // блока бывает и чужое время). Без него давность поста «не знаем».
+    const stamp = /tgme_widget_message_date[^>]*>\s*<time[^>]+datetime="([^"]+)"/i.exec(block)?.[1];
+    const at = stamp ? Date.parse(stamp) : NaN;
+    posts.push({ title, url: link, source, ...(Number.isFinite(at) ? { publishedAt: new Date(at).toISOString() } : {}) });
   }
   return posts;
 }

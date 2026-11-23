@@ -36,6 +36,7 @@ import {
   type FetchVia, type RelayStatus,
 } from '@/lib/agents/scout-relay';
 import { parseTelegramPreview, telegramPostText, telegramPreviewUrlForPost } from '@/lib/agents/scout-telegram';
+import { safeFetchText } from '@/lib/agents/scout-fetch';
 import type { XSearchResult } from '@/lib/ai/xai-x-search';
 import { runAiFeatureLens, type AiFeaturesResult } from '@/lib/agents/scout-ai-features';
 import { splitTelegramHtmlReport, TELEGRAM_MAX_PARTS, TELEGRAM_TEXT_LIMIT, repairTelegramHtml } from '@/lib/notifications/telegram-html';
@@ -744,13 +745,42 @@ export async function recentPublishedDigests(limit = PUBLISHED_DIGESTS_LIMIT): P
       `SELECT compiled_truth
          FROM agent_knowledge
         WHERE agent_id = 'scout' AND type = 'intel' AND slug LIKE 'intel/scout/%'
+          -- Выпуск, который Telegram не принял, опубликованным не считается:
+          -- иначе повторная попытка отсекалась как «почти дословный повтор»
+          -- самой себя. Записи без поля (старые) — как раньше, опубликованы.
+          AND COALESCE(metadata->>'sent_to_tg', 'true') <> 'false'
         ORDER BY slug DESC
         LIMIT $1`,
       [limit],
     );
     return rows.map((r) => r.compiled_truth).filter(Boolean);
-  } catch {
+  } catch (err) {
+    // Без памяти канала прогон идёт, но предохранитель повтора слеп — об этом
+    // обязана остаться строка, а не тишина (§4.0).
+    console.error('[scout-digest] прошлые выпуски не прочитаны, повтор не сверяется:', err instanceof Error ? err.message : err);
     return [];
+  }
+}
+
+/**
+ * Отметка «показано» — только если выпуск ушёл хотя бы в один канал (23.11).
+ *
+ * Раньше она писалась до отправки: Telegram не принял выпуск — а новости уже
+ * числились показанными на 30 суток, и следующий прогон их отсекал. Не ушёл
+ * никуда — отметки нет, и следующий прогон берёт те же новости заново.
+ * Отказ записи не роняет прогон (выпуск уже у людей), но называется в логе.
+ */
+export async function recordSeenIfShown(
+  shown: { sent: boolean; aiSent: boolean },
+  write: () => Promise<void>,
+): Promise<'written' | 'not_shown' | 'failed'> {
+  if (!shown.sent && !shown.aiSent) return 'not_shown';
+  try {
+    await write();
+    return 'written';
+  } catch (err) {
+    console.error('[scout-digest] отметка «показано» не записалась — новости могут повториться:', err instanceof Error ? err.message : err);
+    return 'failed';
   }
 }
 
@@ -795,6 +825,10 @@ import { unsourcedPercents, judgeClaims, stripUnsupported, hasSubstance, tidySec
 import { describeRecentAiFailures } from '@/lib/ai/failure-trace';
 import { aiPostTooThin, aiPostMaterials, aiPostShape, kamchatkaDate, toJournalLayout } from '@/lib/notifications/ai-post-shape';
 
+const ARTICLE_USER_AGENT = 'Mozilla/5.0 (compatible; TourHab/1.0 Scout)';
+/** Потолок тела статьи: дальше берётся 2500 знаков текста, мегабайты не нужны. */
+const ARTICLE_BODY_LIMIT = 600_000;
+
 /**
  * Сырой HTML страницы: прямой запрос, при отказе — тот же адрес через реле.
  * '' — не достали (это «не знаю», а не «страница пустая»).
@@ -803,35 +837,42 @@ import { aiPostTooThin, aiPostMaterials, aiPostShape, kamchatkaDate, toJournalLa
  * читается — тогда тот же адрес через реле, как и у фида. Без реле
  * остаётся прежнее: текст недоступен, модель опирается на заголовок.
  */
-async function fetchMaybeViaRelay(url: string): Promise<string> {
+export async function readArticleHtml(url: string): Promise<string> {
+  // Адрес статьи приходит из чужой ленты (среди них — новые посты Hacker
+  // News, их пишет кто угодно). До 23.11 он читался голым `fetch` с
+  // редиректами: ответ 302 на внутренний адрес уводил запрос прод-сервера
+  // внутрь сети. `safeFetchText` судит адрес и каждое перенаправление заново.
+  const direct = await safeFetchText(url, { userAgent: ARTICLE_USER_AGENT, timeoutMs: 8000 });
+  if (direct.ok) return direct.body;
+  // Адрес отвергнут как внутренний — реле в обход не зовём.
+  if (direct.blocked) return '';
+  if (!relayConfigured() || !shouldFallbackToRelay({ status: direct.status ?? null })) return '';
   try {
-    let res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TourHab/1.0 Scout)' },
-      signal: AbortSignal.timeout(8000),
-    }).catch(() => null);
-    if ((!res || shouldFallbackToRelay({ status: res.status })) && relayConfigured()) {
-      res = await fetch(relayFetchUrl(relayBase(), url), {
-        headers: { ...relayHeaders(), 'User-Agent': 'Mozilla/5.0 (compatible; TourHab/1.0 Scout)' },
-        signal: AbortSignal.timeout(12000),
-      }).catch(() => null);
-    }
-    if (!res || !res.ok) return '';
-    return await res.text();
-  } catch { return ''; }
+    // Реле — наш адрес из окружения, со своим списком разрешённых хостов.
+    const res = await fetch(relayFetchUrl(relayBase(), url), {
+      headers: { ...relayHeaders(), 'User-Agent': ARTICLE_USER_AGENT },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) return '';
+    return (await res.text()).slice(0, ARTICLE_BODY_LIMIT);
+  } catch (err) {
+    console.error('[scout-digest] статья через реле не прочиталась:', err instanceof Error ? err.message : err);
+    return '';
+  }
 }
 
 /**
  * Тянет текст статьи для фактчека: Firecrawl (если ключ) → обычный fetch + грубое
  * извлечение текста из HTML. Возвращает '' при неудаче (тогда модель опирается на заголовок).
  */
-async function fetchArticleText(url: string): Promise<string> {
+export async function fetchArticleText(url: string): Promise<string> {
   if (!url) return '';
   // Пост Telegram: страница самого поста отдаёт обёртку виджета без текста.
   // Читаем превью канала и берём оттуда ИМЕННО этот пост (04.09: обёртку
   // сняли как «текст статьи», модель ответила отказом, отказ ушёл в канал).
   const tgPreview = telegramPreviewUrlForPost(url);
   if (tgPreview) {
-    const html = await fetchMaybeViaRelay(tgPreview);
+    const html = await readArticleHtml(tgPreview);
     return html ? telegramPostText(html, url).slice(0, 2500) : '';
   }
   if (firecrawlAvailable()) {
@@ -840,7 +881,7 @@ async function fetchArticleText(url: string): Promise<string> {
       if (page?.markdown) return page.markdown.slice(0, 2500);
     } catch { /* fallthrough */ }
   }
-  const html = await fetchMaybeViaRelay(url);
+  const html = await readArticleHtml(url);
   if (!html) return '';
   // Снятие тегов — общее (lib/html/text). Сущности здесь гасятся ОПТОМ,
   // а не разворачиваются: разведчику нужен текст для выжимки, не разметка.
@@ -1356,20 +1397,22 @@ export async function runScoutDigest(opts: ScoutDigestOptions = {}): Promise<Dig
     };
   }
 
-  // Mark URLs as seen AFTER successful AI synthesis (don't mark if AI failed)
-  const updatedEntries: SeenEntry[] = [
-    ...activeEntries,
-    // h — заголовок: он переживает смену ссылки и ловит перепечатку завтра.
-    ...freshItems.map(i => ({ u: i.url || i.title, t: now, h: i.title })),
-  ].slice(-1000);
-  await agentMemory.remember({
-    agent_id: 'scout-digest',
-    memory_type: 'seen_urls',
-    key: 'url_set',
-    value: { urls: updatedEntries } as unknown as Record<string, unknown>,
-    source: 'scout_digest_cron',
-    expires_at: new Date(now + 60 * 24 * 60 * 60 * 1000), // renew 60d; internal filter handles 30d per-entry
-  });
+  // Запись отметки «показано»; зовётся после отправки — recordSeenIfShown.
+  const markSeen = async (): Promise<void> => {
+    const updatedEntries: SeenEntry[] = [
+      ...activeEntries,
+      // h — заголовок: он переживает смену ссылки и ловит перепечатку завтра.
+      ...freshItems.map(i => ({ u: i.url || i.title, t: now, h: i.title })),
+    ].slice(-1000);
+    await agentMemory.remember({
+      agent_id: 'scout-digest',
+      memory_type: 'seen_urls',
+      key: 'url_set',
+      value: { urls: updatedEntries } as unknown as Record<string, unknown>,
+      source: 'scout_digest_cron',
+      expires_at: new Date(now + 60 * 24 * 60 * 60 * 1000), // renew 60d; internal filter handles 30d per-entry
+    });
+  };
 
   // Последняя правка — после фактчека (он сверяет числа в английской записи
   // источника): оборванный хвост и русская запись разрядов (lib/text/digest-polish).
@@ -1606,6 +1649,8 @@ export async function runScoutDigest(opts: ScoutDigestOptions = {}): Promise<Dig
       }
     }
   }
+
+  await recordSeenIfShown({ sent, aiSent }, markSeen);
 
   // Store permanently in knowledge brain
   try {

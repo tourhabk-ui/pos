@@ -33,7 +33,11 @@ const USER_AGENT = 'VedarScout/1.0 (+https://vedarai.ru)';
 export type FetchResult =
   | { ok: true; body: string; finalUrl: string; truncated: boolean }
   /** `status` — ответ сервера, если до него дошло: 404 «страницы нет» и обрыв сети — разные исходы. */
-  | { ok: false; reason: string; status?: number };
+  /**
+   * `blocked` — адрес отвергнут до запроса: не годится для чтения или имя не
+   * ведёт на публичный адрес. Вызывающему нельзя обходить это другой дорогой.
+   */
+  | { ok: false; reason: string; status?: number; blocked?: true };
 
 /** Все ли адреса имени публичные. Ошибка разрешения — «нет», а не «да». */
 async function resolvesPublic(hostname: string): Promise<boolean> {
@@ -54,13 +58,13 @@ async function resolvesPublic(hostname: string): Promise<boolean> {
  * представляется своим именем, а не разведчиком. `opts.bodyLimit` — свой
  * потолок тела: страница тура с календарём выездов на год длиннее общего.
  */
-export async function safeFetchText(rawUrl: string, opts?: { userAgent?: string; bodyLimit?: number }): Promise<FetchResult> {
+export async function safeFetchText(rawUrl: string, opts?: { userAgent?: string; bodyLimit?: number; timeoutMs?: number }): Promise<FetchResult> {
   let current = rawUrl;
   const limit = opts?.bodyLimit ?? BODY_LIMIT;
 
   for (let hop = 0; hop <= MAX_HOPS; hop++) {
     if (!isAuditableUrl(current)) {
-      return { ok: false, reason: `адрес не годится для чтения: ${current.slice(0, 120)}` };
+      return { ok: false, reason: `адрес не годится для чтения: ${current.slice(0, 120)}`, blocked: true };
     }
 
     let host: string;
@@ -71,7 +75,7 @@ export async function safeFetchText(rawUrl: string, opts?: { userAgent?: string;
     }
 
     if (!(await resolvesPublic(host))) {
-      return { ok: false, reason: `имя ${host} не разрешается в публичный адрес` };
+      return { ok: false, reason: `имя ${host} не разрешается в публичный адрес`, blocked: true };
     }
 
     let res: Response;
@@ -79,7 +83,7 @@ export async function safeFetchText(rawUrl: string, opts?: { userAgent?: string;
       res = await fetch(current, {
         redirect: 'manual',
         headers: { 'User-Agent': opts?.userAgent ?? USER_AGENT, Accept: 'text/html,text/plain,*/*' },
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: AbortSignal.timeout(opts?.timeoutMs ?? TIMEOUT_MS),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

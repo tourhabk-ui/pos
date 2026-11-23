@@ -72,10 +72,7 @@ describe('конвейер читает превью, а не страницу �
     expect(DIGEST).toMatch(/telegramPostText\(html, url\)/);
   });
 
-  it('прямой и релейный запрос — один помощник на обе ветки', () => {
-    // Иначе гео-закрытый источник читался бы через реле, а превью канала —
-    // напрямую, и с прода (t.me заблокирован) не читалось бы вовсе.
-    expect(DIGEST).toMatch(/async function fetchMaybeViaRelay/);
-    expect(DIGEST).toMatch(/await fetchMaybeViaRelay\(tgPreview\)/);
-  });
+  // «Прямой и релейный запрос — один помощник на обе ветки» судится поведением:
+  // превью канала с закрытого из РФ t.me приходит через реле —
+  // tests/unit/scout-article-fetch.test.ts (23.11).
 });
