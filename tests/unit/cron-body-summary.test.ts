@@ -14,8 +14,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { summarizeBody, scrubError, bodyLogLines } from '../../scripts/cron-body-summary.mjs';
+import { redactLedger } from '../../scripts/ledger-check-print.mjs';
+import { externalBinary } from '../helpers/external-binary';
 
 const ROOT = process.cwd();
+const JQ = externalBinary('jq');
 
 describe('сводка тела', () => {
   it('числа и слова-состояния — как есть; свободный текст — только длина', () => {
@@ -100,6 +103,31 @@ describe('шаги workflow печатают сводку, а не тело', ()
     expect(src).toContain("del(.errors_external[]?.arg_value)");
   });
 
+  // Фильтр судится запуском на ответе той формы, что отдаёт роут: чистка
+  // журнала решений в первой редакции стояла в файле и не делала ничего.
+  it.skipIf(JQ.skip)(JQ.title('перепись MCP: фильтр из workflow убирает arg_value на настоящей форме ответа'), () => {
+    JQ.require('фильтр переписи MCP');
+    const line = read('west-knowledge-probe.yml').split('\n').find((l) => l.includes('/tmp/mcp.json') && l.includes('del('));
+    const filter = /jq '([^']+)' \/tmp\/mcp\.json/.exec(line ?? '')?.[1];
+    expect(filter).toBeTruthy();
+    const body = {
+      ok: true,
+      errors_external: [{ tool: 'get_place_info', error_kind: 'refused', arg_key: 'query', arg_value: 'туры для семьи с ребёнком Иванова', n: 3 }],
+      write_calls: [{ at: '2026-11-23 01:00', tool: 'create_lead', ok: true, arg_key: 'name' }],
+    };
+    const out = spawnSync('jq', ['-c', filter!], { input: JSON.stringify(body), encoding: 'utf8' });
+    expect(out.status).toBe(0);
+    expect(out.stdout).not.toContain('Иванова');
+    expect(JSON.parse(out.stdout)).toEqual({
+      ok: true,
+      errors_external: [{ tool: 'get_place_info', error_kind: 'refused', arg_key: 'query', n: 3 }],
+      write_calls: body.write_calls,
+    });
+    // Замер не прочитался (null) — фильтр не падает.
+    const empty = spawnSync('jq', ['-c', filter!], { input: JSON.stringify({ ok: false, errors_external: null }), encoding: 'utf8' });
+    expect(empty.status).toBe(0);
+  });
+
   it('исполнение: шаг rescue с телом, где имена и номера, печатает только сводку', () => {
     const dir = mkdtempSync(join(tmpdir(), 'cron-summary-'));
     const file = join(dir, 'rescue.json');
@@ -124,5 +152,65 @@ describe('шаги workflow печатают сводку, а не тело', ()
       expect(src.indexOf('actions/checkout@'), f).toBeGreaterThan(-1);
       expect(src.indexOf('actions/checkout@'), f).toBeLessThan(src.indexOf('scripts/cron-body-summary.mjs'));
     }
+  });
+});
+
+// Ревью #3774: первая редакция чистки шла по `recent` как по списку, а роут
+// отдаёт обёртку `{ ok, value: [...] }` — цикл перебирал её ключи и не скрывал
+// ничего. Судится запуском скрипта на обеих формах ответа.
+describe('журнал решений: автор и причина записи человека в лог не идут', () => {
+  const rows = () => [
+    { event_id: '9', event_type: 'reopening_rejected', actor_type: 'editor', actor_id: 'ivan-admin', decision_reason: 'Звонил Иванов, +7 900 000-00-00', created_at: '2026-11-23T01:00:00Z' },
+    { event_id: '8', event_type: 'risk_classified', actor_type: 'system', actor_id: 'seismic-parser', decision_reason: 'severity 2', created_at: '2026-11-23T00:59:00Z' },
+    { event_id: '7', event_type: 'signal_normalized', actor_type: 'source', actor_id: 'mchs', decision_reason: 'новая сводка', created_at: '2026-11-23T00:58:00Z' },
+    { event_id: '6', event_type: 'manual_close', actor_type: 'operator', actor_id: 'petrov', decision_reason: 'по просьбе Петрова', created_at: '2026-11-23T00:57:00Z' },
+  ];
+  const run = (body: unknown) => {
+    const dir = mkdtempSync(join(tmpdir(), 'ledger-print-'));
+    const file = join(dir, 'ledger.json');
+    writeFileSync(file, JSON.stringify(body));
+    return spawnSync('node', [join(ROOT, 'scripts/ledger-check-print.mjs'), file], { encoding: 'utf8' });
+  };
+
+  it.each([
+    ['обёртка пробы, как отдаёт роут', (r: unknown[]) => ({ verdict: 'журнал живой', recent: { ok: true, value: r } })],
+    ['сам список', (r: unknown[]) => ({ verdict: 'журнал живой', recent: r })],
+  ])('%s: у записи человека автор и причина скрыты, у машинной — остаются', (_name, shape) => {
+    const out = run(shape(rows()));
+    expect(out.status).toBe(0);
+    expect(out.stdout.split('\n')[0]).toBe('ВЕРДИКТ: журнал живой');
+    // Человек и неизвестный род автора — скрыты.
+    expect(out.stdout).not.toMatch(/ivan-admin|Иванов|900 000|petrov|Петрова/);
+    expect(out.stdout).toContain(`(скрыто, ${'Звонил Иванов, +7 900 000-00-00'.length} зн.)`);
+    expect(out.stdout).toContain('Автор и причина скрыты у записей человека: 2');
+    // Событие и время записи человека остаются; машинные записи — целиком.
+    expect(out.stdout).toContain('reopening_rejected');
+    expect(out.stdout).toContain('seismic-parser');
+    expect(out.stdout).toContain('severity 2');
+    expect(out.stdout).toContain('новая сводка');
+  });
+
+  it('проба не удалась или строк нет — печать не падает и ничего не выдумывает', () => {
+    expect(redactLedger({ recent: { ok: false, error: '42P01' } })).toBe(0);
+    expect(redactLedger({ recent: null })).toBe(0);
+    expect(redactLedger({})).toBe(0);
+    const out = run({ verdict: 'таблицы нет', recent: null });
+    expect(out.status).toBe(0);
+    expect(out.stdout).not.toContain('скрыты у записей человека');
+  });
+
+  it('ответ не JSON — шаг красный, содержимое не печатается', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ledger-print-'));
+    const file = join(dir, 'ledger.json');
+    writeFileSync(file, '<html>Иванов</html>');
+    const out = spawnSync('node', [join(ROOT, 'scripts/ledger-check-print.mjs'), file], { encoding: 'utf8' });
+    expect(out.status).toBe(1);
+    expect(out.stdout).not.toContain('Иванов');
+  });
+
+  it('workflow зовёт скрипт и сам ответ целиком не печатает', () => {
+    const src = readFileSync(join(ROOT, '.github/workflows/safety-ledger-check.yml'), 'utf-8');
+    expect(src).toContain('node scripts/ledger-check-print.mjs /tmp/ledger.json');
+    expect(src).not.toMatch(/json\.dumps\(d/);
   });
 });
