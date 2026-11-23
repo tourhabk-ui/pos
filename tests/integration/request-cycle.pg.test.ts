@@ -551,7 +551,7 @@ withPg('цикл запроса мест на тестовом оператор�
       // Оферту приняли двое из тех, кому она положена: 16 и 17.
       for (const i of [16, 17]) {
         const { recordOfferAcceptanceForPartner } = await import('@/lib/legal/offer-acceptance');
-        expect(await recordOfferAcceptanceForPartner({ partnerId: fake(i), userId: fakeUser(i), ip: null })).toBe('recorded');
+        expect(await recordOfferAcceptanceForPartner({ partnerId: fake(i), userId: fakeUser(i), ipAddress: null })).toBe('recorded');
       }
     };
 
