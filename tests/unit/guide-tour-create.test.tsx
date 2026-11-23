@@ -51,10 +51,10 @@ vi.mock('@/lib/guides/own-tour-publish', async (orig) => {
   const real = await orig<typeof import('@/lib/guides/own-tour-publish')>();
   return { ...real, setOwnTourOnSite: h.onSite, readPublishGate: h.gate };
 });
-vi.mock('@/lib/tours/tour-write', async (orig) => {
-  const real = await orig<typeof import('@/lib/tours/tour-write')>();
-  return { ...real, writeTourPatch: h.write };
-});
+// С 23.11 двери владельца пишут тур единой дверью (lib/tours/tour-change):
+// содержание опубликованного тура идёт на проверку. Здесь судится, что дверь
+// зовёт именно её и с владельцем; модерацию — tests/integration/tour-moderation.pg.test.ts.
+vi.mock('@/lib/tours/tour-change', () => ({ saveTourChange: h.write }));
 vi.mock('@/lib/auth/middleware', () => ({ requireRole: vi.fn(async () => ({ userId: 'user-guide', role: 'guide' })) }));
 vi.mock('@/lib/auth/guide-helpers', () => ({ getGuidePartnerId: vi.fn(async () => 'guide-partner') }));
 

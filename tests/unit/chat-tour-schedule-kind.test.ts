@@ -4,7 +4,7 @@
  *
  * Рендером экрана (строка режима, кнопки, дни «свободна для заявки» и «вне
  * сезона»), разбором кнопки и вызовом потока нажатия: запись — общей
- * `writeTourPatch` с владельцем, менеджер команды не пишет, отказ базы —
+ * единая дверь записи с владельцем, менеджер команды не пишет, отказ базы —
  * словами, а не «записал».
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -14,10 +14,10 @@ const h = vi.hoisted(() => ({
   query: vi.fn(),
 }));
 
-vi.mock('@/lib/tours/tour-write', async (orig) => ({
-  ...(await orig<typeof import('@/lib/tours/tour-write')>()),
-  writeTourPatch: h.write,
-}));
+// С 23.11 двери владельца пишут тур единой дверью (lib/tours/tour-change):
+// содержание опубликованного тура идёт на проверку. Здесь судится, что дверь
+// зовёт именно её и с владельцем; модерацию — tests/integration/tour-moderation.pg.test.ts.
+vi.mock('@/lib/tours/tour-change', () => ({ saveTourChange: h.write }));
 vi.mock('@/lib/db-pool', () => ({
   pool: { query: (sql: string, params?: unknown[]) => h.query(sql, params ?? []) },
 }));

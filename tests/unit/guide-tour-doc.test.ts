@@ -10,7 +10,7 @@
  *    переписываются; не помещается в пределы сайта — поле не пишется и
  *    названо; подзаголовок не угадывается анонсом;
  *  - без кнопки не пишется ничего: файл заводит только черновик;
- *  - запись — той же функцией сайта (`writeTourPatch`), по полю или всё;
+ *  - запись — той же дверью сайта (`saveTourChange`), по полю или всё;
  *  - не гид и не .docx — файл идёт прежним путём (гид без своих туров с
  *    31.10 получает предложение нового тура — tests/unit/guide-tour-create.test.ts).
  * Путь записи на настоящей базе — tests/integration/chat-cabinet.pg.test.ts.
@@ -26,10 +26,10 @@ vi.mock('@/lib/db-pool', () => ({
     connect: async () => ({ query: (sql: string, params?: unknown[]) => h.query(sql, params ?? []), release: () => undefined }),
   },
 }));
-vi.mock('@/lib/tours/tour-write', async (orig) => {
-  const real = await orig<typeof import('@/lib/tours/tour-write')>();
-  return { ...real, writeTourPatch: h.write };
-});
+// С 23.11 двери владельца пишут тур единой дверью (lib/tours/tour-change):
+// содержание опубликованного тура идёт на проверку. Здесь судится, что дверь
+// зовёт именно её и с владельцем; модерацию — tests/integration/tour-moderation.pg.test.ts.
+vi.mock('@/lib/tours/tour-change', () => ({ saveTourChange: h.write }));
 vi.mock('@/lib/seo/indexnow', () => ({ pingTourChanged: vi.fn() }));
 
 const { docxParagraphs, MAX_DOCX_BYTES, MAX_XML_BYTES } = await import('@/lib/docs/docx-text');
@@ -154,7 +154,7 @@ describe('файл в чате: без кнопки не пишется; зап�
     expect(db.writes.some((w) => /^INSERT INTO tour_doc_drafts/.test(w))).toBe(true);
   });
 
-  it('«Сохранить: поле» — writeTourPatch одним полем, владелец — карточка; «Сохранить всё» — остальные', async () => {
+  it('«Сохранить: поле» — единая дверь одним полем, владелец — карточка; «Сохранить всё» — остальные', async () => {
     await captureGuideTourDoc({ channel: 'max', chatId: CHAT, partner: GUIDE, fileName: 'g.docx', caption: '', bytes: docx(GUIDE_DOC) });
     const one = await saveDocDraft({ partnerId: GUIDE.partnerId, channel: 'max', chatId: CHAT, draftId: DRAFT }, 'what_to_bring');
     expect(one.kind).toBe('saved');

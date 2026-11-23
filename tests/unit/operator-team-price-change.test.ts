@@ -38,7 +38,10 @@ describe('цена тура: прислана ≠ изменена', () => {
 
   it('роут тура судит по изменению против строки из базы, а не по присланному полю', () => {
     const route = readFileSync('app/api/hub/operator/tours/[id]/route.ts', 'utf8');
-    expect(route).toMatch(/if \(!isAdmin && changesTourPrice\(input, tour as Record<string, unknown>\)\) \{\s*const denied = await requireTeamPermission\(authOrResponse\.userId, 'can_edit_prices'\);/);
+    // С 23.11 сверка идёт с тем, что показала форма: с витриной плюс правкой на
+    // проверке (иначе менеджер без права цены не сохранил бы форму, пока чужая
+    // правка цены ждёт администратора). Администратору право не спрашивается.
+    expect(route).toMatch(/if \(!isAdmin\) \{[\s\S]*?if \(changesTourPrice\(input, shown\)\) \{\s*const denied = await requireTeamPermission\(authOrResponse\.userId, 'can_edit_prices'\);/);
     expect(route).not.toMatch(/touchesTourPrice\(input\)/);
     // Строка тура читается до проверки права: сравнивать есть с чем.
     expect(route.indexOf('const tour = await getTourById(tourId);')).toBeLessThan(route.indexOf('changesTourPrice(input'));

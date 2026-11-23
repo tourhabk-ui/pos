@@ -21,8 +21,11 @@ const db = vi.hoisted(() => ({ calls: [] as Array<{ sql: string; params: unknown
 vi.mock('@/lib/auth/middleware', () => ({ requireRole: vi.fn(async () => ({ userId: 'u-1', role: 'guide' })) }));
 vi.mock('@/lib/auth/guide-helpers', () => ({ getGuidePartnerId: vi.fn(async () => '11111111-1111-1111-1111-111111111111') }));
 vi.mock('@/lib/seo/indexnow', () => ({ pingTourChanged: vi.fn() }));
-vi.mock('@/lib/tours/tour-write', () => ({
-  writeTourPatch: vi.fn(async () => (db.written ? { outcome: 'written', row: { id: 70, title: 'Тур' } } : { outcome: 'not_found' })),
+// С 23.11 двери владельца пишут тур единой дверью (lib/tours/tour-change):
+// содержание опубликованного тура идёт на проверку. Здесь судится, что дверь
+// зовёт именно её и с владельцем; модерацию — tests/integration/tour-moderation.pg.test.ts.
+vi.mock('@/lib/tours/tour-change', () => ({
+  saveTourChange: vi.fn(async () => (db.written ? { outcome: 'written', row: { id: 70, title: 'Тур' }, pending: null } : { outcome: 'not_found' })),
 }));
 vi.mock('@/lib/database', () => ({
   transaction: async <T,>(fn: (c: { query: (sql: string, params: unknown[]) => Promise<unknown> }) => Promise<T>) => fn({
@@ -36,7 +39,7 @@ vi.mock('@/lib/database', () => ({
 
 import { PhotosField, extrasBody } from '@/components/guide/OwnTourExtras';
 import { OwnTourEditSchema, isStoredPhotoPath } from '@/lib/guides/own-tour-edit';
-import { writeTourPatch } from '@/lib/tours/tour-write';
+import { saveTourChange } from '@/lib/tours/tour-change';
 import { SET_PHOTO_CAPTIONS_SQL } from '@/lib/tours/editor-media';
 import { PATCH } from '@/app/api/guide/own/tours/[id]/route';
 
@@ -135,11 +138,11 @@ describe('снимки, перенесённые миграцией 1406, не �
 
   it('чужой снимок из хранилища — 400, тур не тронут', async () => {
     db.tourPhotos = [MOVED];
-    vi.mocked(writeTourPatch).mockClear();
+    vi.mocked(saveTourChange).mockClear();
     const res = await patch({ photos: [MOVED, OTHER] });
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toMatch(/уже стоящее у этого тура/);
-    expect(writeTourPatch).not.toHaveBeenCalled();
+    expect(saveTourChange).not.toHaveBeenCalled();
     expect(db.calls.some((c) => c.sql === SET_PHOTO_CAPTIONS_SQL)).toBe(false);
   });
 
