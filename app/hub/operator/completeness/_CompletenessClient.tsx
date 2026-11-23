@@ -134,13 +134,18 @@ function BlockerAction({ field, tourId, tourTitle, onQuick }: {
  * выдумывать причину нельзя (§4.0).
  */
 function offStorefrontHint(tour: TourCompletion): string {
-  const marks = missingStorefrontMarks(tour).map((m) => `«${m}»`);
+  const marks = missingStorefrontMarks(tour);
   if (marks.length === 0) {
-    return 'Туристы его не видят: отметки «Активен» и «Опубликован» стоят, а каталог тур не показывает — напишите в поддержку.';
+    return 'Туристы его не видят: тур опубликован и не скрыт, а каталог его не показывает — напишите в поддержку.';
   }
-  const where = marks.length > 1 ? `в редакторе не отмечены ${marks.join(' и ')}` : `в редакторе не отмечено ${marks[0]}`;
-  const eye = tour.is_active !== true ? ' «Активен» включает и глаз в списке туров.' : '';
-  return `Туристы его не видят: ${where}.${eye}`;
+  const parts: string[] = [];
+  if (marks.includes('Активен')) parts.push('в редакторе не отмечено «Активен» (его включает и глаз в списке туров)');
+  // Публикацию ставит проверка администратора (план готовности 23.11, этап 4):
+  // «отметьте „Опубликован“» звало бы к галочке, которой у владельца больше нет.
+  if (marks.includes('Опубликован')) {
+    parts.push('тур не опубликован — отправьте его на проверку в редакторе, на сайт он выйдет после одобрения администратором');
+  }
+  return `Туристы его не видят: ${parts.join('; ')}.`;
 }
 
 /**
@@ -443,7 +448,7 @@ export default function CompletenessClient() {
         <div className="ds-card p-4">
           <p className="text-xs text-[var(--text-secondary)] mb-2">Не опубликованы</p>
           <p className="text-3xl font-semibold text-[var(--text-primary)]">{unpublished}</p>
-          <p className="text-xs text-[var(--text-secondary)] mt-1">туристы не видят — в редакторе нужна отметка «Опубликован»</p>
+          <p className="text-xs text-[var(--text-secondary)] mt-1">туристы не видят — тур выходит на сайт после проверки администратором</p>
         </div>
       </div>
 

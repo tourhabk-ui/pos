@@ -219,7 +219,7 @@ export function OwnTourForm({ tour, onDone, onCancel }: {
         </button>
         <button type="button" className="ds-btn ds-btn-secondary" disabled={busy} onClick={onCancel}>Отмена</button>
       </div>
-      {!tour && <p className="text-sm text-[var(--text-muted)]">Черновик туристы не видят. На сайт — кнопкой «Опубликовать» у тура.</p>}
+      {!tour && <p className="text-sm text-[var(--text-muted)]">Черновик туристы не видят. На сайт он выходит после проверки администратором — кнопка «Отправить на проверку» у тура.</p>}
       {error && <p role="alert" className="text-sm text-[var(--danger)]">{error}</p>}
     </form>
   );

@@ -62,7 +62,7 @@ export function createPreviewScreen(args: {
   for (const s of args.skipped ?? []) lines.push(`• ${s}`);
   lines.push(
     '',
-    `Ничего не создано, пока вы не нажмёте «Создать черновик». Черновик туристы не видят: на сайт — кнопкой «Опубликовать» у тура. Ждёт ${DRAFT_TTL_HOURS} часа.`,
+    `Ничего не создано, пока вы не нажмёте «Создать черновик». Черновик туристы не видят: на сайт он выходит после проверки администратором — кнопка «На проверку» у тура. Ждёт ${DRAFT_TTL_HOURS} часа.`,
   );
   return screen(lines, [[
     { text: 'Создать черновик', payload: cabinetPayload.createSave(args.draftId), intent: 'positive' },
@@ -97,12 +97,12 @@ export function createdScreen(args: { tourId: string; title: string; blockers: r
   const lines = [`Создан черновик тура «${escapeHtml(args.title)}». Туристы его пока не видят.`];
   const rows: CabinetButton[][] = [];
   if (args.blockers === null) {
-    lines.push('Чего не хватает до сайта — не проверилось: база не ответила. Откройте тур — кнопка «Опубликовать» проверит сама.');
+    lines.push('Чего не хватает до сайта — не проверилось: база не ответила. Откройте тур — кнопка «На проверку» проверит сама.');
   } else if (args.blockers.length > 0) {
     lines.push('До сайта не хватает:', ...args.blockers.map((b) => `• ${escapeHtml(publishBlockerLabel(b))}`));
   } else {
-    lines.push('До сайта всего хватает. Можно дописать программу, что включено и что взять — фразой «<тур>: программа: …», — или опубликовать сразу.');
-    rows.push([{ text: 'Опубликовать', payload: cabinetPayload.tourPublish(args.tourId), intent: 'positive' }]);
+    lines.push('До сайта всего хватает. Можно дописать программу, что включено и что взять — фразой «<тур>: программа: …», — или сразу отправить на проверку: на сайт тур выйдет после одобрения администратором.');
+    rows.push([{ text: 'На проверку', payload: cabinetPayload.tourPublish(args.tourId), intent: 'positive' }]);
   }
   rows.push([{ text: 'К туру', payload: cabinetPayload.tour(args.tourId) }, { text: '‹ Мои туры', payload: cabinetPayload.myTours() }]);
   return screen(lines, rows);

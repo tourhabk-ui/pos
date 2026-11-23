@@ -193,7 +193,7 @@ export async function POST(request: NextRequest) {
           <li><a href="https://vedarai.ru${hub}">Войдите в личный кабинет</a></li>
           <li>${escapeHtml(firstStep)}</li>
           <li>Откройте даты, когда тур идёт</li>
-          <li>Опубликуйте — и туристы увидят его в каталоге</li>
+          <li>Отправьте тур на проверку — после одобрения администратором туристы увидят его в каталоге</li>
         </ol>
         <p>Вопросы? Пишите: <a href="mailto:${adminEmail ?? 'info@vedarai.ru'}">${adminEmail ?? 'info@vedarai.ru'}</a></p>
         <hr>

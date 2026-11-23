@@ -91,7 +91,7 @@ export const NEW_TOUR_LINES: readonly string[] = [
   '• группа — сколько человек вы берёте максимум;',
   '• описание — последним, можно с абзацами.',
   'Или документом Word (.docx) в MAX: первая строка — название в «ёлочках», подпись к файлу — «цена 15000; группа 4».',
-  'Я покажу, что получится, — тур создаст только кнопка «Создать черновик». Черновик туристы не видят; на сайт — кнопкой «Опубликовать» у тура.',
+  'Я покажу, что получится, — тур создаст только кнопка «Создать черновик». Черновик туристы не видят; на сайт он выходит после проверки администратором — кнопка «На проверку» у тура.',
 ];
 
 export function newTourHintScreen(): CabinetScreen {
@@ -135,19 +135,28 @@ export function tourScreen(t: ChatTour, siteBase: string, notice?: string | null
     `Анонс — ${filled(t, 'short_description')}; описание — ${filled(t, 'description')}; программа — ${filled(t, 'program')}.`,
     `Что включено — ${filled(t, 'included')}; не входит — ${filled(t, 'not_included')}; что взять — ${filled(t, 'what_to_bring')}; безопасность — ${filled(t, 'safety_notes')}.`,
   );
-  // Чего не хватает до сайта — тем же SQL, что проверяет «Опубликовать»
+  // Чего не хватает до сайта — тем же SQL, что проверяет кнопка
   // (lib/guides/own-tour-publish); не проверилось — так и сказано (§4.0).
+  // Публикацию ставит одобрение администратора (план готовности 23.11, этап 4):
+  // кнопка гида — просьба. Одобренный и скрытый тур возвращается сразу.
+  const askText = t.isPublished ? 'Вернуть на сайт' : 'На проверку';
+  // Не опубликован, но «идёт через проверку» — значит просьба уже ждёт.
+  const asked = !t.isPublished && t.throughReview;
   const publish: CabinetButton[] = [];
-  if (gate === 'unknown') {
-    lines.push('Чего не хватает до сайта — не проверилось: база не ответила. Кнопка «Опубликовать» проверит сама.');
-    if (!onSite) publish.push({ text: 'Опубликовать', payload: cabinetPayload.tourPublish(t.id), intent: 'positive' });
+  if (asked && !onSite) {
+    lines.push('Тур ждёт проверки администратором: на сайт он выйдет после одобрения.');
+  } else if (gate === 'unknown') {
+    lines.push(`Чего не хватает до сайта — не проверилось: база не ответила. Кнопка «${askText}» проверит сама.`);
+    if (!onSite) publish.push({ text: askText, payload: cabinetPayload.tourPublish(t.id), intent: 'positive' });
   } else if (gate.onStorefront) {
     publish.push({ text: 'Снять с сайта', payload: cabinetPayload.tourUnpublish(t.id), intent: 'negative' });
   } else if (gate.blockers.length > 0) {
     lines.push('Чего не хватает до сайта:', ...gate.blockers.map((b) => `• ${escapeHtml(publishBlockerLabel(b))}`));
   } else {
-    lines.push('До сайта всего хватает: «Опубликовать» — и тур увидят туристы.');
-    publish.push({ text: 'Опубликовать', payload: cabinetPayload.tourPublish(t.id), intent: 'positive' });
+    lines.push(t.isPublished
+      ? 'До сайта всего хватает: «Вернуть на сайт» — и тур снова увидят туристы.'
+      : 'До сайта всего хватает: отправьте тур на проверку — туристы увидят его после одобрения администратором.');
+    publish.push({ text: askText, payload: cabinetPayload.tourPublish(t.id), intent: 'positive' });
   }
   const rows: CabinetButton[][] = [
     [{ text: 'Даты', payload: cabinetPayload.tourDates(t.id) }, { text: 'Править текст', payload: cabinetPayload.tourHint(t.id) }],

@@ -408,7 +408,7 @@ export default function OwnToursClient() {
               <p role="alert" className="text-sm text-[var(--danger)]">Туры не загрузились — обновите страницу.</p>
             ) : tours.filter((t) => t.is_published && t.is_active).length === 0 ? (
               <p className="text-sm text-[var(--text-secondary)]">
-                Опубликованных туров нет. Черновик выводится на сайт кнопкой «Опубликовать» в «Моих турах» выше.
+                Опубликованных туров нет. Черновик выходит на сайт после проверки администратором — отправьте его на проверку в «Моих турах» выше.
               </p>
             ) : (
               <OpenDatesForm tours={tours.filter((t) => t.is_published && t.is_active)} onDone={done} />

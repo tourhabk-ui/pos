@@ -838,7 +838,10 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       });
       expect(Number(rows[0]!.base_price)).toBe(15000);
       // Одобренному гиду с описанием и ценой до сайта всего хватает — кнопка есть.
-      expect(button(made, 'Опубликовать')).toBe(`cb:u:p:${rows[0]!.id}`);
+      // Кнопка — просьба о проверке (план готовности 23.11, этап 4), не «Опубликовать».
+      expect(button(made, 'На проверку')).toBe(`cb:u:p:${rows[0]!.id}`);
+      expect(button(made, 'Опубликовать')).toBe('');
+      expect(made.text).toContain('на сайт тур выйдет после одобрения администратором');
       const again = await press(create);
       expect(again.text).toMatch(/уже создан — второй не заводил/);
       expect(await toursOf(guideId)).toHaveLength(1);
@@ -867,6 +870,10 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       expect((await toursOf(guideId))[0]!.on_storefront).toBe(false);
       expect((await press(`cb:u:p:${t!.id}`)).text).toMatch(/уже ждёт проверки администратором/);
       expect(await pendingTourEdits(t!.id)).toBe(1);
+      // Экран тура: просьба ждёт — второй кнопки «На проверку» нет.
+      const waiting = await press(`cb:u:${t!.id}`);
+      expect(waiting.text).toContain('Тур ждёт проверки администратором: на сайт он выйдет после одобрения.');
+      expect(button(waiting, 'На проверку')).toBe('');
       await approveTourEdit(t!.id);
       expect((await toursOf(guideId))[0]!.on_storefront).toBe(true);
       const shown = await press(`cb:u:${t!.id}`);
@@ -886,7 +893,7 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       partner = await findByChat(NEW_CHAT);
       const screen = await press(`cb:u:${bare}`);
       expect(screen.text).toContain('Чего не хватает до сайта:\n• нет описания тура');
-      expect(button(screen, 'Опубликовать')).toBe('');
+      expect(button(screen, 'На проверку')).toBe('');
       const refused = await press(`cb:u:p:${bare}`);
       expect(refused.text).toMatch(/Не опубликовал «Бухта Русская»: тур остался черновиком/);
       expect((await toursOf(guideId)).find((x) => x.id === bare)).toMatchObject({ is_published: false });
@@ -908,7 +915,7 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       expect((shown?.text ?? '').replace(/\u00a0/g, ' ')).toContain('Цена: 8 000 ₽ за группу.');
       const made = await press(button(shown!, 'Создать черновик'), FRESH_CHAT);
       expect(made.text).toContain('анкету гида ещё не одобрила платформа');
-      expect(button(made, 'Опубликовать')).toBe('');
+      expect(button(made, 'На проверку')).toBe('');
       const [own] = await toursOf(freshId);
       expect(own).toMatchObject({ price_unit: 'per_tour', is_published: false });
       expect((await press(`cb:u:p:${own!.id}`, FRESH_CHAT)).text).toMatch(/Не опубликовал/);
