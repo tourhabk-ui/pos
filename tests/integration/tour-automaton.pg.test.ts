@@ -555,4 +555,97 @@ withPg('автомат предлагает правку тура', () => {
       expect((await draftOf(tour)).proposed_by).toEqual({ photos: 'tour-photos', meeting_point: 'tour-pickup' });
     });
   });
+
+  describe('исполнители: скидка эксперимента и описание от модели — только дверью', () => {
+    const priceOf = async (id: string) => (await pool.query<{ base_price: number; price_old: number | null }>(
+      `SELECT base_price::float8 AS base_price, price_old::float8 AS price_old FROM operator_tours WHERE id = $1::bigint`, [id],
+    )).rows[0];
+    const task = { approval_id: 'x', executor_agent_id: 'ab', action_type: 'ab_scale_winner', description: '', context: {}, due_date: '' };
+    /** Эксперимент старше пяти дней: группа B выигрывает четырьмя бронями против нуля. */
+    const experiment = async (a: string[], b: string[], pct: number) => {
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO agent_experiments (name, metric, status, variant_a, variant_b, created_at)
+         VALUES ('Скидка в тесте', 'booking_count', 'running', $1::jsonb, $2::jsonb, NOW() - INTERVAL '10 days')
+         RETURNING id::text AS id`,
+        [JSON.stringify({ label: 'A', tour_ids: a.map(Number) }), JSON.stringify({ label: 'B', tour_ids: b.map(Number), discount_pct: pct })],
+      );
+      for (let i = 0; i < 4; i += 1) {
+        await pool.query(
+          `INSERT INTO operator_bookings (operator_tour_id, booking_date, end_date, duration_days, participants, booking_status)
+           VALUES ($1::bigint, CURRENT_DATE + 30, CURRENT_DATE + 30, 1, 2, 'confirmed')`, [b[0]],
+        );
+      }
+      return rows[0].id;
+    };
+
+    it('скидка победившей группы: тур на сайте — на проверку, цена на витрине прежняя; тур не на сайте — в строку', async () => {
+      const control = await addTour('Эксперимент: контроль', { published: true });
+      const onSite = await addTour('Эксперимент: на сайте', { published: true });
+      const hidden = await addTour('Эксперимент: не на сайте');
+      const ownPrice = await addTour('Эксперимент: владелец правит цену', { published: true });
+      await ownerSaves(ownPrice, { base_price: 9500 });
+      const exp = await experiment([control], [onSite, hidden, ownPrice, '999999993'], 20);
+      delete process.env.TELEGRAM_BOT_TOKEN;
+
+      const { executeABScaleWinner } = await import('@/lib/agents/execution/handlers/ab-scale-executor');
+      const r = await executeABScaleWinner(task);
+      expect(r.errors).toEqual([]);
+      const told = r.changes_made.join('\n');
+      expect(told).toContain('ждёт проверки администратора — 1; записано в туры, которых нет на сайте, — 1');
+      expect(told).toContain('пропущено: владелец сам отправил цену на проверку — 1');
+      expect(told).toContain('тур не найден — 1');
+
+      // На сайте цена прежняя; скидка ждёт проверки под именем автомата.
+      expect(await priceOf(onSite)).toEqual({ base_price: 10000, price_old: null });
+      const draft = await draftOf(onSite);
+      expect(draft.patch).toEqual({ base_price: 8000, price_old: 10000 });
+      expect(draft.proposed_by).toEqual({ base_price: 'ab-scale', price_old: 'ab-scale' });
+      // Тур не на сайте — записано; цену владельца на проверке исполнитель не тронул.
+      expect(await priceOf(hidden)).toEqual({ base_price: 8000, price_old: 10000 });
+      expect((await draftOf(ownPrice)).patch).toEqual({ base_price: 9500 });
+      expect((await draftOf(ownPrice)).proposed_by).toEqual({});
+      expect(await priceOf(control)).toEqual({ base_price: 10000, price_old: null });
+      // Эксперимент закрыт той же транзакцией.
+      expect((await pool.query(`SELECT status, winner FROM agent_experiments WHERE id = $1::uuid`, [exp])).rows[0])
+        .toEqual({ status: 'completed', winner: 'b' });
+
+      // Администратор видит, кто предложил цену; после одобрения оператору сказано, что цену поменяла платформа.
+      const card = (await adminGet()).data.edits.find((e) => e.tourId === onSite)!;
+      expect(card.changes.map((c) => [c.field, c.proposedBy])).toEqual([
+        ['base_price', 'скидка победившей группы ценового эксперимента'],
+        ['price_old', 'скидка победившей группы ценового эксперимента'],
+      ]);
+      sent.alerts.length = 0;
+      const ok = await adminPost(card.id, { action: 'approve', seen: card.seen });
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      expect(await priceOf(onSite)).toEqual({ base_price: 8000, price_old: 10000 });
+      expect(sent.alerts[0]?.text).toContain('Тур изменён по предложению платформы');
+
+      // Повторный прогон этот эксперимент не трогает: скидка не применяется дважды.
+      const again = await executeABScaleWinner(task);
+      expect(again.changes_made.join('\n')).toContain('Нет A/B экспериментов готовых к оценке');
+      expect(await priceOf(hidden)).toEqual({ base_price: 8000, price_old: 10000 });
+    });
+
+    it('описание от модели: на проверку под своим именем, без порога длины; описание владельца не перебивается', async () => {
+      const { proposeRewrittenDescription } = await import('@/lib/tours/describe-door');
+      // Описание длинное: исполнитель берёт и туры с низкой оценкой — порога длины у этой двери нет.
+      const tour = await addTour('Модель: тур на сайте', { published: true, description: OWNER_TEXT });
+      expect(await proposeRewrittenDescription(tour, COMPOSED)).toBe('staged');
+      expect((await liveOf(tour)).description).toBe(OWNER_TEXT);
+      expect((await draftOf(tour)).proposed_by).toEqual({ description: 'initiative-rewrite' });
+      const card = (await adminGet()).data.edits.find((e) => e.tourId === tour)!;
+      expect(card.changes.map((c) => [c.field, c.proposedBy])).toEqual([['description', 'описание, переписанное моделью']]);
+
+      const own = await addTour('Модель: правка владельца', { published: true });
+      await ownerSaves(own, { description: OWNER_TEXT });
+      expect(await proposeRewrittenDescription(own, COMPOSED)).toBe('skipped_owner_pending');
+      expect((await draftOf(own)).patch).toEqual({ description: OWNER_TEXT });
+
+      const hidden = await addTour('Модель: тур не на сайте');
+      expect(await proposeRewrittenDescription(hidden, COMPOSED)).toBe('written');
+      expect(await proposeRewrittenDescription(hidden, COMPOSED)).toBe('unchanged');
+      expect(await proposeRewrittenDescription('999999992', COMPOSED)).toBe('not_found');
+    });
+  });
 });

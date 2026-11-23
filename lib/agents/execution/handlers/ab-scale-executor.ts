@@ -28,9 +28,22 @@
  * Сторож: tests/unit/ab-scale-transaction.test.ts — исполняет функцию на
  * записывающем клиенте и проверяет порядок BEGIN → FOR UPDATE → записи →
  * COMMIT, пропуск при занятой строке и ROLLBACK при отказе записи.
+ *
+ * ── Цена — только дверью правки (слово владельца 23.11) ──────────────────
+ *
+ * «Автоматы … пишут в туры только через очередь проверки, своих обходных
+ * путей у них нет. … цена тура меняется только через одну дверь.» До этого
+ * дня скидка писалась в живую строку своим UPDATE: цена чужого тура менялась
+ * на сайте без проверки, и оператор об этом не узнавал. Теперь скидка
+ * уходит дверью автомата (lib/tours/tour-change) в той же транзакции: у тура
+ * на сайте она ждёт проверки администратора, а после одобрения оператору
+ * приходит сообщение. Цену, которую владелец сам отправил на проверку,
+ * исполнитель не перебивает.
  */
 
+import type { PoolClient as PgClient } from 'pg';
 import { pool } from '@/lib/db-pool';
+import { proposeTourChange, readTourForAutomaton } from '@/lib/tours/tour-change';
 
 // Локальные типы — избегаем циклического импорта из initiative-executor
 export interface ExecutionTask {
@@ -75,6 +88,45 @@ interface PoolClient extends Queryable {
 }
 
 type Winner = 'a' | 'b' | 'tie';
+
+/**
+ * Скидка группе B — дверью автомата, в транзакции эксперимента. Цена
+ * считается от того, что выйдет на сайт (витрина плюс правка на проверке).
+ * Возвращает слова для отчёта: «на проверке» не выдаётся за «применено».
+ */
+async function discountThroughDoor(client: PgClient, tourIds: number[], discountPct: number): Promise<string> {
+  let staged = 0;
+  let written = 0;
+  let keptOwner = 0;
+  let missing = 0;
+  let noPrice = 0;
+  for (const id of tourIds) {
+    const tour = await readTourForAutomaton(client, String(id));
+    if (!tour) { missing += 1; continue; }
+    // Владелец сам отправил цену на проверку: его слово автомат не перебивает.
+    if (tour.ownerPending.includes('base_price') || tour.ownerPending.includes('price_old')) { keptOwner += 1; continue; }
+    const price = Number(tour.effective.base_price);
+    if (!Number.isFinite(price) || price <= 0) { noPrice += 1; continue; }
+    const change = await proposeTourChange(client, {
+      tourId: String(id),
+      source: 'ab-scale',
+      input: { base_price: Math.round(price * (1 - discountPct / 100)), price_old: price },
+      tour,
+    });
+    if (change.outcome === 'pending') staged += 1;
+    else if (change.outcome === 'written') written += 1;
+    else if (change.outcome === 'kept_owner') keptOwner += 1;
+    else if (change.outcome === 'not_found') missing += 1;
+  }
+  const parts = [
+    `ждёт проверки администратора — ${staged}`,
+    `записано в туры, которых нет на сайте, — ${written}`,
+  ];
+  if (keptOwner > 0) parts.push(`пропущено: владелец сам отправил цену на проверку — ${keptOwner}`);
+  if (noPrice > 0) parts.push(`пропущено: цена не записана — ${noPrice}`);
+  if (missing > 0) parts.push(`тур не найден — ${missing}`);
+  return parts.join('; ');
+}
 
 /**
  * Один эксперимент — одна транзакция под блокировкой строки. Возвращает
@@ -177,19 +229,8 @@ async function settleExperiment(expId: string): Promise<string[]> {
       const bTourIds = exp.variant_b?.tour_ids ?? [];
 
       if (bTourIds.length > 0) {
-        await client.query(
-          `UPDATE operator_tours
-           SET base_price = ROUND(base_price * (1 - $1::numeric / 100), 0),
-               price_old = base_price,
-               updated_at = NOW()
-           WHERE id = ANY($2::int[])
-             AND deleted_at IS NULL`,
-          [discountPct, bTourIds],
-        );
-        changes.push(
-          `Применена скидка ${discountPct}% к ${bTourIds.length} турам группы B ` +
-          `(B выиграл на ${bWinsBy.toFixed(1)}%)`,
-        );
+        const told = await discountThroughDoor(client as unknown as PgClient, bTourIds, discountPct);
+        changes.push(`Скидка ${discountPct}% группе B (B выиграл на ${bWinsBy.toFixed(1)}%): ${told}`);
       }
     }
 
