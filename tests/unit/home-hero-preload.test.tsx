@@ -38,6 +38,7 @@ describe('фото героя главной', () => {
     expect(img.getAttribute('src')).toBe('/images/hero/hero-light.1024.webp');
     const srcset = img.getAttribute('srcset') ?? '';
     expect(srcset).toContain('/images/hero/hero-light.640.webp 640w');
+    expect(srcset).toContain('/images/hero/hero-light.768.webp 768w');
     expect(srcset).toContain('/images/hero/hero-light.1024.webp 1024w');
     expect(srcset).not.toContain('.jpeg');
     expect(img.getAttribute('sizes')).toBe('100vw');
@@ -47,6 +48,7 @@ describe('фото героя главной', () => {
     const img = hero(LIGHT);
     expect(img.getAttribute('fetchpriority')).toBe('high');
     expect(img.getAttribute('loading')).toBeNull();
+    expect(img.getAttribute('decoding')).toBeNull();
     expect(img.getAttribute('alt')).toBe('');
   });
 
@@ -61,6 +63,7 @@ describe('фото героя главной', () => {
     const html = renderToString(<HeroBackdrop src={LIGHT} />);
     const links = html.match(/<link[^>]*rel="preload"[^>]*>/g) ?? [];
     expect(links).toHaveLength(1);
+    expect(links[0]).toContain('/images/hero/hero-light.768.webp 768w');
     expect(links[0]).toContain('/images/hero/hero-light.1024.webp 1024w');
     expect(links[0]).toContain('fetchPriority="high"');
   });

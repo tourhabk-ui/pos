@@ -11,6 +11,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, cleanup, fireEvent } from '@testing-library/react';
 import React from 'react';
+import { renderToString } from 'react-dom/server';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PlatePhoto, platePhotoChain } from '@/components/media/PlatePhoto';
@@ -74,6 +75,14 @@ describe('снимок плитки главной', () => {
   it('снимок декоративный: подпись карточки рядом, чтецу он не нужен', () => {
     const { container } = render(<PlatePhoto src={WINTER} fallback={fallback} />);
     expect(img(container)?.getAttribute('alt')).toBe('');
+  });
+
+  it('ленивая загрузка: React не ставит preload плитки в head перед CSS', () => {
+    const { container } = render(<PlatePhoto src={WINTER} fallback={fallback} />);
+    expect(img(container)?.getAttribute('loading')).toBe('lazy');
+    const html = renderToString(<PlatePhoto src={WINTER} fallback={fallback} />);
+    expect(html).toContain('loading="lazy"');
+    expect(html).not.toMatch(/<link[^>]*rel="preload"/);
   });
 });
 
