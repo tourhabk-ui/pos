@@ -1,35 +1,71 @@
 /**
  * 1500 на проде упала с 23514: CHECK из 722 не пускал withdrawn / not_confirmed.
  * Файл не попал в _migrations; раннер не сверяет контрольные суммы — правим
- * 1500 так, чтобы CHECK расширялся до UPDATE.
+ * 1500 так, чтобы CHECK расширялся до UPDATE. Сторож судит сам SQL, а не
+ * вхождения в комментариях.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 
 const ROOT = process.cwd();
 const M1500 = readFileSync(join(ROOT, 'migrations/1500_cuks_phones_official_labels.sql'), 'utf8');
 
+/** Список значений в ADD CONSTRAINT <name> CHECK (… IN (…)). */
+function checkInList(sql: string, constraint: string): string[] | null {
+  const re = new RegExp(
+    String.raw`ADD CONSTRAINT\s+${constraint}\s+CHECK\s*\([\s\S]*?\bIN\s*\(([^)]*)\)`,
+    'i',
+  );
+  const m = sql.match(re);
+  if (!m) return null;
+  return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+}
+
+/** DROP IF EXISTS стоит до ADD, и оба — до UPDATE на withdrawn. */
+function dropThenAddBeforeWithdrawnUpdate(sql: string, constraint: string): boolean {
+  const drop = sql.search(new RegExp(String.raw`DROP CONSTRAINT IF EXISTS\s+${constraint}\b`, 'i'));
+  const add = sql.search(new RegExp(String.raw`ADD CONSTRAINT\s+${constraint}\b`, 'i'));
+  const upd = sql.search(/source\s*=\s*'withdrawn'/);
+  return drop >= 0 && add >= 0 && upd >= 0 && drop < add && add < upd;
+}
+
+describe('разбор SQL миграции 1500 (контроль на испорченной копии)', () => {
+  it('без значения в IN (...) проверка краснеет', () => {
+    const broken = M1500.replace(
+      /chk_emergency_contacts_source\s+CHECK\s*\([\s\S]*?IN\s*\([^)]*\)/i,
+      "chk_emergency_contacts_source CHECK (source IS NULL OR source IN ('code', 'visitkamchatka', 'seed', 'verified'))",
+    );
+    expect(checkInList(broken, 'chk_emergency_contacts_source')).not.toContain('withdrawn');
+  });
+
+  it('без DROP CONSTRAINT IF EXISTS проверка краснеет', () => {
+    const broken = M1500.replace(
+      /ALTER TABLE emergency_contacts DROP CONSTRAINT IF EXISTS chk_emergency_contacts_source;\n/i,
+      '',
+    );
+    expect(dropThenAddBeforeWithdrawnUpdate(broken, 'chk_emergency_contacts_source')).toBe(false);
+  });
+});
+
 describe('миграция 1500 — CHECK до UPDATE', () => {
-  it('расширяет оба CHECK значениями, которые ставит UPDATE', () => {
-    expect(M1500).toMatch(/chk_emergency_contacts_source/);
-    expect(M1500).toMatch(/'withdrawn'/);
-    expect(M1500).toMatch(/chk_emergency_contacts_purpose/);
-    expect(M1500).toMatch(/'not_confirmed'/);
+  it('ADD CONSTRAINT source включает withdrawn в список IN, не только в комментарии', () => {
+    const list = checkInList(M1500, 'chk_emergency_contacts_source');
+    expect(list, 'нет ADD CONSTRAINT chk_emergency_contacts_source с IN (...)').not.toBeNull();
+    expect(list).toContain('withdrawn');
+    expect(list).toContain('verified');
   });
 
-  it('сначала меняет CHECK, потом пишет withdrawn / not_confirmed', () => {
-    const sourcePos = M1500.indexOf('chk_emergency_contacts_source');
-    const purposePos = M1500.indexOf('chk_emergency_contacts_purpose');
-    const withdrawnUpdate = M1500.indexOf("source = 'withdrawn'");
-    expect(sourcePos).toBeGreaterThan(0);
-    expect(purposePos).toBeGreaterThan(0);
-    expect(withdrawnUpdate).toBeGreaterThan(purposePos);
-    expect(withdrawnUpdate).toBeGreaterThan(sourcePos);
+  it('ADD CONSTRAINT purpose включает not_confirmed в список IN', () => {
+    const list = checkInList(M1500, 'chk_emergency_contacts_purpose');
+    expect(list, 'нет ADD CONSTRAINT chk_emergency_contacts_purpose с IN (...)').not.toBeNull();
+    expect(list).toContain('not_confirmed');
+    expect(list).toContain('emergency');
   });
 
-  it('не оставляет отдельную 1501: 1500 должна пройти сама', () => {
-    expect(existsSync(join(ROOT, 'migrations/1501_cuks_phones_check_and_retry.sql'))).toBe(false);
+  it('каждый констрейнт сначала снимается IF EXISTS, потом ставится, и только потом UPDATE', () => {
+    expect(dropThenAddBeforeWithdrawnUpdate(M1500, 'chk_emergency_contacts_source')).toBe(true);
+    expect(dropThenAddBeforeWithdrawnUpdate(M1500, 'chk_emergency_contacts_purpose')).toBe(true);
   });
 
   it('сохраняет правки подписей ЦУКС и FAQ', () => {
