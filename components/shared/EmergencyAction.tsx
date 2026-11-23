@@ -128,7 +128,7 @@ export function EmergencyAction({ variant = 'header', onOfflineFallback, classNa
           gap: '6px',
           padding: '0 12px',
           borderRadius: '999px',
-          fontSize: '11px',
+          fontSize: '12px',
           ...(overPhoto
             ? {
                 color: 'var(--on-danger)',

@@ -63,3 +63,19 @@ describe('общие публичные подписи и парк (аудит 2
     expect(park).not.toMatch(/fontSize:\s*1[01]\b/);
   });
 });
+
+describe('остаток мельче 12px на публичных страницах (аудит 24.11)', () => {
+  it('надпись SOS в шапке — 12px, не 11px', () => {
+    const src = read('components/shared/EmergencyAction.tsx');
+    const header = src.split("variant === 'header'")[1]?.split("variant === 'field'")[0] ?? '';
+    expect(header).toContain("fontSize: '12px'");
+    expect(header).not.toContain("fontSize: '11px'");
+  });
+
+  it('подзаголовок оператора в H1 карточки тура не падает ниже 12px', () => {
+    const src = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
+    expect(src).toMatch(/data-h1-operator[^>]*fontSize:\s*'max\(12px, 0\.42em\)'/);
+    expect(src).not.toMatch(/data-h1-operator[^>]*fontSize:\s*'0\.42em'/);
+  });
+});
+

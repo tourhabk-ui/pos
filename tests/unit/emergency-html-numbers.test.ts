@@ -42,12 +42,13 @@ describe('public/emergency.html — анти-дрейф критических �
     }
   });
 
-  it('ведёт на рабочие карты покрытия Камчатки и имеет canonical', () => {
+  it('ведёт на рабочие карты покрытия Камчатки; канон — /sos, noindex', () => {
     expect(html).toContain('https://kamchatka.mts.ru/personal/podderzhka/zoni-obsluzhivaniya/nasha-set');
     expect(html).toContain('https://kamchatka.megafon.ru/help/offices/coverage/');
     expect(html).toContain('https://kamchatskiy-kr.beeline.ru/customers/beeline-map/');
     expect(html).not.toContain('mts.ru/personal/mobile/coverage');
-    expect(html).toContain('<link rel="canonical" href="https://vedarai.ru/emergency">');
+    expect(html).toContain('<link rel="canonical" href="https://vedarai.ru/sos">');
+    expect(html).toContain('name="robots" content="noindex, follow"');
   });
 });
 
