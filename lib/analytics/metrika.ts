@@ -79,13 +79,27 @@ export const METRIKA_EXCLUDED_PREFIXES: ReadonlyArray<{ prefix: string; reason: 
   { prefix: '/request-status', reason: 'страница заявки: в адресе ключ статуса, по которому читают и пишут переписку с адресатом заявки (1350), а на экране — сами сообщения людей' },
   { prefix: '/vote', reason: 'голосование группы (#3744): в адресе токен — ключ к поездке и голосам; на экране название поездки, даты и дни' },
   { prefix: '/confirm', reason: 'отправка заявки, подготовленной ИИ-агентом (#3399): в адресе токен, по которому заявку отправляют, на экране — имя, телефон и черновик заявки' },
+  { prefix: '/seat-request', reason: 'ответ оператора на запрос мест: в адресе ключ `?k=`, по которому отвечают за оператора (lib/seat-requests/service), а Метрика получает адрес целиком' },
+];
+
+/**
+ * Страницы без счётчика, которые префиксом не выразить (23.11).
+ *
+ * `/transfers/<перевозчик>/review#<ключ>` — ссылка на отзыв о перевозчике:
+ * одноразовый ключ лежит во фрагменте адреса (lib/transfers/carrier-review-rules),
+ * а загрузчик Метрики шлёт `location.href` вместе с фрагментом. Сама страница
+ * перевозчика `/transfers/<перевозчик>` остаётся со счётчиком.
+ */
+export const METRIKA_EXCLUDED_PATTERNS: ReadonlyArray<{ pattern: RegExp; reason: string }> = [
+  { pattern: /^\/transfers\/[^/]+\/review(?:\/|$)/, reason: 'отзыв о перевозчике по ссылке: одноразовый ключ во фрагменте адреса' },
 ];
 
 export function shouldTrackPath(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
-  return !METRIKA_EXCLUDED_PREFIXES.some(
+  if (METRIKA_EXCLUDED_PREFIXES.some(
     ({ prefix }) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-  );
+  )) return false;
+  return !METRIKA_EXCLUDED_PATTERNS.some(({ pattern }) => pattern.test(pathname));
 }
 
 /**

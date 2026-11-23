@@ -82,7 +82,26 @@ describe('itinerary', () => {
     ] });
     const all = JSON.stringify(ai.mock.calls[0].slice(2));
     expect(all).not.toMatch(/аутизм|самочувств|подвижн|безбарьер|астм|914/i);
-    expect(ai.mock.calls[0][3]).toEqual([{ type: 'season', severity: 'important', message: 'часть активностей зависит от сезона' }]);
+    // Предупреждение о безопасности (закрытый парк, тревога) до модели доходит —
+    // общей фразой по типу, без текста из браузера (23.11). Раньше оно
+    // отбрасывалось, и модель писала программу дня, не зная о закрытии.
+    expect(ai.mock.calls[0][3]).toEqual([
+      { type: 'season', severity: 'important', message: 'часть активностей зависит от сезона' },
+      { type: 'safety', severity: 'critical', message: 'в плане есть предупреждения о безопасности — они показаны туристу отдельно' },
+    ]);
+  });
+  it('ключ из прототипа («constructor») — не подпись и не предупреждение, 500 нет', async () => {
+    ai.mockResolvedValueOnce('ok');
+    const res = await call({
+      ...body,
+      days: [{ ...body.days[1], activityType: 'constructor' }],
+      warnings: [{ type: 'constructor', severity: 'critical', message: 'x' }, { type: 'toString', severity: 'info', message: 'x' }],
+    });
+    expect(res.status).toBeLessThan(500);
+    if (ai.mock.calls.length > 0) {
+      expect(ai.mock.calls[0][3]).toEqual([]);
+      expect(JSON.stringify(ai.mock.calls[0].slice(2))).not.toContain('native code');
+    }
   });
   it('БД не ответила — 503, модель не зовётся', async () => {
     query.mockRejectedValueOnce(new Error('db down'));
