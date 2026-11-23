@@ -184,6 +184,24 @@ describe('правило: что идёт через проверку, а что
     expect(tourDayKey(null)).toBeNull();
   });
 
+  it('день календаря не съезжает на сутки в поясе Камчатки (UTC+12)', () => {
+    // Драйвер собирает дату полночью по местному времени. В поясе восточнее
+    // Гринвича строка UTC такой полуночи — ещё вчерашний день.
+    const before = process.env.TZ;
+    process.env.TZ = 'Asia/Kamchatka';
+    try {
+      const midnight = new Date(2027, 5, 1);
+      // Пояс применился: иначе проверка ниже ничего бы не проверила.
+      expect(midnight.getTimezoneOffset()).toBe(-720);
+      expect(midnight.toISOString().slice(0, 10)).toBe('2027-05-31');
+      expect(tourDayKey(midnight)).toBe('2027-06-01');
+      expect(sameTourValue('season_start', midnight, '2027-06-01')).toBe(true);
+      expect(tourEditChanges({ season_start: midnight }, { season_start: '2027-06-02' })[0].before).toBe('1 июня 2027 г.');
+    } finally {
+      if (before === undefined) delete process.env.TZ; else process.env.TZ = before;
+    }
+  });
+
   it('было и стало словами: сложность, длительность, сезон и место — не ключи базы и не рубли', () => {
     const changes = tourEditChanges(
       {
