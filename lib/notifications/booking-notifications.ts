@@ -32,6 +32,11 @@ interface BookingInfo {
 }
 
 async function getTouristContact(userId: string): Promise<TouristContact | null> {
+  // Бронь гостя (запрос мест, форма без входа) аккаунта не имеет: id пуст.
+  // Это «аккаунта нет», а не «не прочитали» — запрос с пустым id падал на
+  // 22P02 и писал в лог ложный отказ чтения при каждом таком подтверждении
+  // (нашёл сквозной тест цикла заявки, план готовности 23.11, этап 6).
+  if (!userId) return null;
   try {
     const res = await pool.query<{ name: string; email: string | null; telegram_id: string | null }>(
       `SELECT name, email, telegram_id::text FROM users WHERE id = $1`,

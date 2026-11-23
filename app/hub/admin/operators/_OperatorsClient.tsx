@@ -19,6 +19,7 @@ import ChannelLinkPanel from '@/components/admin/ChannelLinkPanel';
 import { WidgetEmbedCodes } from '@/components/widget/WidgetEmbedCodes';
 import { AdminWidgetReport } from '@/components/admin/AdminWidgetReport';
 import { TestProfileToggle } from '@/components/admin/TestProfileToggle';
+import { PartnerQueuesReport } from '@/components/admin/PartnerQueuesReport';
 
 /** 'none' — карточка без заявки (заведена миграцией или импортом); с LEFT JOIN users они видны. */
 type ProfileStatus = 'none' | 'pending' | 'approved' | 'rejected';
@@ -1630,6 +1631,9 @@ export default function OperatorsClient() {
             </span>
           )}
         </div>
+
+        {/* Очереди этапов 3–5 плана готовности одним блоком: только числа. */}
+        <PartnerQueuesReport />
 
         <p className="text-sm text-[var(--text-secondary)] mb-4">
           Объекты владельцев жилья проверяются отдельно:{' '}
