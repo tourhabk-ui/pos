@@ -148,7 +148,12 @@ const PatchSchema = z.object({
     city:    clearable(100),
   }).optional(),
   complete_onboarding: z.boolean().optional(),
-  telegram_chat_id:    z.number().int().nullable().optional(),
+  // Поля `telegram_chat_id` здесь нет намеренно (ревью 23.11). Оно стояло в
+  // схеме и писалось как есть: оператор мог вписать любой id — выдуманный
+  // или чужой, — а шлюз «канал до витрины» (lib/partners/storefront-gate) и
+  // доставка заявок читали его как подключённый Telegram. Форма профиля это
+  // поле не слала никогда. Канал привязывает только бот: ссылка, код или
+  // вход через Telegram (lib/partners/bind-channel, bind-code).
 });
 
 export async function PATCH(request: NextRequest) {
@@ -172,7 +177,7 @@ export async function PATCH(request: NextRequest) {
     description, short_description,
     website, phone, telegram,
     services, features, location,
-    complete_onboarding, telegram_chat_id,
+    complete_onboarding,
   } = parsed.data;
 
   const existingRes = await query(
@@ -208,7 +213,6 @@ export async function PATCH(request: NextRequest) {
     setClauses.push(`applied_at = CASE WHEN profile_status = 'none' THEN NOW() ELSE applied_at END`);
     setClauses.push(`profile_status = CASE WHEN profile_status = 'none' THEN 'pending' ELSE profile_status END`);
   }
-  if (telegram_chat_id !== undefined)  p('telegram_chat_id', telegram_chat_id);
   p('contacts', JSON.stringify(newContacts));
 
   params.push(partnerId);

@@ -117,6 +117,21 @@ describe('три исхода поля: записать / очистить / н
     expect(JSON.parse(String(params[locIdx]))).toEqual({ address: 'ул. 2' });
   });
 
+  it('канал уведомлений из профиля не пишется: chat id в запросе не доходит до базы', async () => {
+    // Ревью 23.11: оператор вписывал любой id, и шлюз «канал до витрины»
+    // принимал его за подключённый Telegram. Канал привязывает только бот.
+    for (const sent of [-1, 0, 123456789, null]) {
+      queryMock.mockClear();
+      const res = await PATCH(patchReq({ phone: '+7 900', telegram_chat_id: sent, max_chat_id: sent }));
+      expect(res.status, String(sent)).toBe(200);
+      const [sql, params] = updateCall();
+      expect(sql, String(sent)).not.toMatch(/telegram_chat_id|max_chat_id/);
+      // Ни в одном параметре записи присланного id нет (в contacts — тоже).
+      expect(JSON.stringify(params)).not.toMatch(/telegram_chat_id|max_chat_id/);
+      if (typeof sent === 'number' && sent !== 0) expect(params).not.toContain(sent);
+    }
+  });
+
   it('клиент профиля шлёт пустую строку, а не undefined', () => {
     const src = read('app/hub/operator/profile/_ProfileClient.tsx');
     expect(src).not.toMatch(/\.trim\(\) \|\| undefined/);
