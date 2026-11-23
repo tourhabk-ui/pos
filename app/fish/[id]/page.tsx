@@ -146,6 +146,19 @@ export default async function FishDetailPage({ params }: Props) {
                 >
                   Источник: {species.leadAnswer.source.title}
                 </a>
+                {species.leadAnswer.moreSources?.map((s) => (
+                  <span key={s.url}>
+                    {'; '}
+                    <a
+                      href={s.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-[var(--text-muted)] underline hover:text-[var(--accent)]"
+                    >
+                      {s.title}
+                    </a>
+                  </span>
+                ))}
               </p>
             )}
 

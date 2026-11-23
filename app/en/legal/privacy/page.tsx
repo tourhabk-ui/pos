@@ -18,6 +18,8 @@ import { legalAlternates } from '@/lib/legal/legal-i18n';
 
 export const metadata = {
   alternates: legalAlternates('privacy', 'en'),
+  // Перевод, не отдельный документ: GSC 18–21.11 давал показы на позиции ~4 без кликов.
+  robots: { index: false, follow: true },
   // absolute: шаблон корневого layout дописал бы « | Ведар» к английской странице.
   title: { absolute: 'Privacy Policy | Vedar' },
   description: 'Vedar privacy policy (English translation): what personal data is processed, purposes and legal bases, storage, sharing and data subject rights.',

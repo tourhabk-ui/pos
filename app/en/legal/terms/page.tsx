@@ -16,6 +16,8 @@ import { legalAlternates, LEGAL_DOC_PATHS } from '@/lib/legal/legal-i18n';
 
 export const metadata = {
   alternates: legalAlternates('terms', 'en'),
+  // Перевод, не отдельный документ: GSC 18–21.11 давал показы на позиции ~2–4 без кликов.
+  robots: { index: false, follow: true },
   // absolute: шаблон корневого layout дописал бы « | Ведар» к английской странице.
   title: { absolute: 'Terms of Use | Vedar' },
   description: 'Vedar user agreement (English translation): tour requests, payment directly to the Partner, rules of use, liability and company details.',

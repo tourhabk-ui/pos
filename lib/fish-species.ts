@@ -23,7 +23,7 @@ export interface FishSpecies {
    * Google показывал вид на вопрос-викторину). Только факт с источником: ссылка
    * выводится рядом с фразой.
    */
-  leadAnswer?: { text: string; source: { title: string; url: string } };
+  leadAnswer?: { text: string; source: { title: string; url: string }; moreSources?: Array<{ title: string; url: string }> };
   /**
    * Подробный разбор вида: разделы с подзаголовками и абзацами (12.11,
    * владелец прислал разбор кеты). Нет разбора — поля нет, страница вида
@@ -54,15 +54,25 @@ export const FISH_SPECIES: FishSpecies[] = [
     name: 'Чавыча',
     nameLatin: 'Oncorhynchus tshawytscha',
     color: '#C1350A',
-    shortDesc: 'Она же королевский лосось — самый крупный из тихоокеанских лососей. Средние особи весят 10–20 кг, рекордсмены достигают 60 кг и 1,5 м в длину. На Камчатке — объект трофейной рыбалки.',
+    shortDesc: 'Её называют царём лососей, царём-рыбой и королевским лососем — самый крупный из тихоокеанских лососей. Средние особи весят 10–20 кг, рекордсмены достигают 60 кг и 1,5 м в длину. На Камчатке — объект трофейной рыбалки.',
     season: '1 июня — 15 июля',
     seasonMonths: [6, 7],
     recordKg: 'до 60 кг',
     methods: ['Спиннинг', 'Нахлыст', 'Тролинг'],
     habitat: 'Крупные реки: Камчатка, Жупанова, Опала',
     leadAnswer: {
-      text: 'Чавыча — самый крупный из тихоокеанских лососей; за размер в Северной Америке её называют королевским лососем (king salmon).',
+      text: 'Чавыча — самый крупный из тихоокеанских лососей; за размер её называют царём лососей и царём-рыбой, в английском — королевским лососем (king salmon).',
       source: { title: 'NOAA Fisheries, Chinook Salmon', url: 'https://www.fisheries.noaa.gov/species/chinook-salmon' },
+      moreSources: [
+        {
+          title: 'WWF России в Fishnews, «Борьба с лососевым браконьерством касается каждого»',
+          url: 'https://fishnews.ru/rubric/krupnyim-planom/10148',
+        },
+        {
+          title: 'Visit Kamchatka, «Рыбалка»',
+          url: 'https://visitkamchatka.ru/activities/rybalka/',
+        },
+      ],
     },
     funFact: 'Чавыча может жить в океане до 7–8 лет, и именно долгий нагул в холодных, богатых кормом водах северной части Тихого океана делает её самой крупной из тихоокеанских лососей.',
     patterns: [/чавыч[аыуией]/gi],

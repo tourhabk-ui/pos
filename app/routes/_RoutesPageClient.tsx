@@ -23,6 +23,7 @@ import { Header } from '@/components/layout/Header';
 import { MarkerType } from '@/components/shared/leaflet-types';
 import { geolocationOnce } from '@/lib/geo/current-position';
 import { ROUTE_PRICE_NOTE_RU } from '@/lib/routes/route-tour-price';
+import { ROUTES_VOLCANO_LEAD, ROUTES_VOLCANO_MORE, ROUTES_VOLCANO_SOURCES } from '@/lib/seo/routes-volcano-lead';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), { ssr: false });
 
@@ -548,6 +549,29 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
           <p className="text-[var(--text-secondary)] text-sm md:text-base">
             {meta.total.toLocaleString('ru-RU')} {KIND_TABS.find(t => t.value === kind)?.desc}
           </p>
+          {kind === 'route' && (
+            <div className="mt-3 max-w-3xl" data-lead-answer>
+              <p className="text-[var(--text-primary)] text-sm md:text-base leading-relaxed">
+                {ROUTES_VOLCANO_LEAD}{' '}
+                <Link href={ROUTES_VOLCANO_MORE.href} className="underline hover:text-[var(--accent)]">
+                  {ROUTES_VOLCANO_MORE.label}
+                </Link>
+                .
+              </p>
+              <p className="text-xs text-[var(--text-muted)] mt-2">
+                Источники:{' '}
+                {ROUTES_VOLCANO_SOURCES.map((s, i) => (
+                  <span key={s.href}>
+                    {i > 0 ? '; ' : ''}
+                    <a href={s.href} target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--accent)]">
+                      {s.label}
+                    </a>
+                  </span>
+                ))}
+                .
+              </p>
+            </div>
+          )}
         </div>
 
         {/* ── Search + controls ─────────────────────────────── */}

@@ -8,7 +8,7 @@
  *    русского текста без перевода краснеет здесь;
  *  - реквизиты — из lib/legal/requisites, не вписаны руками;
  *  - hreflang-пара ru/en и видимый переключатель есть у обеих сторон;
- *  - обе английские страницы в sitemap.
+ *  - английские страницы закрыты noindex и не в sitemap (оригинал — русский).
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render } from '@testing-library/react';
@@ -75,6 +75,10 @@ describe.each(DOCS)('/en/legal/$doc', ({ doc, Ru, En, ruMeta, enMeta }) => {
     expect(enMeta.alternates).toEqual({ canonical: `/en/legal/${doc}`, languages });
   });
 
+  it('английский перевод закрыт noindex, follow', () => {
+    expect(enMeta.robots).toEqual({ index: false, follow: true });
+  });
+
   it('видимый переключатель RU/EN ведёт на парную страницу', () => {
     const ru = render(<Ru />).container.querySelector('[data-testid="legal-lang-switch"]');
     expect(ru?.querySelector(`a[href="/en/legal/${doc}"]`)).not.toBeNull();
@@ -97,12 +101,15 @@ describe('перевод политики не теряет получателе
 });
 
 describe('sitemap', () => {
-  it('английские версии в sitemap рядом с русскими', async () => {
+  it('русские версии в sitemap, английские переводы — нет', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const { entries } = await collectSitemapEntriesWithStatus();
     const urls = entries.map((e) => e.url);
-    for (const u of ['/legal/privacy', '/legal/terms', '/en/legal/privacy', '/en/legal/terms']) {
+    for (const u of ['/legal/privacy', '/legal/terms']) {
       expect(urls).toContain(`https://vedarai.ru${u}`);
+    }
+    for (const u of ['/en/legal/privacy', '/en/legal/terms']) {
+      expect(urls).not.toContain(`https://vedarai.ru${u}`);
     }
   });
 });

@@ -19,7 +19,7 @@ describe('заголовки под запросы GSC 18–19.11 (Сыщик 21
 
   it('Верблюд отвечает, между какими вулканами стоит', () => {
     const m = PLACE_SEARCH_META['ekstruziya-verblyud'];
-    expect(m.leadAnswer?.text).toMatch(/между вулканами Авачинский и Корякский/);
+    expect(m.leadAnswer?.text).toMatch(/между Авачинским и Корякским/);
   });
 
   it('карточка места берёт заголовок и ответ из списка, посадочная — сильнее', () => {
@@ -38,7 +38,10 @@ describe('заголовки под запросы GSC 18–19.11 (Сыщик 21
   it('чавыча: прямой ответ с источником', () => {
     const a = FISH_BY_ID.chavycha.leadAnswer;
     expect(a?.text).toMatch(/^Чавыча — самый крупный из тихоокеанских лососей/);
+    expect(a?.text).toMatch(/царём лососей/);
     expect(a?.source.url).toMatch(/^https:\/\/www\.fisheries\.noaa\.gov\//);
+    expect(a?.moreSources?.some((s) => s.url.includes('fishnews.ru'))).toBe(true);
+    expect(a?.moreSources?.some((s) => s.url.includes('visitkamchatka.ru'))).toBe(true);
   });
 
   it('/routes: вулканы в title и H1', () => {

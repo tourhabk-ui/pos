@@ -13,7 +13,7 @@ import { recordDateIso } from '@/lib/seo/record-modified';
 import { FISH_TEXT_REVISION } from '@/lib/fish/fish-sources';
 import { FISH_SALMON_RUN_WINDOW, FISH_SEASONS } from '@/lib/facts/kamchatka';
 
-export const FISH_PAGE_DATE = '2026-11-23';
+export const FISH_PAGE_DATE = '2026-11-24';
 
 export const FISH_PAGE_TITLE = 'Рыбалка на Камчатке: виды, сезон и правила';
 
@@ -39,6 +39,9 @@ const ROSRYB_PUTEVKA_URL =
   'https://kamchatka.fish.gov.ru/press/regionalnye-novosti/razyasnenie-po-zapolneniyu-putyevok-i-prostavleniya-v-nikh-organizatorami-lyubitelskogo-rybolovstva-/';
 const KAMTODAY_ONLINE_URL =
   'https://kamtoday.ru/news/poluostrov/na-kamchatke-mozhno-priobresti-rybolovnuyu-putevku-onlayn/';
+const VISIT_NATIONAL_ROUTE_URL = 'https://visitkamchatka.ru/national-route/';
+const RYBAK_AMATEUR_2026_URL =
+  'https://rybak-kamchatky.ru/news/5355-ob-organizacii-lyubitelskogo-rybolovstva-v-kamchatskom-krae-v-2026-godu.html';
 
 export const FISH_SECTIONS: readonly { id: string; heading: string; paragraphs: readonly string[] }[] = [
   {
@@ -46,6 +49,7 @@ export const FISH_SECTIONS: readonly { id: string; heading: string; paragraphs: 
     heading: 'Какую рыбу можно поймать на Камчатке и когда?',
     paragraphs: [
       `На Камчатке водятся тихоокеанские лососи — чавыча, нерка, кижуч, горбуша, кета и сима, — а также микижа, хариус, кунджа и голец. В море ловят палтуса, треску и навагу. По данным регионального портала Visit Kamchatka, ${FISH_SALMON_RUN_WINDOW.value}.`,
+      'На морских выходах из Авачинской бухты национальный маршрут края среди объектов лова называет и терпуга. Это морская рыба; не путать со щитовым вулканом Терпук на севере Камчатки. Любительский лов терпугов вне рыболовных участков министерство рыбного хозяйства края относит к видам, которые можно ловить с соблюдением суточных норм.',
       `Сроки хода в справочнике Ведара — ориентир. Чавыча идёт ${FISH_SEASONS.chavycha.value} в крупные реки Камчатка, Жупанова, Опала; нерка — ${FISH_SEASONS.nerka.value} в озёрно-речные системы, особенно в озеро Курильское; горбуша — ${FISH_SEASONS.gorbuscha.value}; кета — ${FISH_SEASONS.keta.value}; кижуч — ${FISH_SEASONS.kizuch.value}. Микижа и голец встречаются ${FISH_SEASONS.mikizha_golets.value}, хариус — ${FISH_SEASONS.kharius.value}, кунджа — ${FISH_SEASONS.kundzha.value}. Палтуса в Авачинском заливе ловят ${FISH_SEASONS.paltus.value}, треску — ${FISH_SEASONS.treska.value}, навагу — ${FISH_SEASONS.navaga.value} из-подо льда. Подробности по каждому виду — в карточке чавычи, карточке нерки и карточке кижуча, а также в остальных карточках ниже.`,
       'Любительский лов лососей можно вести только в официальные сроки и по путёвке. Официальные даты сезона 2026 года и источники к ним — в справке ниже; сроки на 2027 год на эту дату ещё не утверждены.',
     ],
@@ -179,6 +183,14 @@ export const FISH_SOURCES = [
     label: '«Камчатка Сегодня», «На Камчатке можно приобрести рыболовную путёвку онлайн» (16.06.2026)',
     href: KAMTODAY_ONLINE_URL,
   },
+  {
+    label: 'Visit Kamchatka, национальный маршрут «Камчатка — здесь начинается Россия» (терпуг среди объектов морского лова)',
+    href: VISIT_NATIONAL_ROUTE_URL,
+  },
+  {
+    label: '«Рыбак Камчатки», «Об организации любительского рыболовства в Камчатском крае в 2026 году» (05.01.2026), Министерство рыбного хозяйства края',
+    href: RYBAK_AMATEUR_2026_URL,
+  },
 ] as const;
 
 /**
@@ -188,6 +200,8 @@ export const FISH_SOURCES = [
 export const FISH_TEXT_LINKS = [
   { text: 'портала Visit Kamchatka', href: VISIT_FISH_URL, external: true },
   { text: 'портал Visit Kamchatka', href: VISIT_FISH_URL, external: true },
+  { text: 'национальный маршрут края', href: VISIT_NATIONAL_ROUTE_URL, external: true },
+  { text: 'щитовым вулканом Терпук', href: '/places/terpuk', external: false },
   { text: 'карточке чавычи', href: '/fish/chavycha', external: false },
   { text: 'карточке нерки', href: '/fish/nerka', external: false },
   { text: 'карточке кижуча', href: '/fish/kizuch', external: false },
