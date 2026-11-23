@@ -22,6 +22,10 @@
  * настоящий партнёр вчера получил сообщение в MAX: доставку до телефона он не
  * трогает. Сети в файле нет — `fetch` подменён и обязан остаться невызванным.
  *
+ * Тем же файлом и на той же базе — отчёт очередей администратора
+ * (lib/admin/partner-queues): числа сверяются с дверями, которые эти очереди
+ * создают, и замеряется время на двадцати партнёрах с правками.
+ *
  * Своя база `request_cycle_test`. Без KERNEL_PG_TEST_URL файл честно
  * пропускается — «не прогнано», а не «прошло».
  */
@@ -76,6 +80,18 @@ vi.mock('@/lib/notifications/telegram', async (orig) => ({
     }),
   },
 }));
+
+// Отчёт очередей — дверь администратора: подменён только разбор JWT.
+const admin = vi.hoisted(() => ({ allowed: true }));
+vi.mock('@/lib/auth/middleware', async (orig) => {
+  const { NextResponse: Res } = await import('next/server');
+  return {
+    ...(await orig<typeof import('@/lib/auth/middleware')>()),
+    requireAdmin: vi.fn(async () => (admin.allowed
+      ? { userId: 'c6000000-0000-4000-8000-0000000000ad', role: 'admin' }
+      : Res.json({ success: false, error: 'Требуется вход администратора' }, { status: 401 }))),
+  };
+});
 
 // Лимит по адресу — не предмет цикла: все запросы файла идут с одного адреса.
 vi.mock('@/lib/rate-limit', async (orig) => ({
@@ -458,6 +474,218 @@ withPg('цикл запроса мест на тестовом оператор�
       expect(r.body.success).toBe(false);
       expect(r.body.reason).toBe('operator_unreachable');
       expect((await pool.query(`SELECT COUNT(*)::int AS n FROM tour_seat_requests`)).rows[0].n).toBe(before);
+    });
+  });
+
+  // ── Отчёт очередей администратора ─────────────────────────────────────────
+  describe('отчёт очередей администратора', () => {
+    type Queues = import('@/lib/admin/partner-queues').PartnerQueues;
+    const read = async (): Promise<Queues> => (await import('@/lib/admin/partner-queues')).readPartnerQueues();
+    const fake = (i: number) => `c6100000-0000-4000-8000-0000000000${String(i).padStart(2, '0')}`;
+    const fakeUser = (i: number) => `c6200000-0000-4000-8000-0000000000${String(i).padStart(2, '0')}`;
+    let before: Queues;
+
+    /**
+     * Двадцать партнёров в тех состояниях, которые создают этапы 3–5:
+     *   0–5   заявка на одобрении (3 оператора, 2 гида, жильё);
+     *   6–8   одобрены, не на витрине, канала нет;
+     *   9–10  одобрены, не на витрине, канал есть — в очередь не входят;
+     *   11–12 на витрине без канала;
+     *   13    на витрине, канал — Telegram аккаунта (вход через Telegram);
+     *   14–15 тестовые профили (один ждёт одобрения — в очередь не входит);
+     *   16–19 на витрине с MAX; у 16–17 тур ждёт первого выклада, у 18–19 — правка.
+     * И три строки, которые в очереди входить НЕ должны: одобренный агент без
+     * канала (его на витрину не ставят), правка удалённого тура, отклонённая правка.
+     */
+    const seed = async () => {
+      const state = (i: number) => {
+        if (i <= 5) return { category: i <= 2 ? 'operator' : i <= 4 ? 'guide' : 'stay', status: 'pending', pub: false, test: false, max: 9300 + i };
+        if (i <= 8) return { category: 'operator', status: 'approved', pub: false, test: false, max: null };
+        if (i <= 10) return { category: 'transfer', status: 'approved', pub: false, test: false, max: 9300 + i };
+        if (i <= 12) return { category: 'gear', status: 'approved', pub: true, test: false, max: null };
+        if (i === 13) return { category: 'operator', status: 'approved', pub: true, test: false, max: null, userTelegram: 9400 };
+        if (i <= 15) return { category: 'operator', status: i === 14 ? 'pending' : 'approved', pub: false, test: true, max: 9300 + i };
+        return { category: 'operator', status: 'approved', pub: true, test: false, max: 9300 + i };
+      };
+      for (let i = 0; i < 20; i++) {
+        const s = state(i);
+        await pool.query(
+          `INSERT INTO users (id, email, name, password_hash, role, telegram_id) VALUES ($1, $2, 'Тест', 'x', $3, $4)`,
+          [fakeUser(i), `queue-${i}@example.test`, s.category, 'userTelegram' in s ? s.userTelegram : null],
+        );
+        await pool.query(
+          `INSERT INTO partners (id, user_id, name, slug, category, contact, profile_status, is_public, is_test, max_chat_id, applied_at)
+           VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, $6, $7, $8, $9, NOW())`,
+          [fake(i), fakeUser(i), `Очередь ${i}`, `queue-${i}`, s.category, s.status, s.pub, s.test, s.max],
+        );
+      }
+      // Правка и просьба о публикации — той же дверью владельца, что у кабинета (этап 4).
+      const { saveTourChange } = await import('@/lib/tours/tour-change');
+      const { transaction } = await import('@/lib/database');
+      for (let i = 16; i < 20; i++) {
+        const published = i >= 18;
+        const tour = await addTour(fake(i), `Тур очереди ${i}`, published);
+        const r = await transaction((client) => saveTourChange(client, {
+          tourId: String(tour), ownerId: fake(i), userId: fakeUser(i),
+          input: (published ? { base_price: 12000 } : { is_published: true }) as never, current: {},
+        }));
+        expect(r.outcome, `тур ${i}`).toBe('pending');
+      }
+      // Агент: одобрен, не на витрине, канала нет — но шлюз витрины его не касается.
+      await pool.query(
+        `INSERT INTO partners (id, name, slug, category, contact, profile_status, is_public)
+         VALUES ($1, 'Очередь агент', 'queue-agent', 'agent', '{}'::jsonb, 'approved', FALSE)`, [fake(20)],
+      );
+      // Правка тура, который владелец потом удалил: проверять нечего.
+      const gone = await addTour(fake(19), 'Удалённый тур очереди', true);
+      await transaction((client) => saveTourChange(client, {
+        tourId: String(gone), ownerId: fake(19), userId: fakeUser(19), input: { base_price: 13000 } as never, current: {},
+      }));
+      await pool.query(`UPDATE operator_tours SET deleted_at = NOW() WHERE id = $1`, [gone]);
+      // Уже решённая правка — в истории, а не в очереди.
+      const decided = await addTour(fake(18), 'Тур с отклонённой правкой', true);
+      await pool.query(
+        `INSERT INTO operator_tour_edits (tour_id, partner_id, patch, moderation_status, moderation_reason, moderated_at)
+         VALUES ($1, $2, '{"title":"Другое имя"}'::jsonb, 'rejected', 'Причина отказа для теста', NOW())`, [decided, fake(18)],
+      );
+      // Оферту приняли двое из тех, кому она положена: 16 и 17.
+      for (const i of [16, 17]) {
+        const { recordOfferAcceptanceForPartner } = await import('@/lib/legal/offer-acceptance');
+        expect(await recordOfferAcceptanceForPartner({ partnerId: fake(i), userId: fakeUser(i), ip: null })).toBe('recorded');
+      }
+    };
+
+    it('числа растут ровно на то, что завели двери: одобрение, канал, проверка туров, тестовые', async () => {
+      before = await read();
+      for (const v of [before.awaitingApproval.total, before.storefrontNoChannel, before.approvedNoChannel,
+        before.testProfiles, before.tourEdits.newTours, before.tourEdits.edits, before.offerNotAccepted]) {
+        expect(typeof v).toBe('number');
+      }
+      await seed();
+      const after = await read();
+      const diff = (a: unknown, b: unknown) => Number(a) - Number(b);
+
+      expect(diff(after.awaitingApproval.total, before.awaitingApproval.total)).toBe(6);
+      const role = (q: Queues, c: string) => q.awaitingApproval.byCategory.find((r) => r.category === c)?.count ?? 0;
+      expect(role(after, 'operator') - role(before, 'operator')).toBe(3);
+      expect(role(after, 'guide') - role(before, 'guide')).toBe(2);
+      expect(role(after, 'stay') - role(before, 'stay')).toBe(1);
+
+      expect(diff(after.approvedNoChannel, before.approvedNoChannel)).toBe(3);
+      // Вход через Telegram — тоже канал: 13-й в «без канала» не попал.
+      expect(diff(after.storefrontNoChannel, before.storefrontNoChannel)).toBe(2);
+      expect(diff(after.testProfiles, before.testProfiles)).toBe(2);
+      expect(diff(after.tourEdits.newTours, before.tourEdits.newTours)).toBe(2);
+      expect(diff(after.tourEdits.edits, before.tourEdits.edits)).toBe(2);
+      // Стороны оферты без отметки: 18 не тестовых, двое из них приняли.
+      expect(diff(after.offerNotAccepted, before.offerNotAccepted)).toBe(16);
+    });
+
+    it('«канала нет» в SQL и правило доставки заявок отвечают одинаково — на каждой карточке базы', async () => {
+      const { NO_CHANNEL_SQL, reachForPartner } = await import('@/lib/partners/reach');
+      const { rows } = await pool.query<{ id: string; no_channel: boolean }>(
+        `SELECT p.id::text, ${NO_CHANNEL_SQL} AS no_channel
+           FROM partners p LEFT JOIN users u_reach ON u_reach.id = p.user_id`,
+      );
+      expect(rows.length).toBeGreaterThan(20);
+      let withChannel = 0;
+      for (const r of rows) {
+        const reach = await reachForPartner(r.id);
+        expect(reach, r.id).not.toBeNull();
+        expect(reach!.reachable, r.id).toBe(!r.no_channel);
+        if (reach!.reachable) withChannel++;
+      }
+      // Сверка не пустая: в базе есть и те, и другие.
+      expect(withChannel).toBeGreaterThan(5);
+      expect(rows.length - withChannel).toBeGreaterThan(5);
+    });
+
+    it('одобрение уменьшает очередь, шлюз канала — нет: одобрен без канала ждёт дальше', async () => {
+      const was = await read();
+      await pool.query(`UPDATE partners SET profile_status = 'approved', is_public = TRUE WHERE id = $1`, [fake(0)]);
+      await pool.query(`UPDATE partners SET max_chat_id = 9350 WHERE id = $1`, [fake(6)]);
+      const now = await read();
+      expect(Number(now.awaitingApproval.total)).toBe(Number(was.awaitingApproval.total) - 1);
+      expect(Number(now.approvedNoChannel)).toBe(Number(was.approvedNoChannel) - 1);
+    });
+
+    it('дверь администратора: числа, и ничего кроме чисел и ролей', async () => {
+      const { GET } = await import('@/app/api/admin/partners/queues/route');
+      const res = await GET(new NextRequest('http://localhost/api/admin/partners/queues'));
+      expect(res.status).toBe(200);
+      const body = await res.json() as { success: boolean; data: Queues };
+      expect(body.data).toEqual(await read());
+      const text = JSON.stringify(body);
+      // Ни названий карточек, ни адресов, ни id.
+      expect(text).not.toContain('Очередь');
+      expect(text).not.toContain('@');
+      expect(text).not.toMatch(/c6[12]00000-/);
+      expect(text).not.toMatch(/93\d\d/);
+
+      admin.allowed = false;
+      try {
+        const denied = await GET(new NextRequest('http://localhost/api/admin/partners/queues'));
+        expect(denied.status).toBe(401);
+        expect(JSON.stringify(await denied.json())).not.toContain('awaitingApproval');
+      } finally { admin.allowed = true; }
+    });
+
+    it('одно число не прочиталось — оно «не прочитано», остальные на месте, отказ назван в логе', async () => {
+      const { readPartnerQueues } = await import('@/lib/admin/partner-queues');
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const failing = (needles: string[]) => ({
+        query: (sql: string, params?: unknown[]) => (needles.some((n) => sql.includes(n))
+          ? Promise.reject(Object.assign(new Error('отказ'), { code: '57014' }))
+          : pool.query(sql, params)),
+      });
+      const q = await readPartnerQueues(failing(['operator_tour_edits', 'p.is_test IS TRUE', 'GROUP BY p.category']) as never);
+      const logged = errors.mock.calls.map((c) => c.join(' '));
+      errors.mockRestore();
+      // Три числа не прочитаны — и названы так, а не нулём.
+      expect(q.tourEdits).toEqual({ newTours: 'unknown', edits: 'unknown' });
+      expect(q.testProfiles).toBe('unknown');
+      expect(q.awaitingApproval).toEqual({ total: 'unknown', byCategory: [] });
+      // Остальные прочитаны.
+      expect(typeof q.storefrontNoChannel).toBe('number');
+      expect(typeof q.approvedNoChannel).toBe('number');
+      expect(typeof q.offerNotAccepted).toBe('number');
+      for (const what of ['очередь проверки туров', 'тестовые профили', 'заявки на одобрении']) {
+        expect(logged.some((l) => l.includes(what) && l.includes('57014')), what).toBe(true);
+      }
+    });
+
+    it('очередь проверки туров читается по индексу ждущих правок (1507), а не перебором', async () => {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        // На десятках строк планировщик честно выбирает перебор. Вопрос теста —
+        // есть ли у очереди индекс, которым она МОЖЕТ читаться: перебор запрещён
+        // на время одного запроса.
+        await client.query('SET LOCAL enable_seqscan = off');
+        const { rows } = await client.query<{ 'QUERY PLAN': string }>(
+          `EXPLAIN SELECT e.id FROM operator_tour_edits e WHERE e.moderation_status = 'pending' ORDER BY e.created_at ASC LIMIT 200`,
+        );
+        await client.query('ROLLBACK');
+        expect(rows.map((r) => r['QUERY PLAN']).join('\n')).toContain('operator_tour_edits_pending_created');
+      } finally { client.release(); }
+    });
+
+    it('на двадцати партнёрах с правками отчёт и очередь проверки отвечают за доли секунды', async () => {
+      const { listPendingTourEdits } = await import('@/lib/tours/moderation-review');
+      const timed = async <T,>(fn: () => Promise<T>) => {
+        const t = performance.now();
+        const value = await fn();
+        return { value, ms: performance.now() - t };
+      };
+      // Первый вызов прогревает соединения пула — меряется второй.
+      await read();
+      const report = await timed(read);
+      const queue = await timed(listPendingTourEdits);
+      expect(queue.value.outcome).toBe('ok');
+      // Порог — секунда на вызов: запас на загруженный раннер CI в сотни раз
+      // больше замера на пустой машине (единицы миллисекунд).
+      expect(report.ms).toBeLessThan(1000);
+      expect(queue.ms).toBeLessThan(1000);
     });
   });
 

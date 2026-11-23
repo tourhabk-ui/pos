@@ -119,6 +119,16 @@ export function reachFrom(row: PartnerReachRow): PartnerReach {
 }
 
 /**
+ * «Канала нет» — то же правило, что `reachFrom`, но условием SQL: для счёта по
+ * многим карточкам сразу (отчёт очередей администратора, этап 6 плана
+ * готовности). Алиасы — как в `reachForPartner`: `partners p` и
+ * `LEFT JOIN users u_reach ON u_reach.id = p.user_id`. Что условие и функция
+ * отвечают одинаково, сверяет tests/integration/request-cycle.pg.test.ts.
+ */
+export const NO_CHANNEL_SQL =
+  '(p.max_chat_id IS NULL AND p.telegram_chat_id IS NULL AND u_reach.telegram_id IS NULL)';
+
+/**
  * Достижимость партнёра по его id.
  *
  * `null` — партнёра нет ЛИБО запрос не выполнился, и это разные вещи: отказ
