@@ -235,7 +235,9 @@ export default function EditTourClient() {
           max_participants: t.max_participants.toString(),
           min_participants: t.min_participants?.toString() || '',
           duration_hours: t.duration_hours?.toString() || '',
-          duration_type: t.duration_type || 'day',
+          // Не записано — так и показываем: подставленный «Однодневный» ушёл бы
+          // при сохранении правкой, которой владелец не делал.
+          duration_type: t.duration_type ?? '',
           multi_day_count: t.multi_day_count?.toString() || '',
           season_start: t.season_start?.slice(0, 10) || '',
           season_end: t.season_end?.slice(0, 10) || '',
@@ -756,6 +758,7 @@ export default function EditTourClient() {
           <div>
             <label className={lbl}>Тип</label>
             <select className={inp} value={form.duration_type} onChange={e => setF('duration_type', e.target.value)}>
+              <option value="">— не указано —</option>
               <option value="day">Однодневный</option>
               <option value="multi_day">Многодневный</option>
             </select>

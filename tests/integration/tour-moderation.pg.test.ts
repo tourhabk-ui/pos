@@ -187,13 +187,13 @@ withPg('модерация правок тура', () => {
       expect(r.outcome === 'pending' && r.pending.fields).toEqual(['base_price', 'photos']);
     });
 
-    it('скрыть тур, сезон и число мест — сразу, черновик не трогается', async () => {
-      const r = await change(tour, OP, { is_active: false, max_participants: 12, season_start: '2027-06-01' });
+    it('скрыть тур, число мест и расписание — сразу, черновик не трогается', async () => {
+      const r = await change(tour, OP, { is_active: false, max_participants: 12, schedule_kind: 'any_day' });
       expect(r.outcome).toBe('written');
       const live = await liveOf(tour);
       expect(live.is_active).toBe(false);
       expect(live.max_participants).toBe(12);
-      expect(live.season_start).toBe('2027-06-01');
+      expect((await pool.query(`SELECT schedule_kind FROM operator_tours WHERE id = $1::bigint`, [tour])).rows[0].schedule_kind).toBe('any_day');
       expect(await onStorefront(tour)).toBe(false);
       expect(await pendingCount(tour)).toBe(1);
       await change(tour, OP, { is_active: true });
@@ -385,7 +385,7 @@ withPg('модерация правок тура', () => {
       expect(await pendingPatch(tour)).toBeNull();
     });
 
-    it('быстрое заполнение: описание тура на витрине — на проверку, сложность — сразу', async () => {
+    it('быстрое заполнение: описание и сложность тура на витрине — на проверку', async () => {
       const tour = await addTour(OP, 'Быстрое заполнение', { published: true });
       const { PATCH } = await import('@/app/api/operator/tours/quick-fill/route');
       const text = await PATCH(post('/api/operator/tours/quick-fill', { tourId: tour, field: 'description', value: 'Новое описание из быстрого заполнения.' }, 'PATCH'));
@@ -395,9 +395,11 @@ withPg('модерация правок тура', () => {
       expect((await liveOf(tour)).description).toBe('Описание тура для проверки модерации правок.');
       expect((await pendingPatch(tour))?.patch).toEqual({ description: 'Новое описание из быстрого заполнения.' });
 
-      const now = await PATCH(post('/api/operator/tours/quick-fill', { tourId: tour, field: 'difficulty', value: 'hard' }, 'PATCH'));
-      expect((await now.json()).pending).toBeNull();
-      expect((await pool.query(`SELECT difficulty FROM operator_tours WHERE id = $1::bigint`, [tour])).rows[0].difficulty).toBe('hard');
+      // Сложность с 23.11 — тоже на проверку: на витрине прежняя, в черновике — новая.
+      const hard = await PATCH(post('/api/operator/tours/quick-fill', { tourId: tour, field: 'difficulty', value: 'hard' }, 'PATCH'));
+      expect((await hard.json()).pending).toContain('отправлена на проверку (описание, сложность)');
+      expect((await pool.query(`SELECT difficulty FROM operator_tours WHERE id = $1::bigint`, [tour])).rows[0].difficulty).toBeNull();
+      expect((await pendingPatch(tour))?.patch).toEqual({ description: 'Новое описание из быстрого заполнения.', difficulty: 'hard' });
       // Чужой тур той же дверью не пишется.
       const foreign = await addTour(OTHER, 'Чужой для быстрого заполнения', { published: true });
       const denied = await PATCH(post('/api/operator/tours/quick-fill', { tourId: foreign, field: 'description', value: 'Чужая правка.' }, 'PATCH'));
@@ -423,10 +425,11 @@ withPg('модерация правок тура', () => {
       const row = (await pool.query(
         `SELECT short_description, included, what_to_bring, difficulty, notes FROM operator_tours WHERE id = $1::bigint`, [tour],
       )).rows[0];
-      // Витрина: тексты прежние; сложность и служебная заметка — сразу.
-      expect(row).toEqual({ short_description: null, included: null, what_to_bring: null, difficulty: 'medium', notes: 'Служебная заметка.' });
+      // Витрина: тексты и сложность прежние; сразу — только служебная заметка.
+      expect(row).toEqual({ short_description: null, included: null, what_to_bring: null, difficulty: null, notes: 'Служебная заметка.' });
       expect((await pendingPatch(tour))?.patch).toEqual({
         short_description: 'Короткое описание от модели.', included: ['Трансфер от модели'], what_to_bring: ['Термос оператора'],
+        difficulty: 'medium',
       });
     });
 
@@ -527,6 +530,66 @@ withPg('модерация правок тура', () => {
       expect(again.status).toBe(200);
       expect(await waitingPatch(tour)).toEqual({ base_price: 12000 });
       expect((await liveOf(tour)).base_price).toBe(10000);
+    });
+
+    it('форма целиком: сохранили без правок — черновика нет; поменяли сезон и сложность — на проверку, форма показывает правку', async () => {
+      const tour = await addTour(OP, 'Форма: сезон и сложность', { published: true, price: 10000 });
+      await pool.query(
+        `UPDATE operator_tours
+            SET difficulty = 'easy', duration_hours = 8.5, duration_type = 'day', location_name = 'Вулкан Горелый',
+                location_type = 'volcano', latitude = 52.558, longitude = 158.03,
+                season_start = '2027-06-01', season_end = '2027-09-30'
+          WHERE id = $1::bigint`, [tour]);
+      // Что шлёт редактор: числа — parseFloat, день — первые десять знаков, как в _EditTourClient.
+      const formOf = (t: Record<string, unknown>) => ({
+        title: t.title, description: t.description, location_name: t.location_name, location_type: t.location_type,
+        latitude: t.latitude == null ? null : parseFloat(String(t.latitude)),
+        longitude: t.longitude == null ? null : parseFloat(String(t.longitude)),
+        base_price: parseFloat(String(t.base_price)),
+        max_participants: Number(t.max_participants),
+        duration_hours: t.duration_hours == null ? null : parseFloat(String(t.duration_hours)),
+        duration_type: t.duration_type ?? null,
+        multi_day_count: t.multi_day_count == null ? null : Number(t.multi_day_count),
+        season_start: typeof t.season_start === 'string' ? t.season_start.slice(0, 10) : null,
+        season_end: typeof t.season_end === 'string' ? t.season_end.slice(0, 10) : null,
+        seasonal_only: t.seasonal_only === true, difficulty: t.difficulty ?? null,
+        is_active: t.is_active, photos: t.photos,
+      });
+      const opened = await openForm(tour);
+      expect(opened.status).toBe(200);
+      const form = formOf(opened.body.data);
+      expect(form).toMatchObject({ season_start: '2027-06-01', duration_hours: 8.5, latitude: 52.558, seasonal_only: false });
+
+      const same = await saveForm(tour, form);
+      expect(same.status, JSON.stringify(same.body)).toBe(200);
+      // Число мест и «активен» форма пишет сразу при каждом сохранении; на проверку не ушло ничего.
+      expect(same.body.pending).toBeNull();
+      expect(await waitingPatch(tour)).toBeNull();
+
+      const edited = await saveForm(tour, { ...form, season_start: '2027-06-15', difficulty: 'hard' });
+      expect(edited.status).toBe(200);
+      expect(edited.body.pending.fields).toEqual(['difficulty', 'season_start']);
+      expect(edited.body.pending.notice).toBe('Правка отправлена на проверку (сложность, начало сезона). На витрине пока прежняя версия.');
+      expect(await waitingPatch(tour)).toEqual({ difficulty: 'hard', season_start: '2027-06-15' });
+      const live = (await pool.query(
+        `SELECT difficulty, season_start::text AS season_start FROM operator_tours WHERE id = $1::bigint`, [tour],
+      )).rows[0];
+      expect(live).toEqual({ difficulty: 'easy', season_start: '2027-06-01' });
+
+      // Форма владельца показывает его правку и дифф словами; повторное сохранение её не стирает.
+      const again = await openForm(tour);
+      expect(again.body.data.difficulty).toBe('hard');
+      expect(String(again.body.data.season_start).slice(0, 10)).toBe('2027-06-15');
+      expect(again.body.data.moderation.pending.changes.map((c: { label: string; before: string; after: string }) => [c.label, c.before, c.after])).toEqual([
+        ['Сложность', 'Лёгкий', 'Сложный'],
+        ['Начало сезона', '1 июня 2027 г.', '15 июня 2027 г.'],
+      ]);
+      const resaved = await saveForm(tour, formOf(again.body.data));
+      expect(resaved.status).toBe(200);
+      expect(await waitingPatch(tour)).toEqual({ difficulty: 'hard', season_start: '2027-06-15' });
+      // Администратору форма отдаёт версию с сайта.
+      const admin = await asAdmin(() => openForm(tour));
+      expect(admin.body.data.difficulty).toBe('easy');
     });
 
     it('владелец: содержание — на проверку и ответ это называет; число мест и скрытие — сразу', async () => {
@@ -806,6 +869,167 @@ withPg('модерация правок тура', () => {
       expect(r.status).toBe(409);
       expect(r.body.code).toBe('changed');
       expect((await liveOf(tour)).base_price).toBe(10000);
+    });
+  });
+
+  /**
+   * Слово владельца 23.11: «Сложность, длительность, место и сезон тоже идут
+   * через проверку. От них зависят планер и даты, поэтому без проверки сразу
+   * на сайт нельзя». Мок принял бы любое значение; здесь типы колонок —
+   * numeric, integer, date, boolean — настоящие, и судит сервер.
+   */
+  describe('сложность, длительность, место и сезон — через проверку (слово владельца 23.11)', () => {
+    const FIELDS_SQL = `SELECT difficulty, duration_hours::float8 AS duration_hours, duration_type, multi_day_count,
+            location_name, location_type, latitude::float8 AS latitude, longitude::float8 AS longitude,
+            season_start::text AS season_start, season_end::text AS season_end, seasonal_only
+       FROM operator_tours WHERE id = $1::bigint`;
+    const fieldsOf = async (id: string) => (await pool.query(FIELDS_SQL, [id])).rows[0] as Record<string, unknown>;
+    const seed = async (id: string) => pool.query(
+      `UPDATE operator_tours
+          SET difficulty = 'easy', duration_hours = 8, duration_type = 'day', multi_day_count = NULL,
+              location_name = 'Вулкан Горелый', location_type = 'volcano', latitude = 52.558, longitude = 158.03,
+              season_start = '2027-06-01', season_end = '2027-09-30', seasonal_only = NULL
+        WHERE id = $1::bigint`, [id]);
+    const BEFORE = {
+      difficulty: 'easy', duration_hours: 8, duration_type: 'day', multi_day_count: null,
+      location_name: 'Вулкан Горелый', location_type: 'volcano', latitude: 52.558, longitude: 158.03,
+      season_start: '2027-06-01', season_end: '2027-09-30', seasonal_only: null,
+    };
+    const EDIT = {
+      difficulty: 'hard', duration_hours: 30.5, duration_type: 'multi_day', multi_day_count: 3,
+      location_name: 'Вулкан Мутновский', location_type: 'hot_spring', latitude: 52.4531, longitude: 158.195,
+      season_start: '2027-07-15', season_end: null, seasonal_only: true,
+    };
+    let tour = '';
+    beforeAll(async () => {
+      tour = await addTour(OP, 'Поля планера и дат', { published: true });
+      await seed(tour);
+    });
+
+    it('форма прислала те же значения в своём виде — правки нет, черновика нет', async () => {
+      // Число вместо numeric-строки, false вместо «не записано», день строкой.
+      const same = await change(tour, OP, { ...BEFORE, seasonal_only: false });
+      expect(same.outcome).toBe('unchanged');
+      expect(await pendingCount(tour)).toBe(0);
+    });
+
+    it('правка всех одиннадцати полей — черновик; витрина, даты и планер читают прежнее', async () => {
+      const r = await change(tour, OP, EDIT);
+      expect(r.outcome).toBe('pending');
+      if (r.outcome !== 'pending') return;
+      expect(r.row).toBeNull();
+      expect(r.pending.fields).toEqual([
+        'difficulty', 'duration_hours', 'duration_type', 'multi_day_count',
+        'location_name', 'location_type', 'latitude', 'longitude',
+        'season_start', 'season_end', 'seasonal_only',
+      ]);
+      expect(r.pending.notice).toContain('сложность');
+      expect(r.pending.notice).toContain('начало сезона');
+      expect(await fieldsOf(tour)).toEqual(BEFORE);
+    });
+
+    it('скрыть тур и поменять число мест при этом можно сразу', async () => {
+      const r = await change(tour, OP, { is_active: false, max_participants: 5 });
+      expect(r.outcome).toBe('written');
+      expect((await liveOf(tour)).is_active).toBe(false);
+      await change(tour, OP, { is_active: true });
+      expect(await pendingCount(tour)).toBe(1);
+      expect(await fieldsOf(tour)).toEqual(BEFORE);
+    });
+
+    it('очередь администратора: было и стало словами, дата — днём календаря', async () => {
+      const edit = (await queue()).find((e) => e.tourId === tour);
+      const by = Object.fromEntries((edit?.changes ?? []).map((c) => [c.field, [sp(c.before), sp(c.after)]]));
+      expect(by).toEqual({
+        difficulty: ['Лёгкий', 'Сложный'],
+        duration_hours: ['8', '30,5'],
+        duration_type: ['однодневный', 'многодневный'],
+        multi_day_count: ['не записано', '3'],
+        location_name: ['Вулкан Горелый', 'Вулкан Мутновский'],
+        location_type: ['Вулкан', 'Термальный источник'],
+        latitude: ['52,558', '52,4531'],
+        longitude: ['158,03', '158,195'],
+        season_start: ['1 июня 2027 г.', '15 июля 2027 г.'],
+        season_end: ['30 сентября 2027 г.', 'не записано'],
+        seasonal_only: ['нет', 'да'],
+      });
+    });
+
+    it('владелец вернул поле к значению витрины — в черновике его нет; вернул всё — черновика нет', async () => {
+      const back = await change(tour, OP, { difficulty: 'easy', season_start: '2027-06-01', latitude: 52.558 });
+      expect(back.outcome === 'pending' && back.pending.fields).toEqual([
+        'duration_hours', 'duration_type', 'multi_day_count', 'location_name', 'location_type', 'longitude',
+        'season_end', 'seasonal_only',
+      ]);
+      const all = await change(tour, OP, { ...BEFORE, seasonal_only: false });
+      expect(all.outcome).toBe('unchanged');
+      expect(await pendingCount(tour)).toBe(0);
+    });
+
+    it('одобрение применяет правку в своих типах: число, целое, дата, отметка и «не записано»', async () => {
+      await change(tour, OP, EDIT);
+      const edit = (await queue()).find((e) => e.tourId === tour);
+      expect(edit).toBeTruthy();
+      const done = await decide(edit!.id, 'approve', edit!.seen);
+      expect(done.outcome).toBe('approved');
+      expect(await fieldsOf(tour)).toEqual(EDIT);
+      expect(await pendingCount(tour)).toBe(0);
+      // «Что было» записано днём календаря и числами базы, а не объектом времени.
+      const before = (await pool.query(
+        `SELECT live_before FROM operator_tour_edits WHERE id = $1::uuid`, [edit!.id],
+      )).rows[0].live_before as Record<string, unknown>;
+      expect(before.season_start).toBe('2027-06-01');
+      expect(before.season_end).toBe('2027-09-30');
+      expect(before.difficulty).toBe('easy');
+      expect(Number(before.duration_hours)).toBe(8);
+      expect(before.seasonal_only).toBeNull();
+    });
+
+    it('отказ: витрина прежняя, поля названы владельцу', async () => {
+      await change(tour, OP, { season_end: '2027-10-31', difficulty: 'expert' });
+      const edit = (await queue()).find((e) => e.tourId === tour);
+      const done = await decide(edit!.id, 'reject', null, 'Сезон до конца октября не подтверждён расписанием.');
+      expect(done).toMatchObject({ outcome: 'rejected', fields: ['difficulty', 'season_end'] });
+      expect(await fieldsOf(tour)).toEqual(EDIT);
+    });
+
+    it('владелец дописал сезон после показа карточки — одобрение не применяется', async () => {
+      await change(tour, OP, { difficulty: 'medium' });
+      const shown = (await queue()).find((e) => e.tourId === tour);
+      await change(tour, OP, { season_start: '2027-08-01' });
+      expect((await decide(shown!.id, 'approve', shown!.seen)).outcome).toBe('changed');
+      expect((await fieldsOf(tour)).difficulty).toBe('hard');
+      expect((await fieldsOf(tour)).season_start).toBe('2027-07-15');
+      const { withdrawTourEdit } = await import('@/lib/tours/moderation-store');
+      expect(await withdrawTourEdit(tour, OP)).toBe('withdrawn');
+    });
+
+    it('тур не на витрине и без просьбы о проверке правится свободно', async () => {
+      const draft = await addTour(OP, 'Черновик с сезоном');
+      const r = await change(draft, OP, { difficulty: 'hard', season_start: '2027-06-10', duration_hours: 12, seasonal_only: true });
+      expect(r.outcome).toBe('written');
+      expect(await fieldsOf(draft)).toMatchObject({ difficulty: 'hard', season_start: '2027-06-10', duration_hours: 12, seasonal_only: true });
+      expect(await pendingCount(draft)).toBe(0);
+    });
+
+    it('сезон тура на сайте — на проверку; владелец видит свою правку словами', async () => {
+      const r = await change(tour, OP, { season_start: '2027-07-20', season_end: '2027-09-10' });
+      expect(r.outcome === 'pending' && r.pending.fields).toEqual(['season_start', 'season_end']);
+      const { loadOwnTourEdits } = await import('@/lib/tours/moderation-store');
+      const edits = await loadOwnTourEdits([tour], new Map([[tour, await fieldsOf(tour)]]));
+      expect(edits?.get(tour)?.pending?.changes.map((c) => [c.label, c.before, c.after])).toEqual([
+        ['Начало сезона', '15 июля 2027 г.', '20 июля 2027 г.'],
+        ['Конец сезона', 'не записано', '10 сентября 2027 г.'],
+      ]);
+      const { withdrawTourEdit } = await import('@/lib/tours/moderation-store');
+      await withdrawTourEdit(tour, OP);
+    });
+
+    it('администратор правит напрямую: он и есть проверка', async () => {
+      const r = await change(tour, null, { difficulty: 'easy', season_end: '2027-09-30' });
+      expect(r.outcome).toBe('written');
+      expect(await fieldsOf(tour)).toMatchObject({ difficulty: 'easy', season_end: '2027-09-30' });
+      expect(await pendingCount(tour)).toBe(0);
     });
   });
 

@@ -7,9 +7,14 @@
  * `operator_tours` — последняя одобренная версия; правка лежит черновиком в
  * `operator_tour_edits` (миграция 1507).
  *
+ * Через проверку идут и сложность, длительность, место и сезон (слово
+ * владельца 23.11: «от них зависят планер и даты, поэтому без проверки сразу
+ * на сайт нельзя»). По ним планер ставит тур в день, а календарь открывает
+ * даты — правка, вышедшая сразу, меняла бы чужие планы без чьего-либо взгляда.
+ *
  * Сразу, без очереди: скрыть и показать тур, снять с публикации, даты, число
- * мест, сезон, расписание и прочие атрибуты. Оператор обязан мочь закрыть
- * выезд в день выезда, не дожидаясь никого.
+ * мест, расписание и прочие атрибуты. Оператор обязан мочь закрыть выезд в
+ * день выезда, не дожидаясь никого.
  *
  * Здесь только правило и слова — без базы, чтобы его читали и экраны.
  * Черновик — lib/tours/moderation-store.ts, очередь и решение —
@@ -18,6 +23,9 @@
  * lib/tours/tour-change.ts.
  */
 
+import { locationTypeLabel } from '@/lib/places/location-types';
+import { difficultyLabel } from '@/lib/tours/labels';
+
 /** Колонки тура, которые идут на витрину через проверку. */
 export const MODERATED_TOUR_COLUMNS = [
   'title', 'short_description', 'description', 'program',
@@ -25,6 +33,11 @@ export const MODERATED_TOUR_COLUMNS = [
   'cancellation_policy', 'pickup_type', 'pickup_details',
   'base_price', 'price_old', 'price_unit',
   'photos', 'tour_image', 'video_clips',
+  // Слово владельца 23.11: сложность, длительность, место и сезон.
+  'difficulty',
+  'duration_hours', 'duration_type', 'multi_day_count',
+  'location_name', 'location_type', 'latitude', 'longitude',
+  'season_start', 'season_end', 'seasonal_only',
 ] as const;
 
 export type ModeratedTourColumn = (typeof MODERATED_TOUR_COLUMNS)[number];
@@ -57,12 +70,53 @@ export const TOUR_FIELD_LABELS: Record<ModeratedTourColumn, string> = {
   photos: 'Фото',
   tour_image: 'Главное фото',
   video_clips: 'Видео',
+  difficulty: 'Сложность',
+  duration_hours: 'Длительность в часах',
+  duration_type: 'Тип длительности',
+  multi_day_count: 'Число дней',
+  location_name: 'Место',
+  location_type: 'Вид места',
+  latitude: 'Широта',
+  longitude: 'Долгота',
+  season_start: 'Начало сезона',
+  season_end: 'Конец сезона',
+  seasonal_only: 'Только в сезон',
 };
 
 /** Поля-снимки: в диффе показываются картинками, а не строкой адресов. */
 export const TOUR_PHOTO_FIELDS: readonly ModeratedTourColumn[] = ['photos', 'tour_image'];
 
-const NUMERIC = new Set<string>(['base_price', 'price_old']);
+/** Цена: число в рублях. */
+const PRICE = new Set<string>(['base_price', 'price_old']);
+/** Числа без рублей: из базы numeric приходит строкой («8.00»), из формы — числом. */
+const PLAIN_NUMBER = new Set<string>(['duration_hours', 'multi_day_count', 'latitude', 'longitude']);
+const NUMERIC = new Set<string>([...PRICE, ...PLAIN_NUMBER]);
+/** Дата без времени: сверяется и показывается как день календаря. */
+const DATE_ONLY = new Set<string>(['season_start', 'season_end']);
+/** Да или нет: «не записано» в базе читается как «нет» (умолчание колонки). */
+const YES_NO = new Set<string>(['seasonal_only']);
+
+/** Колонки-даты содержания: живую строку читают текстом, а не объектом времени. */
+export const TOUR_DATE_COLUMNS: readonly ModeratedTourColumn[] = ['season_start', 'season_end'];
+
+/**
+ * День календаря «ГГГГ-ММ-ДД» из того, что пришло: строка базы или формы,
+ * отметка времени из JSON, объект времени драйвера. `null` — дня нет.
+ *
+ * Объект времени драйвер собирает полночью ПО МЕСТНОМУ времени — поэтому
+ * берутся местные год, месяц и число, а не строка UTC: иначе день съехал бы
+ * на сутки в любом поясе западнее Гринвича.
+ */
+export function tourDayKey(value: unknown): string | null {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+  }
+  if (typeof value !== 'string') return null;
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(value.trim());
+  return m ? m[1] : null;
+}
 
 /** Запись значения с ключами по алфавиту: порядок ключей jsonb базы и формы не различается. */
 export function canonicalJson(value: unknown): string {
@@ -85,12 +139,20 @@ function isBlank(v: unknown): boolean {
  * формы — числом; пустая строка и NULL — одно «не записано».
  */
 export function sameTourValue(field: ModeratedTourColumn, a: unknown, b: unknown): boolean {
+  // «Нет» и «не записано» у отметки — одно: колонка по умолчанию ложна, и
+  // форма, приславшая false на пустую строку, ничего не меняет.
+  if (YES_NO.has(field)) return (a === true) === (b === true);
   if (isBlank(a) && isBlank(b)) return true;
   if (isBlank(a) !== isBlank(b)) return false;
   if (NUMERIC.has(field)) {
     const x = Number(a);
     const y = Number(b);
     if (Number.isFinite(x) && Number.isFinite(y)) return x === y;
+  }
+  if (DATE_ONLY.has(field)) {
+    const x = tourDayKey(a);
+    const y = tourDayKey(b);
+    if (x !== null && y !== null) return x === y;
   }
   return canonicalJson(a) === canonicalJson(b);
 }
@@ -166,6 +228,9 @@ export interface TourEditChange {
 
 const EMPTY = 'не записано';
 
+/** Слова формы редактора: «Однодневный» / «Многодневный». Незнакомое — как записано. */
+const DURATION_TYPE_WORDS: Record<string, string> = { day: 'однодневный', multi_day: 'многодневный' };
+
 function photosOf(v: unknown): string[] {
   if (typeof v === 'string') return v.trim() ? [v] : [];
   if (!Array.isArray(v)) return [];
@@ -174,11 +239,30 @@ function photosOf(v: unknown): string[] {
 
 /** Значение поля словами — для строки «было / стало». */
 export function tourValueText(field: ModeratedTourColumn, value: unknown): string {
+  // У отметки пустого нет: «не записано» читается как «нет».
+  if (YES_NO.has(field)) return value === true ? 'да' : 'нет';
   if (isBlank(value)) return EMPTY;
-  if (NUMERIC.has(field)) {
+  if (PRICE.has(field)) {
     const n = Number(value);
     return Number.isFinite(n) ? `${new Intl.NumberFormat('ru-RU').format(n)} ₽` : String(value);
   }
+  if (PLAIN_NUMBER.has(field)) {
+    const n = Number(value);
+    // Координата — до шестого знака, без разделителей разрядов.
+    return Number.isFinite(n)
+      ? new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 6, useGrouping: false }).format(n)
+      : String(value);
+  }
+  if (DATE_ONLY.has(field)) {
+    const day = tourDayKey(value);
+    if (day === null) return String(value);
+    const [y, m, d] = day.split('-').map(Number);
+    return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
+      .format(new Date(Date.UTC(y, m - 1, d)));
+  }
+  if (field === 'difficulty') return difficultyLabel(String(value), true) || String(value);
+  if (field === 'duration_type') return DURATION_TYPE_WORDS[String(value)] ?? String(value);
+  if (field === 'location_type') return locationTypeLabel(String(value));
   if (field === 'photos' || field === 'tour_image') {
     const n = photosOf(value).length;
     return `снимков: ${n}`;

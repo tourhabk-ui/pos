@@ -14,7 +14,7 @@
 import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
 import {
-  MODERATED_TOUR_COLUMNS, contentDiff,
+  MODERATED_TOUR_COLUMNS, TOUR_DATE_COLUMNS, contentDiff,
   type ModeratedTourColumn, type TourContentPatch,
 } from '@/lib/tours/moderation';
 import { cleanPatch, fieldsOf } from '@/lib/tours/moderation-read';
@@ -28,8 +28,16 @@ function sqlState(err: unknown): string {
   return (err as { code?: string })?.code ?? 'нет';
 }
 
-/** Колонки содержания живой строки — для сравнения и диффа. */
-export const LIVE_CONTENT_COLUMNS = MODERATED_TOUR_COLUMNS.map((c) => `ot.${c}`).join(', ');
+/**
+ * Колонки содержания живой строки — для сравнения и диффа.
+ *
+ * Дата читается текстом «ГГГГ-ММ-ДД»: драйвер отдал бы её объектом времени,
+ * а черновик и форма несут строку — отпечаток карточки и запись «что было»
+ * разошлись бы с тем, что видел администратор.
+ */
+export const LIVE_CONTENT_COLUMNS = MODERATED_TOUR_COLUMNS
+  .map((c) => (TOUR_DATE_COLUMNS.includes(c) ? `ot.${c}::text AS ${c}` : `ot.${c}`))
+  .join(', ');
 
 // ─── Положить черновик ────────────────────────────────────────────────────────
 

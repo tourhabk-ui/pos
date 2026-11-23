@@ -57,8 +57,9 @@ vi.mock('@/lib/notifications/pd-alert', () => ({ sendPdAlert: h.send }));
 
 import {
   MODERATED_TOUR_COLUMNS, contentDiff, pendingNotice, sameTourValue, splitTourInput,
-  tourCabinetPath, tourEditChanges, tourModerationState, tourReviewMark,
+  tourCabinetPath, tourDayKey, tourEditChanges, tourModerationState, tourReviewMark,
 } from '@/lib/tours/moderation';
+import { LIVE_CONTENT_COLUMNS } from '@/lib/tours/moderation-store';
 import { TOUR_PATCH_COLUMNS } from '@/lib/tours/tour-write';
 import { TourEditQueue, type TourEditCard } from '@/components/admin/TourEditQueue';
 import { TourModerationStatus, type TourModerationView } from '@/components/tours/TourModerationStatus';
@@ -78,14 +79,27 @@ const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 // ─── Правило ──────────────────────────────────────────────────────────────────
 
 describe('правило: что идёт через проверку, а что сразу', () => {
-  it('содержание — через проверку; скрыть, даты, места и сезон — сразу', () => {
+  it('содержание — через проверку; скрыть, число мест, расписание и вид активности — сразу', () => {
     const r = splitTourInput({
       title: 'Тур', base_price: 100, photos: ['/images/tours/a.jpg'], cancellation_policy: 'за 3 дня',
-      is_active: false, max_participants: 6, season_start: '2027-06-01', difficulty: 'hard',
+      is_active: false, max_participants: 6, schedule_kind: 'any_day', activity_type: 'trekking',
     });
     expect(Object.keys(r.content).sort()).toEqual(['base_price', 'cancellation_policy', 'photos', 'title']);
-    expect(Object.keys(r.immediate).sort()).toEqual(['difficulty', 'is_active', 'max_participants', 'season_start']);
+    expect(Object.keys(r.immediate).sort()).toEqual(['activity_type', 'is_active', 'max_participants', 'schedule_kind']);
     expect(r.wantsPublish).toBe(false);
+  });
+
+  it('сложность, длительность, место и сезон — через проверку (слово владельца 23.11)', () => {
+    const named = {
+      difficulty: 'hard',
+      duration_hours: 8, duration_type: 'multi_day', multi_day_count: 3,
+      location_name: 'Вулкан Горелый', location_type: 'volcano', latitude: 52.558, longitude: 158.03,
+      season_start: '2027-06-01', season_end: '2027-09-30', seasonal_only: true,
+    };
+    const r = splitTourInput({ ...named, is_active: true });
+    expect(Object.keys(r.content).sort()).toEqual(Object.keys(named).sort());
+    expect(r.immediate).toEqual({ is_active: true });
+    for (const col of Object.keys(named)) expect(MODERATED_TOUR_COLUMNS as readonly string[], col).toContain(col);
   });
 
   it('«опубликовать» — просьба, а не поле; «снять с публикации» — сразу', () => {
@@ -106,6 +120,10 @@ describe('правило: что идёт через проверку, а что
     // Публикация и показ в этот список не входят: одно — просьба, другое — сразу.
     expect(MODERATED_TOUR_COLUMNS as readonly string[]).not.toContain('is_published');
     expect(MODERATED_TOUR_COLUMNS as readonly string[]).not.toContain('is_active');
+    // Закрыть выезд владелец обязан мочь сам: места, расписание и даты — не содержание.
+    for (const col of ['max_participants', 'min_participants', 'schedule_kind', 'available_slots', 'next_available_date']) {
+      expect(MODERATED_TOUR_COLUMNS as readonly string[], col).not.toContain(col);
+    }
   });
 
   it('форма шлёт себя целиком: то же значение в другом виде — не правка', () => {
@@ -116,6 +134,116 @@ describe('правило: что идёт через проверку, а что
     expect(sameTourValue('program', [{ title: 'А', text: 'Б' }], [{ text: 'Б', title: 'А' }])).toBe(true);
     expect(contentDiff({ title: 'Тур', base_price: '100.00', included: null }, { title: 'Тур', base_price: 100, included: [] })).toEqual({});
     expect(contentDiff({ title: 'Тур', base_price: '100.00' }, { title: 'Тур', base_price: 120 })).toEqual({ base_price: 120 });
+  });
+
+  it('числа, даты и отметка: другая запись того же значения — не правка, другое значение — правка', () => {
+    // Число: из базы numeric строкой, из формы — числом.
+    expect(sameTourValue('duration_hours', '8.00', 8)).toBe(true);
+    expect(sameTourValue('duration_hours', '8.00', 8.5)).toBe(false);
+    expect(sameTourValue('multi_day_count', 3, '3')).toBe(true);
+    expect(sameTourValue('latitude', '53.020000', 53.02)).toBe(true);
+    expect(sameTourValue('longitude', '158.650000', 158.66)).toBe(false);
+    // День календаря: строка базы, отметка времени из JSON, объект времени драйвера.
+    expect(sameTourValue('season_start', '2027-06-01', '2027-06-01T00:00:00.000Z')).toBe(true);
+    expect(sameTourValue('season_start', new Date(2027, 5, 1), '2027-06-01')).toBe(true);
+    expect(sameTourValue('season_start', new Date(2027, 5, 1), '2027-06-02')).toBe(false);
+    expect(sameTourValue('season_end', null, '')).toBe(true);
+    expect(sameTourValue('season_end', null, '2027-09-30')).toBe(false);
+    // Отметка: «не записано» и «нет» — одно.
+    expect(sameTourValue('seasonal_only', null, false)).toBe(true);
+    expect(sameTourValue('seasonal_only', undefined, false)).toBe(true);
+    expect(sameTourValue('seasonal_only', false, true)).toBe(false);
+    expect(sameTourValue('seasonal_only', null, true)).toBe(false);
+    // Незаписанный вид длительности — не «однодневный».
+    expect(sameTourValue('duration_type', null, 'day')).toBe(false);
+
+    // Форма целиком на строке из базы: ни одного поля в черновик.
+    const live = {
+      difficulty: 'hard', duration_hours: '8.00', duration_type: 'day', multi_day_count: null,
+      location_name: 'Вулкан Горелый', location_type: 'volcano', latitude: '52.558000', longitude: '158.030000',
+      season_start: '2027-06-01', season_end: null, seasonal_only: null,
+    };
+    const form = {
+      difficulty: 'hard', duration_hours: 8, duration_type: 'day', multi_day_count: null,
+      location_name: 'Вулкан Горелый', location_type: 'volcano', latitude: 52.558, longitude: 158.03,
+      season_start: '2027-06-01', season_end: null, seasonal_only: false,
+    };
+    expect(contentDiff(live, form)).toEqual({});
+    expect(contentDiff(live, { ...form, season_end: '2027-09-30', difficulty: 'medium' }))
+      .toEqual({ season_end: '2027-09-30', difficulty: 'medium' });
+  });
+
+  it('день календаря: местные год, месяц и число объекта времени; мусор — не день', () => {
+    expect(tourDayKey('2027-06-01')).toBe('2027-06-01');
+    expect(tourDayKey(' 2027-06-01T12:30:00+12:00 ')).toBe('2027-06-01');
+    expect(tourDayKey(new Date(2027, 0, 1))).toBe('2027-01-01');
+    expect(tourDayKey(new Date(2027, 11, 31, 23, 59))).toBe('2027-12-31');
+    expect(tourDayKey(new Date('чепуха'))).toBeNull();
+    expect(tourDayKey('июнь')).toBeNull();
+    expect(tourDayKey(20270601)).toBeNull();
+    expect(tourDayKey(null)).toBeNull();
+  });
+
+  it('день календаря не съезжает на сутки в поясе Камчатки (UTC+12)', () => {
+    // Драйвер собирает дату полночью по местному времени. В поясе восточнее
+    // Гринвича строка UTC такой полуночи — ещё вчерашний день.
+    const before = process.env.TZ;
+    process.env.TZ = 'Asia/Kamchatka';
+    try {
+      const midnight = new Date(2027, 5, 1);
+      // Пояс применился: иначе проверка ниже ничего бы не проверила.
+      expect(midnight.getTimezoneOffset()).toBe(-720);
+      expect(midnight.toISOString().slice(0, 10)).toBe('2027-05-31');
+      expect(tourDayKey(midnight)).toBe('2027-06-01');
+      expect(sameTourValue('season_start', midnight, '2027-06-01')).toBe(true);
+      expect(tourEditChanges({ season_start: midnight }, { season_start: '2027-06-02' })[0].before).toBe('1 июня 2027 г.');
+    } finally {
+      if (before === undefined) delete process.env.TZ; else process.env.TZ = before;
+    }
+  });
+
+  it('было и стало словами: сложность, длительность, сезон и место — не ключи базы и не рубли', () => {
+    const changes = tourEditChanges(
+      {
+        difficulty: 'easy', duration_hours: '8.00', duration_type: 'day', multi_day_count: null,
+        location_name: 'Вулкан Горелый', location_type: 'volcano', latitude: '52.558000', longitude: null,
+        season_start: new Date(2027, 5, 1), season_end: '2027-09-30', seasonal_only: null, base_price: '10000.00',
+      },
+      {
+        difficulty: 'hard', duration_hours: 30, duration_type: 'multi_day', multi_day_count: 3,
+        location_name: 'Вулкан Мутновский', location_type: 'hot_spring', latitude: 52.4531, longitude: 158.195,
+        season_start: '2027-07-15', season_end: null, seasonal_only: true, base_price: 12000,
+      },
+    );
+    const by = Object.fromEntries(changes.map((c) => [c.field, c]));
+    expect([by.difficulty.label, by.difficulty.before, by.difficulty.after]).toEqual(['Сложность', 'Лёгкий', 'Сложный']);
+    expect([by.duration_hours.before, by.duration_hours.after]).toEqual(['8', '30']);
+    expect([by.duration_type.before, by.duration_type.after]).toEqual(['однодневный', 'многодневный']);
+    expect([by.multi_day_count.before, by.multi_day_count.after]).toEqual(['не записано', '3']);
+    expect([by.location_name.label, by.location_name.after]).toEqual(['Место', 'Вулкан Мутновский']);
+    expect([by.location_type.before, by.location_type.after]).toEqual(['Вулкан', 'Термальный источник']);
+    expect([by.latitude.before, by.latitude.after]).toEqual(['52,558', '52,4531']);
+    expect([by.longitude.before, by.longitude.after]).toEqual(['не записано', '158,195']);
+    expect([by.season_start.before, by.season_start.after]).toEqual(['1 июня 2027 г.', '15 июля 2027 г.']);
+    expect([by.season_end.before, by.season_end.after]).toEqual(['30 сентября 2027 г.', 'не записано']);
+    expect([by.seasonal_only.label, by.seasonal_only.before, by.seasonal_only.after]).toEqual(['Только в сезон', 'нет', 'да']);
+    // Рубль — только у цены.
+    // Разделитель тысяч у ru-RU — неразрывный пробел.
+    expect(by.base_price.after.replace(/[\u00a0\u202f]/g, ' ')).toBe('12 000 ₽');
+    for (const c of changes) if (c.field !== 'base_price') expect(`${c.before}${c.after}`, c.field).not.toContain('₽');
+    // Незнакомое написание не прячется: видно как записано.
+    expect(tourEditChanges({}, { difficulty: 'лютый', duration_type: 'half_day', location_type: 'crater' }).map((c) => c.after))
+      .toEqual(['лютый', 'half_day', 'crater']);
+  });
+
+  it('живая строка: даты читаются текстом, остальные колонки — как есть', () => {
+    const cols = LIVE_CONTENT_COLUMNS.split(', ');
+    expect(cols).toContain('ot.season_start::text AS season_start');
+    expect(cols).toContain('ot.season_end::text AS season_end');
+    expect(cols).toContain('ot.difficulty');
+    expect(cols).toContain('ot.duration_hours');
+    expect(cols.filter((c) => c.includes('::'))).toHaveLength(2);
+    expect(cols).toHaveLength(MODERATED_TOUR_COLUMNS.length);
   });
 
   it('состояние и слова владельцу', () => {
@@ -329,8 +457,11 @@ describe('статус тура у владельца', () => {
   it('на сайте: сказано, что идёт через проверку, а что сразу; снять с публикации можно', () => {
     const hnd = status(LIVE);
     const box = screen.getByTestId('tour-moderation');
-    expect(box.textContent).toContain('Правки названия, текстов, цены, условий и снимков выходят на сайт после проверки администратором.');
-    expect(box.textContent).toContain('Скрыть тур, даты и число мест можно менять сразу.');
+    const said = (box.textContent ?? '').replace(/\s+/g, ' ');
+    expect(said).toContain('Правки названия, текстов, цены, условий, снимков, сложности, длительности, места и сезона выходят на сайт после проверки администратором.');
+    expect(said).toContain('Скрыть тур, даты и число мест можно менять сразу.');
+    // Сезон и сложность «сразу» больше не обещаны.
+    expect(said).not.toMatch(/сезон[а-я]* (можно|меня)/);
     fireEvent.click(screen.getByRole('button', { name: 'Снять с публикации' }));
     expect(hnd.onUnpublish).toHaveBeenCalledTimes(1);
   });
@@ -390,6 +521,26 @@ describe('редактор тура оператора', () => {
     // Форма, открытая до одобрения, не должна ни ставить, ни снимать публикацию.
     expect(patches[0]).not.toHaveProperty('is_published');
     expect(patches[0].is_active).toBe(true);
+  });
+
+  it('вид длительности не записан: форма не подставляет «Однодневный» и шлёт «не записано»', async () => {
+    serve({ ...TOUR, duration_type: null, is_published: true, moderation: { ...LIVE, direct: false } });
+    render(<EditTourClient />);
+    await screen.findByTestId('tour-moderation');
+    const kind = screen.getByDisplayValue('— не указано —', { selector: 'select' }) as HTMLSelectElement;
+    expect(Array.from(kind.options).map((o) => o.value)).toEqual(['', 'day', 'multi_day']);
+    fireEvent.click(screen.getAllByText('Сохранить')[0]);
+    await waitFor(() => expect(patches).toHaveLength(1));
+    // Подставленное «day» ушло бы на проверку правкой, которой владелец не делал.
+    expect(patches[0].duration_type).toBeNull();
+    // Записанное значение форма шлёт как есть.
+    cleanup();
+    serve({ ...TOUR, duration_type: 'multi_day', is_published: true, moderation: { ...LIVE, direct: false } });
+    render(<EditTourClient />);
+    await screen.findByTestId('tour-moderation');
+    fireEvent.click(screen.getAllByText('Сохранить')[0]);
+    await waitFor(() => expect(patches).toHaveLength(1));
+    expect(patches[0].duration_type).toBe('multi_day');
   });
 
   it('владелец: «отправить на проверку» шлёт форму с просьбой; ответ сервера показан словами', async () => {

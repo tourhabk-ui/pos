@@ -107,8 +107,8 @@ export function TourModerationStatus({ moderation, busy, onAskPublish, onUnpubli
           <Eye className="w-4 h-4 text-[var(--success)]" aria-hidden /> Опубликован
         </p>
         <p className="text-sm text-[var(--text-secondary)]">
-          Правки названия, текстов, цены, условий и снимков выходят на сайт после проверки администратором.
-          Скрыть тур, даты и число мест можно менять сразу.
+          Правки названия, текстов, цены, условий, снимков, сложности, длительности, места и сезона выходят на сайт
+          после проверки администратором. Скрыть тур, даты и число мест можно менять сразу.
         </p>
         <button type="button" onClick={onUnpublish} disabled={busy} className={btn}>
           <EyeOff className="w-4 h-4" aria-hidden /> Снять с публикации
