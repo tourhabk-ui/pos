@@ -187,7 +187,8 @@ describe('связка со страницами', () => {
   it('карточка маршрута берёт факты из kamchatka_routes и строит сниппет из них', () => {
     const src = read('app/routes/[id]/page.tsx');
     expect(src).toContain('LEFT JOIN kamchatka_routes kr ON COALESCE(kr.ark_id, kr.id) = k.id');
-    expect(src).toContain('const desc = routeDescription({');
+    expect(src).toContain('routeDescription({');
+    expect(src).toMatch(/search\?\.description \?\? \(routeDescription\(/);
     expect(src).not.toContain('const desc = metaDescription(route.description)');
   });
 
