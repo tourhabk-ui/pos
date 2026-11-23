@@ -17,7 +17,7 @@
  *
  * Чистый модуль: его читают экран и тесты.
  */
-import { renumberByPosition, type CalendarDayLike, type NewNumbers } from './calendar-days';
+import { renumberByPosition, TOUR_PRICE_PENDING_TEXT, type CalendarDayLike, type NewNumbers } from './calendar-days';
 import { MOVABLE_TYPES, orderProblem, tourGroup } from './plan-ops';
 import { normalizeActivity } from './constants';
 import { weatherKitLine } from './weather-kit';
@@ -214,6 +214,49 @@ export function isWeatherReserveDay(d: { type: string; title: string }): boolean
   return d.type === 'buffer' || d.title === WEATHER_RESERVE_TITLE;
 }
 
+const DATE_BOUND = [
+  'availableDate', 'slotsRemaining', 'availability', 'availabilityCheckedAt', 'capacityWarning',
+  'weatherForecast', 'weatherKit',
+] as const;
+
+/** Содержимое дня без полей прежней даты: места, цена и прогноз. Номер дня не трогает. */
+function detachFromDate<T extends PlanBDay>(d: T): T {
+  const copy = { ...d } as T & Record<string, unknown>;
+  for (const k of DATE_BOUND) delete copy[k];
+  const rec = copy as Record<string, unknown>;
+  const tour = rec.realTour as Record<string, unknown> | undefined;
+  if (tour && ('realPrice' in rec || 'priceMissing' in rec)) {
+    delete rec.realPrice;
+    rec.priceMissing = TOUR_PRICE_PENDING_TEXT;
+    const { priceLabel: _label, ...rest } = tour;
+    rec.realTour = rest;
+  }
+  return copy;
+}
+
+/**
+ * Содержимое дней `a` и `b` меняется, номера дней остаются. Прогноз остаётся
+ * у номера (у даты). Дыры в нумерации не закрываются.
+ */
+function exchangeDayContents<T extends PlanBDay & CalendarDayLike>(days: readonly T[], a: number, b: number): T[] {
+  const left = days.find((d) => d.day === a);
+  const right = days.find((d) => d.day === b);
+  if (!left || !right || left === right) return [...days];
+  return days.map((slot) => {
+    if (slot.day !== a && slot.day !== b) return slot;
+    const source = slot.day === a ? right : left;
+    const moved = detachFromDate(source);
+    const next = { ...moved, day: slot.day } as T;
+    if (slot.zone === source.zone && usable(slot.weatherForecast)) {
+      next.weatherForecast = slot.weatherForecast;
+      const kit = weatherKitLine(slot.weatherForecast, next.type === 'activity' ? next.activityType : null);
+      if (kit) next.weatherKit = kit;
+      else delete next.weatherKit;
+    }
+    return next;
+  });
+}
+
 /**
  * Выезд с плохим прогнозом меняется с резервным днём, у которого прогноз
  * этого порога не достигает. Одного резерва хватает на один выезд.
@@ -234,7 +277,7 @@ export function shelterBadOutings<T extends PlanBDay & CalendarDayLike>(days: re
       && isWeatherReserveDay(d)
       && !forecastIsBad(d.weatherForecast)
       && tourGroup(out, d).length === 1
-      && orderProblem(swappedOrder(out, outing.day, d.day)) === null);
+      && d.type !== 'arrival' && d.type !== 'departure');
     reserves.sort((a, b) => (a.type === 'buffer' ? -1 : 0) - (b.type === 'buffer' ? -1 : 0)
       || Math.abs(a.day - outing.day) - Math.abs(b.day - outing.day));
     const reserve = reserves[0];
@@ -242,7 +285,10 @@ export function shelterBadOutings<T extends PlanBDay & CalendarDayLike>(days: re
       moved.add(tourId);
       continue;
     }
-    out = swapDays(out, outing.day, reserve.day).days;
+    // Номера дней — это даты. В плане бывают дыры (отъезд всегда последний
+    // день поездки), и swapDays заново нумерует массив с единицы: один обмен
+    // сдвинул бы отъезд и снял места у дней, которые не менялись.
+    out = exchangeDayContents(out, outing.day, reserve.day);
     moved.add(tourId);
   }
   return out;

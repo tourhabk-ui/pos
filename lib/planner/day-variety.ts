@@ -16,7 +16,7 @@
  *   музей, этно, природа. Чего в каталоге нет — в план не дописывается.
  */
 
-import { ACTIVITY_NAMES } from '@/lib/planner/constants';
+import { ACTIVITY_CONSTRAINTS, ACTIVITY_NAMES } from '@/lib/planner/constants';
 
 const ALIAS: Record<string, string> = { thermal: 'hot_spring' };
 
@@ -43,10 +43,21 @@ export function textSaysSprings(parts: readonly (string | null | undefined)[]): 
 }
 
 /**
+ * Свой вид тура, который описание не переписывает. Вертолёт, вулкан, джип
+ * остаются собой, даже если в тексте есть «термальные поля» или «купание».
+ * `excursion` и пустой тип — не свой вид: их как раз читаем по описанию.
+ */
+function textMustNotOverride(key: string): boolean {
+  if (!key || key === 'hot_spring') return false;
+  return key in ACTIVITY_CONSTRAINTS || key === 'jeep';
+}
+
+/**
  * Категория выезда. Тип оператора `thermal` / `hot_spring` — источники.
- * Иначе sources — описание и теги: тур с типом «экскурсия», в тексте
- * которого термальные источники, считается тем же полным днём на источниках.
- * Интерес блока — запасной ключ, когда у тура своего слова нет.
+ * Свой вид (вертолёт, вулкан, джип и остальные занятия планировщика)
+ * описание не перебивает. Нет своего вида — описание и теги: тур
+ * «экскурсия», в тексте которого термальные источники, считается полным
+ * днём на источниках. Интерес блока — запасной ключ.
  */
 export function outingVarietyKey(input: {
   interest?: string | null;
@@ -57,8 +68,10 @@ export function outingVarietyKey(input: {
 }): string {
   const fromType = varietyKey(input.activityType);
   const fromInterest = varietyKey(input.interest);
-  if (fromType === 'hot_spring' || fromInterest === 'hot_spring') return 'hot_spring';
+  if (fromType === 'hot_spring') return 'hot_spring';
+  if (textMustNotOverride(fromType)) return fromType;
   if (textSaysSprings([input.title, input.description, ...(input.included ?? [])])) return 'hot_spring';
+  if (fromInterest === 'hot_spring' || textMustNotOverride(fromInterest)) return fromInterest;
   const typed = (input.activityType ?? '').trim();
   if (typed) return fromType;
   return fromInterest;

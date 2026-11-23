@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { ACTIVITY_CONSTRAINTS } from '@/lib/planner/constants';
 import { admitsAt, capSkippedLine, outingCap, outingVarietyKey, textSaysSprings, varietyAdmit, varietyKey } from '@/lib/planner/day-variety';
+import { shelterBadOutings } from '@/lib/planner/weather-plan-b';
 import { gateClosureFromAlerts, liveCardCoversDate, recordedMinAge, tourGate } from '@/lib/planner/tour-gates';
 import { TITLE_CLIP } from '@/lib/services/safety/park-closure-hold';
 import { buildRefusal } from '@/lib/kuzmich/trip-plan-tool';
@@ -180,6 +181,9 @@ describe('правило разнообразия', () => {
     expect(outingVarietyKey({ activityType: 'excursion', title: 'Зеленовские озерки', description: 'термальные источники', included: ['купание'] })).toBe('hot_spring');
     expect(outingVarietyKey({ activityType: 'thermal', title: 'Малкинские источники' })).toBe('hot_spring');
     expect(outingVarietyKey({ activityType: 'jeep', title: 'Джип к перевалу', description: 'грунтовая дорога' })).toBe('jeep');
+    expect(outingVarietyKey({ activityType: 'helicopter', title: 'Долина гейзеров', description: 'высадка у термальных полей, купание' })).toBe('helicopter');
+    expect(outingVarietyKey({ activityType: 'volcano', description: 'термальные поля Мутновского' })).toBe('volcano');
+    expect(outingVarietyKey({ activityType: 'jeep', description: 'купание в горячих источниках' })).toBe('jeep');
     expect(capSkippedLine('hot_spring')).toMatch(/Ещё полный день на источниках не ставили/);
   });
 
@@ -246,6 +250,31 @@ describe('правило разнообразия', () => {
     const deny = admitsAt(days, 3, 'hot_spring', 't-106', 1, 11);
     expect(deny.ok).toBe(false);
     if (!deny.ok) expect(['cap', 'row']).toContain(deny.kind);
+  });
+
+  it('обмен с резервом оставляет номера дней: дыра перед отъездом не закрывается', () => {
+    const fc = (precip: number, description: string) => ({
+      tempMin: -8, tempMax: -2, precipMm: precip, windKmh: 20, code: precip >= 10 ? 75 : 3, description,
+    });
+    const days = [
+      { day: 1, type: 'arrival', zone: 'avachinsky' as const, title: 'Прилёт', activityType: 'arrival' },
+      {
+        day: 2, type: 'activity', zone: 'avachinsky' as const, title: 'Малки', activityType: 'thermal',
+        realTour: { tourId: 't-82' }, weatherForecast: fc(12, 'Сильный снег'), slotsRemaining: 4, realPrice: 20000,
+      },
+      { day: 10, type: 'rest', zone: 'avachinsky' as const, title: 'Резервный день на погоду', activityType: 'rest', weatherForecast: fc(1, 'Облачно') },
+      { day: 11, type: 'departure', zone: 'avachinsky' as const, title: 'Вылет', activityType: 'departure' },
+    ];
+    const out = shelterBadOutings(days);
+    expect(out.map((d) => d.day)).toEqual([1, 2, 10, 11]);
+    expect(out.find((d) => d.day === 11)?.type).toBe('departure');
+    expect(out.find((d) => d.day === 10)?.realTour?.tourId).toBe('t-82');
+    expect(out.find((d) => d.day === 2)?.title).toBe('Резервный день на погоду');
+    expect(out.find((d) => d.day === 2)?.weatherForecast?.description).toBe('Сильный снег');
+    expect(out.find((d) => d.day === 10)?.weatherForecast?.description).toBe('Облачно');
+    const moved = out.find((d) => d.realTour?.tourId === 't-82');
+    expect(moved && 'slotsRemaining' in moved).toBe(false);
+    expect(moved && 'realPrice' in moved).toBe(false);
   });
 });
 
