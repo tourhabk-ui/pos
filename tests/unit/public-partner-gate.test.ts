@@ -29,8 +29,13 @@
  *     представлению в том же файле прошёл бы без отсечки — теперь отсечка
  *     стоит в единственной обёртке, а имя представления вне неё — красный.
  *
- * Сам отбор на настоящей базе, при снятом CHECK, —
- * tests/integration/operators-list.pg.test.ts.
+ * Чего сторож НЕ обещает (пять кругов ревью #3780). Это растяжка по тексту
+ * исходника, а не разбор SQL: он узнаёт сравнение, отрицание, флаг в функции
+ * и в строке значений, приводит к одной записи кавычки, скобки, пробелы и
+ * регистр. Флаг, переименованный через CTE, или запись, которой нет среди
+ * образцов ниже, он может пропустить. Замок — не он: условие стоит в самих
+ * читателях, CHECK — в базе, а отбор при снятом CHECK судит
+ * tests/integration/operators-list.pg.test.ts на настоящем PostgreSQL.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -107,7 +112,8 @@ const rel = (file: string) => relative(ROOT, file).split('\\').join('/');
  * проходило бы молча. Поэтому условием витрины считается ЛЮБОЕ вхождение
  * флага в условие, кроме тех, что явно отбирают НЕ опубликованное: `= FALSE`,
  * `IS FALSE`, `IS NOT TRUE`, `<> TRUE`, `IS DISTINCT FROM TRUE`, `NOT флаг`,
- * проверка на NULL. Новое написание по умолчанию — красное.
+ * проверка на NULL. Формы условия, которые сторож узнаёт, перечислены
+ * образцами в таблице «ловит» ниже; границу см. в шапке файла.
  */
 const FLAG = String.raw`(?:[a-z_][a-z0-9_]*\.)?is_public\b`;
 
@@ -127,19 +133,33 @@ const REVERSED = new RegExp(String.raw`(\bTRUE|\bFALSE|'t(?:rue)?'|'f(?:alse)?'|
 /** 4. Флаг внутри функции SQL: COALESCE(is_public, …); `… ) AS имя` — колонка выдачи, не условие. */
 const WRAPPED = new RegExp(String.raw`(?<![.\w])(?:COALESCE|NULLIF|BOOL_OR|BOOL_AND|EVERY|CAST|MAX|MIN|GREATEST|LEAST)\(\s*${FLAG}[^()]*\)(?!\s+AS\b)`, 'gi');
 
+/**
+ * 5. Флаг в строке значений, которую сравнивают целиком (пятая находка ревью
+ * #3780): `(p.slug, p.is_public) = ($1, TRUE)`, `ROW(…) = ROW(…)`, `… IN ((…))`.
+ * Список колонок INSERT сюда не попадает: за его скобкой идёт VALUES, а не
+ * сравнение. Присваивание строкой — `SET (a, b) = (…)` — отсекается по слову SET.
+ */
+const ROWED = new RegExp(
+  String.raw`\((?:[^()]*,)?\s*${FLAG}\s*(?:,[^()]*)?\)\s*(?:=(?!=|>)|<>|!=(?!=)|IN\b|NOT\s+IN\b|IS\b)`,
+  'gi',
+);
+
 /** Слева от флага — присваивание или список колонок (`SET x =`, `a, b`), а не условие. */
 function assignedOrListed(before: string): boolean {
   return /(?:\bSET|,)\s*(?:\$\{[^}]*\})?\s*$/i.test(before);
 }
 
 /**
- * Запись, равнозначная для базы, приводится к одной (четвёртая находка ревью
- * #3780): кавычки вокруг имён (`"p".is_public`) и лишние скобки вокруг самого
- * флага (`COALESCE((p.is_public), FALSE)`, `((is_public))`). Скобки вызова
+ * Запись, равнозначная для базы, приводится к одной (четвёртая и пятая находки
+ * ревью #3780): кавычки вокруг имён (`"p".is_public`), пробелы вокруг точки
+ * (`p . is_public`) и лишние скобки вокруг самого флага
+ * (`COALESCE((p.is_public), FALSE)`, `((is_public))`). Скобки вызова
  * функции — `bool_or(p.is_public)` — не трогаются.
  */
 function normalizeSql(text: string): string {
   let t = text.replace(/"([a-z_][a-z0-9_]*)"/gi, '$1');
+  // `p . is_public` для базы то же, что `p.is_public` (пятая находка ревью #3780).
+  t = t.replace(/([a-z_][a-z0-9_]*)\s*\.\s*(?=is_public\b)/gi, '$1.');
   const redundant = new RegExp(String.raw`(?<![a-z0-9_])\(\s*(${FLAG})\s*\)`, 'gi');
   for (let prev = ''; prev !== t;) {
     prev = t;
@@ -178,6 +198,12 @@ function rawPublicHits(src: string): Set<number> {
     if (!nonPublic) hits.add(flagPos(m));
   }
   for (const m of text.matchAll(WRAPPED)) hits.add(flagPos(m));
+  for (const m of text.matchAll(ROWED)) {
+    // Одна колонка в скобках — не строка значений: `(флаг) = …` уже разобрано выше.
+    if (!m[0].includes(',')) continue;
+    if (/\bSET\s*(?:ROW\s*)?$/i.test(text.slice(Math.max(0, (m.index ?? 0) - 16), m.index ?? 0))) continue;
+    hits.add(flagPos(m));
+  }
   return hits;
 }
 
@@ -221,6 +247,15 @@ describe('условие по флагу витрины: какие написа
     ['WHERE ((p.is_public)) = TRUE'],
     ['AND "p".is_public'],
     ['WHERE "p"."is_public" = TRUE'],
+    // пятая находка ревью #3780: строка значений и пробелы вокруг точки
+    ['WHERE (p.slug, p.is_public) = ($1, TRUE)'],
+    ['WHERE (p.is_public, p.slug) = (TRUE, $1)'],
+    ['WHERE (p.slug, p.is_public) IN (($1, TRUE))'],
+    ['WHERE ROW(p.slug, p.is_public) = ROW($1, TRUE)'],
+    ['WHERE p . is_public'],
+    ['WHERE p .is_public = TRUE'],
+    ['AND p. is_public IS NOT FALSE'],
+    ['WHERE P.IS_PUBLIC = TRUE'],
   ])('ловит: %s', (sql) => {
     expect(rawPublicCount(`const q = \`SELECT 1 FROM partners p ${sql}\`;`)).toBeGreaterThanOrEqual(1);
   });
@@ -233,6 +268,9 @@ describe('условие по флагу витрины: какие написа
     ['UPDATE partners SET name = $1, is_public = TRUE WHERE id = $2'],
     ['UPDATE partners SET is_public = CASE WHEN $2 THEN FALSE ELSE is_public END'],
     ['INSERT INTO partners (name, is_public) VALUES ($1, $2)'],
+    ['INSERT INTO partners (is_public, name) SELECT $1, $2'],
+    ['UPDATE partners SET (name, is_public) = ($1, $2) WHERE id = $3'],
+    ['UPDATE partners SET (is_public, name) = ROW($1, $2) WHERE id = $3'],
     // отбирают НЕ опубликованное
     ['WHERE p.is_public = FALSE'],
     ['WHERE p.is_public IS FALSE'],
@@ -493,7 +531,31 @@ describe('читатели витрины партнёров зовут усло
  * только через обёртку — в ней тестовый профиль отсечён, и отсечка
  * принадлежит каждому запросу по построению, а не памяти автора.
  */
+/**
+ * Имя представления в тексте. База приводит имя без кавычек к нижнему
+ * регистру: `FROM V_ROUTE_MARKETPLACE v` читает то же представление (пятая
+ * находка ревью #3780) — регистр здесь не различается.
+ */
+function mentionsView(text: string): boolean {
+  return /\bv_route_marketplace\b/i.test(text);
+}
+
 describe('v_route_marketplace читается только через обёртку', () => {
+  it.each([
+    ['FROM v_route_marketplace v'],
+    ['FROM V_ROUTE_MARKETPLACE v'],
+    ['from V_Route_Marketplace'],
+    ['JOIN "v_route_marketplace" vm ON TRUE'],
+    ['FROM public.v_route_marketplace'],
+  ])('имя представления узнаётся: %s', (sql) => {
+    expect(mentionsView(sql)).toBe(true);
+  });
+
+  it('похожее имя — не представление', () => {
+    expect(mentionsView('FROM v_route_marketplace_archive')).toBe(false);
+    expect(mentionsView('const routeMarketplace = 1;')).toBe(false);
+  });
+
   const WRAPPER = 'lib/routes/marketplace-view.ts';
 
   it('обёртка — подзапрос, в котором тестовый профиль отсечён', () => {
@@ -513,7 +575,7 @@ describe('v_route_marketplace читается только через обёр�
     const readers: string[] = [];
     for (const dir of SCAN_DIRS) {
       for (const file of sourceFiles(join(ROOT, dir))) {
-        if (/\bv_route_marketplace\b/.test(code(readFileSync(file, 'utf-8')))) readers.push(rel(file));
+        if (mentionsView(code(readFileSync(file, 'utf-8')))) readers.push(rel(file));
       }
     }
     expect(
