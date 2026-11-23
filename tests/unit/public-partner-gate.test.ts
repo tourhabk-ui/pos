@@ -9,14 +9,24 @@
  * тестовая, и читатель спрашивает это сам.
  *
  * Сторож держит связку, а не половину:
- *   - условие говорит то, что обещает, и реестр гидов его зовёт;
- *   - сравнение `is_public = TRUE` руками в `app/` и `lib/` — только из
- *     списка с причиной: другая таблица либо партнёр, но не витрина. Новая
- *     копия краснеет; список только сокращается;
- *   - каждый читатель витрины из реестра зовёт условие;
- *   - представление `v_route_marketplace` держит свою копию флагов в SQL и
- *     отметки тестового профиля не знает (ревью безопасности #3780): каждый,
- *     кто его читает, спрашивает отметку сам.
+ *   - условия говорят то, что обещают, и реестр гидов их зовёт;
+ *   - условие по флагу `is_public`, набранное руками, — только из списка с
+ *     причиной: другая таблица либо партнёр, но не витрина. Новая копия
+ *     краснеет; список только сокращается;
+ *   - у каждого читателя витрины из реестра число вызовов условия не убывает;
+ *   - представление `v_route_marketplace` читается только через обёртку
+ *     `routeMarketplaceSql`, в которой тестовый профиль уже отсечён.
+ *
+ * Три находки ревью безопасности PR #3780 записаны здесь делом:
+ *   - перепись шла только по `app/` и `lib/`, а серверные компоненты с SQL
+ *     лежат и в `components/` — теперь три каталога;
+ *   - регулярка знала одно написание (`is_public = TRUE`), а условие пишут и
+ *     `COALESCE(is_public, false)`, и голым `WHERE p.is_public` — теперь формы
+ *     перечислены и каждая проверена на образце;
+ *   - «читатель зовёт условие» судилось по файлу: второй запрос к
+ *     представлению в том же файле прошёл бы без отсечки — теперь отсечка
+ *     стоит в единственной обёртке, а имя представления вне неё — красный.
+ *
  * Сам отбор на настоящей базе, при снятом CHECK, —
  * tests/integration/operators-list.pg.test.ts.
  */
@@ -25,8 +35,12 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { publicPartnerSql, testPartnerIdSql, testPartnerTourSql } from '@/lib/partners/test-profile';
 import { publicGuideWhere } from '@/lib/guides/visibility';
+import { routeMarketplaceSql } from '@/lib/routes/marketplace-view';
 
 const ROOT = process.cwd();
+
+/** Каталоги с кодом, который исполняется на сервере сайта и может нести SQL. */
+const SCAN_DIRS = ['app', 'lib', 'components'] as const;
 
 describe('publicPartnerSql: опубликована и не тестовая', () => {
   it('с алиасом и без', () => {
@@ -65,7 +79,7 @@ describe('testPartnerIdSql: партнёр по id — тестовый проф
   });
 });
 
-/** Без комментариев: упоминание в тексте не равно сравнению в запросе. */
+/** Без комментариев: упоминание в тексте не равно условию в запросе. */
 function code(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 }
@@ -80,16 +94,77 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** Сравнение флага витрины с «да», набранное руками. */
-const RAW_PUBLIC = /\bis_public\s*(?:=|IS)\s*TRUE\b/gi;
+const rel = (file: string) => relative(ROOT, file).split('\\').join('/');
+
+/**
+ * Условие «флаг витрины стоит», набранное руками, — во всех написаниях,
+ * которыми его пишут в SQL. Сравнения с «нет» (`= FALSE`, `IS NOT TRUE`) сюда
+ * не входят: ими отбирают НЕ опубликованное, это не витрина.
+ */
+const RAW_PUBLIC_FORMS: ReadonlyArray<RegExp> = [
+  // is_public = TRUE · IS TRUE · IS NOT FALSE · = 'true' · = 't'
+  /\bis_public\s*(?:=|IS)\s*(?:NOT\s+FALSE\b|TRUE\b|'t(?:rue)?')/gi,
+  // TRUE = is_public
+  /(?:\bTRUE|'t(?:rue)?')\s*=\s*(?:[a-z_][a-z0-9_]*\.)?is_public\b/gi,
+  // COALESCE(is_public, …) в условии; `COALESCE(…) AS имя` — колонка выдачи, не условие
+  /\bCOALESCE\(\s*(?:[a-z_][a-z0-9_]*\.)?is_public\b[^()]*\)(?!\s+AS\b)/gi,
+  // голый флаг в условии: WHERE p.is_public · AND is_public · ON p.is_public
+  /\b(?:WHERE|AND|OR|ON|WHEN|NOT)\s+\(?\s*(?:[a-z_][a-z0-9_]*\.)?is_public\b(?!\s*(?:=|<>|!=|IS\b|::|,|\s+AS\b))/gi,
+];
+
+function rawPublicCount(src: string): number {
+  const text = code(src);
+  return RAW_PUBLIC_FORMS.reduce((n, re) => n + (text.match(re) ?? []).length, 0);
+}
+
+describe('условие по флагу витрины: какие написания видит сторож', () => {
+  it.each([
+    ['WHERE p.is_public = TRUE'],
+    ['WHERE is_public = true'],
+    ['AND p.is_public IS TRUE'],
+    ['AND p.is_public IS NOT FALSE'],
+    ["WHERE p.is_public = 'true'"],
+    ['WHERE TRUE = p.is_public'],
+    ['WHERE COALESCE(p.is_public, false)'],
+    ['AND COALESCE(is_public, FALSE) = TRUE'],
+    ['WHERE p.is_public AND p.slug IS NOT NULL'],
+    ['JOIN partners p ON p.id = t.operator_id AND p.is_public'],
+    ['WHERE (is_public)'],
+  ])('ловит: %s', (sql) => {
+    expect(rawPublicCount(`const q = \`SELECT 1 FROM partners p ${sql}\`;`)).toBeGreaterThanOrEqual(1);
+  });
+
+  it.each([
+    ['SELECT p.is_public, p.name FROM partners p'],
+    ['SELECT p.is_public AS operator_public FROM partners p'],
+    ['SELECT COALESCE(p.is_public, false)   AS is_public FROM partners p'],
+    ['UPDATE partners SET is_public = $1 WHERE id = $2'],
+    ['UPDATE partners SET is_public = CASE WHEN $2 THEN FALSE ELSE is_public END'],
+    ['WHERE p.is_public = FALSE'],
+    ['WHERE p.is_public IS NOT TRUE'],
+    ['INSERT INTO partners (name, is_public) VALUES ($1, $2)'],
+  ])('не считает условием витрины: %s', (sql) => {
+    expect(rawPublicCount(`const q = \`${sql}\`;`)).toBe(0);
+  });
+
+  it('не считает условием код вне SQL и комментарии', () => {
+    expect(rawPublicCount('const shown = rows[0]?.is_public === true;')).toBe(0);
+    expect(rawPublicCount('if (row.is_public && row.slug) run();')).toBe(0);
+    expect(rawPublicCount('// WHERE p.is_public = TRUE\n/* AND is_public IS TRUE */')).toBe(0);
+  });
+
+  it('само условие публикации — одно сравнение', () => {
+    expect(rawPublicCount(`const q = \`${publicPartnerSql('p')}\`;`)).toBe(1);
+  });
+});
 
 const OTHER_TABLE = 'другая таблица';
 const NOT_STOREFRONT = 'партнёр, не витрина';
 
 /**
- * Файл → сколько раз `is_public = TRUE` набрано руками и почему это не
- * витрина партнёров. Только сокращается: убрал сравнение — уменьши число,
- * убрал все — удали запись. Витрины партнёров здесь нет и быть не может.
+ * Файл → сколько раз условие по `is_public` набрано руками и почему это не
+ * витрина партнёров. Только сокращается: убрал условие — уменьши число, убрал
+ * все — удали запись. Витрины партнёров здесь нет и быть не может.
  */
 const KNOWN_RAW: Record<string, { n: number; why: string }> = {
   'lib/partners/test-profile.ts': { n: 1, why: `${NOT_STOREFRONT}: само условие publicPartnerSql` },
@@ -107,58 +182,59 @@ const KNOWN_RAW: Record<string, { n: number; why: string }> = {
 };
 
 /**
- * Читатели витрины партнёров: файл и чью витрину он кормит. Каждый обязан
- * звать `publicPartnerSql` (реестр гидов — через `publicGuideWhere`).
+ * Читатели витрины партнёров: файл, чью витрину он кормит и сколько раз зовёт
+ * условие (`publicPartnerSql`, у гидов — `publicGuideWhere`). Число вызовов не
+ * убывает: убрал отбор — убери запись и объясни в PR, чем он заменён.
  */
-const STOREFRONT_READERS: Record<string, string> = {
-  'app/api/partners/route.ts': 'публичный список партнёров /api/partners',
-  'app/operators/[slug]/page.tsx': 'страница компании и короткий адрес',
-  'app/api/operators/[slug]/route.ts': 'карточка компании по слагу',
-  'lib/operators/list-query.ts': 'список /operators, /api/operators, ссылки в Telegram',
-  'lib/seo/partner-sitemap.ts': 'sitemap страниц компаний и гидов',
-  'lib/seo/sitemap-entries.ts': 'sitemap перевозчиков и прокатчиков',
-  'lib/guides/visibility.ts': 'реестр гидов /guides и профиль /guides/[id]',
-  'lib/transfers/charter.ts': 'список перевозчиков и страница /transfers/[slug]',
-  'lib/transfers/carrier-reviews.ts': 'отзывы перевозчика',
-  'lib/rental/rental.ts': 'список прокатчиков и страница /car-rental/[slug]',
-  'app/llms.txt/route.ts': 'llms.txt — перевозчики',
-  'app/api/tours-feed/route.ts': 'фид туров для площадок',
-  'app/api/planner/partners/route.ts': 'планер — операторы под интересы',
-  'lib/planner/data.ts': 'планер — туры операторов',
-  'lib/planner/day-options-query.ts': 'планер — варианты дня',
-  'lib/partner-sites/load.ts': 'сайт партнёра',
-  'lib/octo/service.ts': 'OCTO — поставщики для площадок',
-  'lib/notifications/telegram-channel.ts': 'пост о компании в канал',
-  'lib/eco/compensation.ts': 'эко — активные операторы',
-  'app/api/cron/leads-followup/route.ts': 'добивка лидов — кому уходит заявка без адресата',
-  'app/api/home/metrics/route.ts': 'счётчик проверенных партнёров в публичном API',
+const STOREFRONT_READERS: Record<string, { n: number; what: string }> = {
+  'app/api/partners/route.ts': { n: 1, what: 'публичный список партнёров /api/partners' },
+  'app/operators/[slug]/page.tsx': { n: 1, what: 'страница компании и короткий адрес' },
+  'app/api/operators/[slug]/route.ts': { n: 1, what: 'карточка компании по слагу' },
+  'lib/operators/list-query.ts': { n: 1, what: 'список /operators, /api/operators, ссылки в Telegram' },
+  'lib/seo/partner-sitemap.ts': { n: 1, what: 'sitemap страниц компаний и гидов' },
+  'lib/seo/sitemap-entries.ts': { n: 3, what: 'sitemap перевозчиков, прокатчиков и счёт гидов' },
+  'lib/guides/visibility.ts': { n: 1, what: 'реестр гидов /guides и профиль /guides/[id]' },
+  'lib/transfers/charter.ts': { n: 2, what: 'список перевозчиков и страница /transfers/[slug]' },
+  'lib/transfers/carrier-reviews.ts': { n: 1, what: 'отзывы перевозчика' },
+  'lib/rental/rental.ts': { n: 2, what: 'список прокатчиков и страница /car-rental/[slug]' },
+  'app/llms.txt/route.ts': { n: 1, what: 'llms.txt — перевозчики' },
+  'app/api/tours-feed/route.ts': { n: 1, what: 'фид туров для площадок' },
+  'app/api/planner/partners/route.ts': { n: 1, what: 'планер — операторы под интересы' },
+  'lib/planner/data.ts': { n: 3, what: 'планер — туры операторов' },
+  'lib/planner/day-options-query.ts': { n: 1, what: 'планер — варианты дня' },
+  'lib/partner-sites/load.ts': { n: 1, what: 'сайт партнёра' },
+  'lib/octo/service.ts': { n: 2, what: 'OCTO — поставщики для площадок' },
+  'lib/notifications/telegram-channel.ts': { n: 1, what: 'пост о компании в канал' },
+  'lib/eco/compensation.ts': { n: 1, what: 'эко — активные операторы' },
+  'app/api/cron/leads-followup/route.ts': { n: 3, what: 'добивка лидов — кому уходит заявка без адресата' },
+  'app/api/home/metrics/route.ts': { n: 1, what: 'счётчик проверенных партнёров в публичном API' },
 };
 
-describe('сравнение is_public мимо условия', () => {
+describe('условие по is_public мимо общего условия', () => {
   const found = new Map<string, number>();
-  for (const dir of ['app', 'lib']) {
+  for (const dir of SCAN_DIRS) {
     for (const file of sourceFiles(join(ROOT, dir))) {
-      const n = (code(readFileSync(file, 'utf-8')).match(RAW_PUBLIC) ?? []).length;
-      if (n > 0) found.set(relative(ROOT, file).split('\\').join('/'), n);
+      const n = rawPublicCount(readFileSync(file, 'utf-8'));
+      if (n > 0) found.set(rel(file), n);
     }
   }
 
-  it('перепись не пуста: сторож видит известные сравнения', () => {
+  it('перепись не пуста: сторож видит известные условия', () => {
     expect(found.get('lib/partners/test-profile.ts')).toBe(1);
     expect(found.size).toBeGreaterThan(5);
   });
 
-  it('каждое сравнение — в списке с причиной; новой копии быть не может', () => {
+  it('каждое условие — в списке с причиной; новой копии быть не может', () => {
     const unknown = [...found.keys()].filter((f) => !(f in KNOWN_RAW));
     expect(
       unknown,
-      'Сравнение is_public = TRUE набрано руками. Карточка партнёра для туриста — позовите '
+      'Условие по is_public набрано руками. Карточка партнёра для туриста — позовите '
       + 'publicPartnerSql (lib/partners/test-profile.ts); другая таблица или не витрина — '
       + 'внесите файл в KNOWN_RAW с причиной.',
     ).toEqual([]);
   });
 
-  it('число сравнений в файле не растёт, а запись без сравнений — удаляется', () => {
+  it('число условий в файле не растёт, а запись без условий — удаляется', () => {
     for (const [file, { n }] of Object.entries(KNOWN_RAW)) {
       expect(found.get(file) ?? 0, file).toBe(n);
     }
@@ -171,47 +247,59 @@ describe('сравнение is_public мимо условия', () => {
   });
 });
 
-/**
- * Читатели представления `v_route_marketplace`. Его WHERE записан в SQL
- * (миграция 056: три флага тура и `p.is_public = true`) и ни шлюза туров, ни
- * условия витрины позвать не может — отметку тестового профиля спрашивает
- * читатель. Новый читатель представления без неё краснеет.
- */
-const VIEW_READERS: Record<string, string> = {
-  'lib/routes/route-detail.ts': 'туры на карточке маршрута',
-  'lib/routes/route-tour-price.ts': 'цена маршрута «от» в каталоге',
-  'app/api/operators/[slug]/routes/route.ts': 'маршруты на странице компании',
-};
-
-describe('читатели v_route_marketplace спрашивают отметку тестового профиля', () => {
-  const readers: string[] = [];
-  for (const dir of ['app', 'lib']) {
-    for (const file of sourceFiles(join(ROOT, dir))) {
-      if (/\bv_route_marketplace\b/.test(code(readFileSync(file, 'utf-8')))) {
-        readers.push(relative(ROOT, file).split('\\').join('/'));
-      }
-    }
-  }
-
-  it('перепись читателей совпадает с реестром: нового читателя без записи нет', () => {
-    expect(readers.sort()).toEqual(Object.keys(VIEW_READERS).sort());
-  });
-
-  it.each(Object.entries(VIEW_READERS))('%s — %s', (file) => {
-    const src = code(readFileSync(join(ROOT, file), 'utf-8'));
-    expect(src).toMatch(/testPartnerIdSql\(|publicPartnerSql\(/);
-  });
-});
-
 describe('читатели витрины партнёров зовут условие', () => {
-  it.each(Object.entries(STOREFRONT_READERS))('%s — %s', (file) => {
-    const src = code(readFileSync(join(ROOT, file), 'utf-8'));
-    expect(src).toMatch(/publicPartnerSql\(/);
-    expect(src).toMatch(/from '@\/lib\/partners\/test-profile'/);
+  it.each(Object.entries(STOREFRONT_READERS))('%s', (file, { n, what }) => {
+    const calls = (code(readFileSync(join(ROOT, file), 'utf-8')).match(/\b(?:publicPartnerSql|publicGuideWhere)\(/g) ?? []).length;
+    // Определение условия в его собственном файле вызовом не считается.
+    const own = file === 'lib/guides/visibility.ts' ? 1 : 0;
+    expect(calls - own, `${file} — ${what}: отбор без условия витрины`).toBeGreaterThanOrEqual(n);
   });
 
   it('читатель не числится и витриной, и исключением', () => {
     const both = Object.keys(STOREFRONT_READERS).filter((f) => f in KNOWN_RAW && !KNOWN_RAW[f].why.startsWith(OTHER_TABLE));
     expect(both).toEqual([]);
+  });
+});
+
+/**
+ * Представление `v_route_marketplace` держит свою копию флагов в SQL
+ * (миграция 056) и отметки тестового профиля не знает. Читать его можно
+ * только через обёртку — в ней тестовый профиль отсечён, и отсечка
+ * принадлежит каждому запросу по построению, а не памяти автора.
+ */
+describe('v_route_marketplace читается только через обёртку', () => {
+  const WRAPPER = 'lib/routes/marketplace-view.ts';
+
+  it('обёртка — подзапрос, в котором тестовый профиль отсечён', () => {
+    const sql = routeMarketplaceSql('v');
+    expect(sql).toMatch(/^\(SELECT gated_view\.\* FROM v_route_marketplace gated_view/);
+    expect(sql).toContain(`WHERE NOT ${testPartnerIdSql('gated_view.operator_id')}`);
+    expect(sql).toMatch(/\) v$/);
+  });
+
+  it('алиас — только имя', () => {
+    for (const bad of ['v; DROP VIEW v_route_marketplace', 'v.x', 'v x', '']) {
+      expect(() => routeMarketplaceSql(bad), bad).toThrow(/недопустимый алиас/);
+    }
+  });
+
+  it('имя представления в коде встречается только в обёртке', () => {
+    const readers: string[] = [];
+    for (const dir of SCAN_DIRS) {
+      for (const file of sourceFiles(join(ROOT, dir))) {
+        if (/\bv_route_marketplace\b/.test(code(readFileSync(file, 'utf-8')))) readers.push(rel(file));
+      }
+    }
+    expect(
+      readers,
+      'Прямое чтение v_route_marketplace: представление не знает отметки тестового профиля. '
+      + 'Читайте через routeMarketplaceSql (lib/routes/marketplace-view.ts).',
+    ).toEqual([WRAPPER]);
+  });
+
+  it('читатели представления зовут обёртку', () => {
+    for (const file of ['lib/routes/route-detail.ts', 'lib/routes/route-tour-price.ts', 'app/api/operators/[slug]/routes/route.ts']) {
+      expect(code(readFileSync(join(ROOT, file), 'utf-8')), file).toMatch(/routeMarketplaceSql\(/);
+    }
   });
 });

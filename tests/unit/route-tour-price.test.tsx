@@ -53,6 +53,7 @@ import {
   ROUTE_PRICE_NOTE_RU,
 } from '@/lib/routes/route-tour-price';
 import { sortRouteOffers } from '@/lib/routes/route-offer-sort';
+import { routeMarketplaceSql } from '@/lib/routes/marketplace-view';
 
 beforeEach(() => {
   poolQueryMock.mockReset();
@@ -192,7 +193,9 @@ describe('запрос каталога', () => {
     await queryCatalog(CatalogQuerySchema.parse({ kind: 'route', price_min: '5000', price_max: '25000' }));
     const [data, count] = sqls();
     for (const sql of [data, count]) {
-      expect(sql.match(/FROM v_route_marketplace v/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+      // Представление читается через обёртку, где тестовый профиль отсечён
+      // (lib/routes/marketplace-view, ревью #3780).
+      expect(sql.split(`FROM ${routeMarketplaceSql('v')}`).length - 1).toBeGreaterThanOrEqual(2);
       expect(sql).toContain(`v.price_unit = 'per_person'`);
     }
     const [, countParams] = queryMock.mock.calls[1] as [string, unknown[]];

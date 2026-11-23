@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { testPartnerIdSql } from '@/lib/partners/test-profile';
+import { routeMarketplaceSql } from '@/lib/routes/marketplace-view';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,11 +42,10 @@ export async function GET(
         vm.operator_hero_image,
         vm.next_departure_date,
         vm.next_departure_slots
-      FROM v_route_marketplace vm
+      FROM ${routeMarketplaceSql('vm')}
       JOIN agent_route_knowledge ark ON ark.id = vm.route_id
       WHERE vm.operator_slug = $1
         AND ark.is_visible = TRUE
-        AND NOT ${testPartnerIdSql('vm.operator_id')}
       ORDER BY ark.id, vm.marketplace_score DESC
       LIMIT 20`,
       [slug],
