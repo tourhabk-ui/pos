@@ -2,8 +2,42 @@
 
 import Link from 'next/link';
 import { Handshake, Shield, Clock, TrendingUp, FileText, ArrowRight } from 'lucide-react';
+import { plural } from '@/lib/home/data-freshness';
 
-export function AgentModelSection() {
+/** Числа каталога с сервера (`getPlatformCounts`); null — посчитать не удалось. */
+export interface CatalogCounts {
+  routes: number;
+  tours: number;
+}
+
+const GRID_BY_TILES: Record<number, string> = {
+  2: 'grid grid-cols-2 gap-6 mb-16 max-w-2xl mx-auto',
+  3: 'grid grid-cols-1 sm:grid-cols-3 gap-6 mb-16 max-w-4xl mx-auto',
+  4: 'grid grid-cols-2 md:grid-cols-4 gap-6 mb-16',
+};
+
+/**
+ * Плитки чисел. Маршруты и туры — только из базы: нет числа или оно нулевое —
+ * плитки нет (ноль туров витрине нечем гордиться, а «не посчитали» — не ноль).
+ * Каналы — факт продукта (сайт, Telegram, MAX), а не отчёт об успехе.
+ */
+function statTiles(catalog: CatalogCounts | null | undefined): { value: string; label: string }[] {
+  const tiles: { value: string; label: string }[] = [];
+  if (catalog && catalog.routes > 0) {
+    tiles.push({ value: catalog.routes.toLocaleString('ru-RU'), label: `${plural(catalog.routes, 'маршрут', 'маршрута', 'маршрутов')} в базе знаний` });
+  }
+  if (catalog && catalog.tours > 0) {
+    tiles.push({ value: catalog.tours.toLocaleString('ru-RU'), label: `${plural(catalog.tours, 'тур', 'тура', 'туров')} в каталоге` });
+  }
+  tiles.push(
+    { value: '3', label: 'канала входа: сайт, Telegram, MAX' },
+    { value: '0%', label: 'удержаний из оплаты туриста' },
+  );
+  return tiles;
+}
+
+export function AgentModelSection({ catalog = null }: { catalog?: CatalogCounts | null } = {}) {
+  const tiles = statTiles(catalog);
   return (
     <section className="w-full py-20 bg-[var(--bg-card)]">
       <div className="max-w-6xl mx-auto px-4">
@@ -84,13 +118,8 @@ export function AgentModelSection() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-16">
-          {[
-            { value: '131', label: 'маршрутов в базе знаний' },
-            { value: '13', label: 'туров в каталоге' },
-            { value: '3', label: 'канала привлечения' },
-            { value: '0%', label: 'удержаний из оплаты туриста' },
-          ].map(({ value, label }) => (
+        <div className={GRID_BY_TILES[tiles.length] ?? GRID_BY_TILES[4]}>
+          {tiles.map(({ value, label }) => (
             <div key={label} className="text-center p-6 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
               <p className="text-3xl font-bold text-[var(--accent)]">{value}</p>
               <p className="text-sm text-[var(--text-muted)] mt-1">{label}</p>
@@ -104,8 +133,7 @@ export function AgentModelSection() {
             Начните получать клиентов уже сегодня
           </h3>
           <p className="text-[var(--text-secondary)] mb-8 max-w-xl mx-auto">
-            Регистрация за 5 минут. Первые 3 месяца Кузьмич и operator tools доступны бесплатно.
-            Условия работы — в публичной оферте для партнёров.
+            Регистрация за 5 минут. Условия работы — в публичной оферте для партнёров.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
             <Link

@@ -72,7 +72,7 @@ export function OperatorPromo({ headingLevel = 'h2' }: { headingLevel?: 'h1' | '
         <div className="grid md:grid-cols-2 gap-8 mb-16 p-8 rounded-lg bg-[var(--bg-card)] border border-[var(--border)]">
           <div>
             <h3 className="text-2xl font-bold text-[var(--text-primary)] mb-6">
-              Результаты в цифрах
+              Что получает менеджер
             </h3>
             <ul className="space-y-4">
               {[
@@ -108,9 +108,6 @@ export function OperatorPromo({ headingLevel = 'h2' }: { headingLevel?: 'h1' | '
         {/* CTA */}
         <div className="text-center">
           <div className="mb-8 inline-block">
-            <p className="text-sm text-[var(--text-muted)] mb-2">
-              Первые 3 месяца бесплатно
-            </p>
             <h3 className="text-2xl font-bold text-[var(--text-primary)]">
               Попробуйте Кузьмича и operator tools сейчас
             </h3>

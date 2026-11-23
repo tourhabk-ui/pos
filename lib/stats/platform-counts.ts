@@ -15,6 +15,7 @@
 
 import { unstable_cache } from 'next/cache';
 import { query } from '@/lib/database';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 export interface PlatformCounts {
   /** видимые маршруты — как /routes?kind=route */
@@ -27,10 +28,18 @@ export interface PlatformCounts {
   safetyProfiles: number;
   /** видимые точки по location_type (для «Стихий»); Σ + (места без типа) == places */
   placesByType: Record<string, number>;
+  /**
+   * туры на витрине — тот же шлюз (`publicTourSql`) и то же соединение с
+   * партнёром, что у сводки каталога (`queryCatalogSummary`): число равно
+   * «M» в «показано N из M» на /catalog. До 23.11 страница /for-operators
+   * несла «13 туров в каталоге» текстом в вёрстке при 81 живом туре.
+   * Это счёт витрины, а не свободных мест: места — только живым запросом.
+   */
+  storefrontTours: number;
 }
 
 async function loadPlatformCounts(): Promise<PlatformCounts> {
-  const [routes, places, mchs, profiles, byType] = await Promise.all([
+  const [routes, places, mchs, profiles, byType, tours] = await Promise.all([
     query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM kamchatka_routes WHERE is_visible = TRUE`),
     query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM places WHERE is_visible = TRUE`),
     query<{ n: string }>(
@@ -44,6 +53,12 @@ async function loadPlatformCounts(): Promise<PlatformCounts> {
         WHERE is_visible = TRUE AND location_type IS NOT NULL
         GROUP BY location_type`,
     ),
+    query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n
+         FROM operator_tours ot
+         JOIN partners p ON ot.operator_id = p.id
+        WHERE ${publicTourSql('ot')}`,
+    ),
   ]);
 
   const placesByType: Record<string, number> = {};
@@ -55,12 +70,13 @@ async function loadPlatformCounts(): Promise<PlatformCounts> {
     mchsRoutes: parseInt(mchs.rows[0]?.n ?? '0', 10),
     safetyProfiles: parseInt(profiles.rows[0]?.n ?? '0', 10),
     placesByType,
+    storefrontTours: parseInt(tours.rows[0]?.n ?? '0', 10),
   };
 }
 
 /** Кэш 1 час: цифры меняются импортами, не по минутам. */
 export const getPlatformCounts = unstable_cache(
   loadPlatformCounts,
-  ['platform-counts-v1'],
+  ['platform-counts-v2'],
   { revalidate: 3600 },
 );

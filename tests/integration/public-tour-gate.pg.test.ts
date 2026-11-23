@@ -211,6 +211,27 @@ withPg('витрина туров: снятый тур не в плане и н�
     expect(ours).toEqual([activity('live'), activity('live2')]);
   });
 
+  it('счётчик туров для посадочных (getPlatformCounts): то же число, что «M» каталога (23.11)', async () => {
+    // /for-operators несла «13 туров в каталоге» текстом при 81 живом туре.
+    // Счётчик обязан совпадать со сводкой каталога и не считать снятое.
+    const { getPlatformCounts } = await import('@/lib/stats/platform-counts');
+    const { queryCatalogSummary } = await import('@/lib/search/tour-search');
+    const counts = await getPlatformCounts();
+    expect(counts.storefrontTours).toBe((await queryCatalogSummary()).total);
+    // Правило витрины, записанное здесь независимо от шлюза: из пяти туров
+    // сцены на витрине два, и удалённый (флаги true, deleted_at стоит) — нет.
+    const { rows } = await pool.query<{ on_gate: string; ours: string }>(
+      `SELECT COUNT(*) FILTER (WHERE ot.is_active AND ot.is_published AND ot.deleted_at IS NULL
+                                 AND p.is_test IS NOT TRUE)::text AS on_gate,
+              COUNT(*) FILTER (WHERE ot.operator_id = $1)::text AS ours
+         FROM operator_tours ot JOIN partners p ON p.id = ot.operator_id`,
+      [OPERATOR.id],
+    );
+    expect(Number(rows[0].ours)).toBe(STATES.length);
+    expect(counts.storefrontTours).toBe(Number(rows[0].on_gate));
+    expect(counts.routes).toBeGreaterThanOrEqual(0);
+  });
+
   it('каталог Кузьмича и MCP (loadTourCatalog): все туры витрины по правилу 1в, а не первые 40 по цене (29.10)', async () => {
     // До 29.10 запрос резал каталог «LIMIT 40» по цене: MCP get_tours
     // называл «туров всего 40» при 42 на витрине, самых дорогих не было.
