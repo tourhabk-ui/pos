@@ -3,7 +3,7 @@
  *
  * Черновик (`tour_chat_edits`) живёт до кнопки: «Сохранить» в одной
  * транзакции блокирует черновик и тур, сверяет «было» из предпросмотра с
- * тем, что в туре сейчас, и пишет тур ОБЩЕЙ функцией `writeTourPatch`
+ * тем, что в туре сейчас, и пишет тур ОБЩЕЙ дверью владельца `saveTourChange`
  * (lib/tours/tour-write) — той же, что кабинет оператора на сайте. Без
  * нажатия в `operator_tours` не пишется ничего.
  *
@@ -18,7 +18,8 @@
 import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
 import { pingTourChanged } from '@/lib/seo/indexnow';
-import { writeTourPatch, type TourPatchInput } from '@/lib/tours/tour-write';
+import type { TourPatchInput } from '@/lib/tours/tour-write';
+import { saveTourChange } from '@/lib/tours/tour-change';
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { scheduleKindOf, type ScheduleKind } from '@/lib/tours/schedule-kind';
 import { EDIT_FIELDS, type EditField, type EditTour, type EditValue } from './parse';
@@ -365,7 +366,11 @@ export async function chooseDraftTour(who: Who, index: number): Promise<ChooseTo
 }
 
 export type SaveDraft =
-  | { kind: 'saved'; draft: Draft; title: string; slug: string | null }
+  /**
+   * `pending` — правка не на витрине, а на проверке у администратора (тур
+   * опубликован или ждёт публикации): строка — что сказать гиду.
+   */
+  | { kind: 'saved'; draft: Draft; title: string; slug: string | null; pending: string | null }
   /** Тур поменяли после предпросмотра: ничего не записано, вот новое «было». */
   | { kind: 'changed'; draft: Draft; tour: ChatTour }
   | { kind: 'need_tour' }
@@ -404,24 +409,29 @@ export async function saveDraft(who: Who): Promise<SaveDraft> {
       return { kind: 'changed', draft: { ...draft, liveValue: now }, tour };
     }
     const input = { [draft.field]: draft.newValue } as TourPatchInput;
-    const written = await writeTourPatch(c, {
+    // Единая дверь владельца (lib/tours/tour-change): содержание
+    // опубликованного тура уходит на проверку, остальное пишется сразу.
+    const saved = await saveTourChange(c, {
       tourId: row.tour_id,
       ownerId: who.partnerId,
+      userId: null,
       input,
       current: tourRow as unknown as Record<string, unknown>,
     });
-    if (written.outcome !== 'written') {
+    if (saved.outcome === 'not_found') {
       // Тур проверен под блокировкой строкой выше: сюда не доходит, но
       // «записал» без записи сказать нельзя.
-      throw new Error(`тур не записан: ${written.outcome}`);
+      throw new Error('тур не записан: not_found');
     }
     await c.query(
       `UPDATE tour_chat_edits SET status = 'saved', decided_at = NOW() WHERE id = $1::uuid AND status = 'pending'`,
       [who.draftId],
     );
-    return { kind: 'saved', draft, title: written.row.title, slug: tour.slug };
+    const title = saved.outcome !== 'empty' && saved.row ? saved.row.title : tour.title;
+    return { kind: 'saved', draft, title, slug: tour.slug, pending: saved.outcome === 'pending' ? saved.pending.notice : null };
   }, { kind: 'db_error' });
-  if (out.kind === 'saved' && out.draft.tourId) pingTourChanged(out.draft.tourId);
+  // Поисковикам — только о том, что изменилось на витрине.
+  if (out.kind === 'saved' && out.pending === null && out.draft.tourId) pingTourChanged(out.draft.tourId);
   return out;
 }
 
@@ -453,7 +463,8 @@ export async function setTourScheduleKind(
   kind: ScheduleKind,
 ): Promise<{ outcome: 'written'; title: string } | { outcome: 'not_found' } | { outcome: 'db_error' }> {
   try {
-    const w = await writeTourPatch(pool, { tourId, ownerId: partnerId, input: { schedule_kind: kind }, current: {} });
+    // Расписание — не содержание: единая дверь пишет его сразу.
+    const w = await saveTourChange(pool, { tourId, ownerId: partnerId, userId: null, input: { schedule_kind: kind }, current: {} });
     if (w.outcome !== 'written') return { outcome: 'not_found' };
     pingTourChanged(tourId);
     return { outcome: 'written', title: w.row.title };

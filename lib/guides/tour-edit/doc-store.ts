@@ -17,7 +17,8 @@
 import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
 import { pingTourChanged } from '@/lib/seo/indexnow';
-import { writeTourPatch, type TourPatchInput } from '@/lib/tours/tour-write';
+import type { TourPatchInput } from '@/lib/tours/tour-write';
+import { saveTourChange } from '@/lib/tours/tour-change';
 import { DOC_FIELDS, type DocField } from './doc-sections';
 import { lockEditTour, readEditTour, sameValue, DRAFT_TTL_HOURS, type ChatTour, type EditChannel } from './store';
 import type { EditValue } from './parse';
@@ -186,6 +187,8 @@ export type SaveDoc =
     /** Ещё ждут кнопки. */
     remaining: DocField[];
     title: string;
+    /** Записанное ушло не на витрину, а на проверку администратору: что сказать гиду. */
+    pending: string | null;
   }
   | { kind: 'need_tour' }
   | { kind: 'tour_gone' }
@@ -227,16 +230,20 @@ export async function saveDocDraft(who: DocWho, which: DocField | 'all'): Promis
       written.push(f);
     }
     let title = locked.tour.title;
+    let pendingNote: string | null = null;
     if (written.length > 0) {
-      const w = await writeTourPatch(c, {
+      // Единая дверь владельца: содержание опубликованного тура — на проверку.
+      const w = await saveTourChange(c, {
         tourId: row.tour_id,
         ownerId: who.partnerId,
+        userId: null,
         input: input as TourPatchInput,
         current: locked.row,
       });
       // Тур проверен под блокировкой строкой выше: «записал» без записи не говорим.
-      if (w.outcome !== 'written') throw new Error(`тур не записан: ${w.outcome}`);
-      title = w.row.title;
+      if (w.outcome === 'not_found') throw new Error('тур не записан: not_found');
+      if (w.outcome !== 'empty' && w.row) title = w.row.title;
+      if (w.outcome === 'pending') pendingNote = w.pending.notice;
     }
     const saved = [...draft.saved, ...written];
     const remaining = docFieldsOf(draft.values).filter((f) => !saved.includes(f));
@@ -249,10 +256,10 @@ export async function saveDocDraft(who: DocWho, which: DocField | 'all'): Promis
       [who.draftId, saved, JSON.stringify(live), remaining.length === 0],
     );
     return {
-      kind: 'saved', draft: { ...draft, saved, live }, tour: locked.tour, written, changed, remaining, title,
+      kind: 'saved', draft: { ...draft, saved, live }, tour: locked.tour, written, changed, remaining, title, pending: pendingNote,
     };
   }, { kind: 'db_error' });
-  if (out.kind === 'saved' && out.written.length > 0 && out.draft.tourId) pingTourChanged(out.draft.tourId);
+  if (out.kind === 'saved' && out.written.length > 0 && out.pending === null && out.draft.tourId) pingTourChanged(out.draft.tourId);
   return out;
 }
 

@@ -23,6 +23,19 @@ import { publishBlockersSql } from '@/lib/guides/own-tour-publish';
 import { normalizeField } from '@/lib/guides/tour-edit/store';
 import { editorClips, photoCreditsOf, type EditorClip } from '@/lib/tours/editor-media';
 import type { TourProgramStep } from '@/lib/tours/tour-write';
+import { loadOwnTourEdits, type OwnTourEdit } from '@/lib/tours/moderation-store';
+import { tourModerationState, type TourEditChange, type TourModerationState } from '@/lib/tours/moderation';
+
+/**
+ * Проверка правки администратором (план готовности 23.11, этап 4): содержание
+ * тура идёт на витрину через очередь. Форме гида отдаётся «витрина плюс
+ * правка на проверке» и слова о состоянии.
+ */
+export interface OwnTourModeration {
+  state: TourModerationState;
+  pending: { changes: TourEditChange[]; wantsPublish: boolean; since: string } | null;
+  rejected: OwnTourEdit['rejected'];
+}
 
 export interface OwnTour {
   id: string;
@@ -62,6 +75,8 @@ export interface OwnTour {
    * Пусто — опубликовать можно.
    */
   blockers: string[];
+  /** Что с проверкой правки: на проверке, возвращена, на витрине, черновик. */
+  moderation: OwnTourModeration;
 }
 
 export interface OwnBooking {
@@ -100,9 +115,15 @@ export interface OwnLead {
   bookings: Array<{ id: string; booking_date: string; booking_status: string }>;
 }
 
-/** Туры гида: опубликованные и черновики, с числом открытых будущих дат и тем, чего не хватает до сайта. */
+/**
+ * Туры гида: опубликованные и черновики, с числом открытых будущих дат и тем,
+ * чего не хватает до сайта. Поля содержания — «витрина плюс правка на
+ * проверке»: форма показывает то, что гид ввёл. Правки не прочитались —
+ * исключение, а не «правок нет»: сохранение формы со значениями витрины
+ * стёрло бы черновик (§4.0).
+ */
 export async function loadOwnTours(partnerId: string): Promise<OwnTour[]> {
-  const { rows } = await query<OwnTour & { photos: unknown; video_clips: unknown; photo_credits: unknown }>(
+  const { rows: liveRows } = await query<Omit<OwnTour, 'moderation'> & { photos: unknown; video_clips: unknown; photo_credits: unknown }>(
     `SELECT ot.id::text AS id, ot.title, ot.slug, COALESCE(ot.is_published, FALSE) AS is_published,
             COALESCE(ot.is_active, FALSE) AS is_active, ot.base_price::text AS base_price, ot.price_unit,
             ot.max_participants, ot.short_description, ot.description,
@@ -121,6 +142,25 @@ export async function loadOwnTours(partnerId: string): Promise<OwnTour[]> {
       ORDER BY COALESCE(ot.is_published, FALSE) DESC, ot.title`,
     [partnerId],
   );
+  const ids = liveRows.map((r) => r.id);
+  const edits = await loadOwnTourEdits(ids, new Map(liveRows.map((r) => [r.id, r as unknown as Record<string, unknown>])));
+  if (edits === null) throw new Error('правки туров на проверке не прочитаны');
+  const rows = liveRows.map((live) => {
+    const edit = edits.get(live.id) ?? { pending: null, rejected: null };
+    const patch = edit.pending?.patch ?? {};
+    const moderation: OwnTourModeration = {
+      state: tourModerationState({ published: live.is_published === true, pending: edit.pending !== null, rejected: edit.rejected !== null }),
+      pending: edit.pending ? { changes: edit.pending.changes, wantsPublish: edit.pending.wantsPublish, since: edit.pending.since } : null,
+      rejected: edit.rejected,
+    };
+    return {
+      ...live,
+      ...patch,
+      // Цена в этом ответе — строкой, как из базы.
+      base_price: 'base_price' in patch ? (patch.base_price === null ? null : String(patch.base_price)) : live.base_price,
+      moderation,
+    } as typeof live & { moderation: OwnTourModeration };
+  });
   // Списки на проде бывают и jsonb, и text[] — pg отдаёт их массивами;
   // вид один — тот же, что у правки в чате (normalizeField).
   return rows.map((r) => ({

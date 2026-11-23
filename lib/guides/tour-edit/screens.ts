@@ -252,14 +252,24 @@ export function chooseTourScreen(draftId: string, field: EditField, tours: reado
 
 export function savedScreen(args: {
   field: EditField; title: string; tourId: string; slug: string | null; siteBase: string; published: boolean;
+  /**
+   * Правка ушла на проверку администратору, а не на витрину (план готовности
+   * 23.11, этап 4): строка — что сказать. null — записано сразу.
+   */
+  pending?: string | null;
   /** Туроператору — «‹ Календарь» вместо кнопок «Моих туров» гида (09.11). */
   back?: DatesBack;
 }): CabinetScreen {
   const url = `${base(args.siteBase)}${tourPath({ id: args.tourId, slug: args.slug })}`;
-  return screen([
-    `Сохранено: ${FIELD_LABEL[args.field].toLowerCase()} тура «${escapeHtml(args.title)}».`,
-    args.published ? `На сайте — сразу: ${url}` : 'Тур не на витрине: туристы увидят правку, когда он будет опубликован.',
-  ], [args.back === 'calendar'
+  const what = `${FIELD_LABEL[args.field].toLowerCase()} тура «${escapeHtml(args.title)}»`;
+  const lines = args.pending
+    // «На сайте — сразу» при правке на проверке было бы неправдой.
+    ? [`Принято: ${what}.`, escapeHtml(args.pending)]
+    : [
+      `Сохранено: ${what}.`,
+      args.published ? `На сайте — сразу: ${url}` : 'Тур не на витрине: туристы увидят правку, когда он будет опубликован.',
+    ];
+  return screen(lines, [args.back === 'calendar'
     ? backRow('calendar', null)
     : [{ text: 'К туру', payload: cabinetPayload.tour(args.tourId) }, { text: '‹ Мои туры', payload: cabinetPayload.myTours() }]]);
 }
