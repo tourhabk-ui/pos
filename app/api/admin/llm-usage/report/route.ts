@@ -43,6 +43,7 @@ import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { resolveCostWithCache } from '@/lib/ai/providers';
+import { SPENT_ON_RUNNER } from '@/lib/ai/spend-scope';
 
 export const dynamic = 'force-dynamic';
 
@@ -114,12 +115,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     try {
       await pool.query(
+        // spent_where — расход раннера (миграция 1510): суточный стоп сайта его
+        // не считает (слово владельца 23.11 «1 да», lib/ai/spend-scope.ts).
         `INSERT INTO llm_usage_log
            (id, route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, cost_basis, agent_id,
-            cache_creation_tokens, cache_read_tokens, created_at)
-         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
+            cache_creation_tokens, cache_read_tokens, spent_where, created_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
         [row.model, row.prompt_tokens, row.completion_tokens, total, cost, basis, row.agent_id ?? null,
-          cacheCreation, cacheRead],
+          cacheCreation, cacheRead, SPENT_ON_RUNNER],
       );
       written += 1;
       if (cost !== null) knownCostUsd += cost;

@@ -1237,7 +1237,8 @@ describe('приёмник расхода: кэш подсказок', () => {
     expect(params[4] as number).toBeCloseTo(expected, 10);
     expect(params[5]).toBe('model_catalog');
     expect(params[6]).toBe('claude');
-    expect(params.slice(7)).toEqual([10_000, 100_000]);
+    // Последний параметр — место траты: приём раннера (миграция 1510, суточный стоп его не считает).
+    expect(params.slice(7)).toEqual([10_000, 100_000, 'runner']);
     const body = await res.json() as { written: number; cost_usd_known: number };
     expect(body.written).toBe(1);
     expect(body.cost_usd_known).toBeCloseTo(expected, 6);
@@ -1248,7 +1249,7 @@ describe('приёмник расхода: кэш подсказок', () => {
     expect(res.status).toBe(200);
     const [[, params]] = inserts() as Array<[string, unknown[]]>;
     expect(params[4] as number).toBeCloseTo((1000 * IN_PRICE + 200 * OUT_PRICE) / 1e6, 10);
-    expect(params.slice(7)).toEqual([null, null]);
+    expect(params.slice(7)).toEqual([null, null, 'runner']);
   });
 
   it('чтение кэша у вендора, чьих множителей мы не знаем, — оценка сверху с пометкой, а не вход без кэша', async () => {

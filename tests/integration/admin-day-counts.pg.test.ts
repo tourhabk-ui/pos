@@ -689,4 +689,94 @@ withPg('числа суток в админке', () => {
       expect(JSON.parse(raw)).toMatchObject({ ok: true, web_sessions_read: 1, web_pairs: 1, a2a_read: 1, a2a_dialogs: 1 });
     }, 30_000);
   });
+
+  // Слово владельца 23.11 «1 да»: суточный стоп считает только расход сайта.
+  // В тот день стоп закрылся на $7,60 при пороге $5, а $7,02 дала проверка
+  // безопасности PR на раннере GitHub. Здесь база сама решает, что считает
+  // сумма стопа: умолчание колонки, строки до миграции 1510 и отметку раннера.
+  describe('траты LLM за сутки: стоп считает расход сайта (23.11)', () => {
+    const add = (cost: number, where: 'default' | 'prod' | 'runner' | null, yesterday = false) =>
+      where === 'default'
+        ? pool.query(
+          `INSERT INTO llm_usage_log (route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, created_at)
+           VALUES ('deepseek-chat', 10, 10, 20, $1, ${yesterday ? "DATE_TRUNC('day', NOW()) - INTERVAL '1 hour'" : 'NOW()'})`,
+          [cost])
+        : pool.query(
+          `INSERT INTO llm_usage_log (route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, spent_where, created_at)
+           VALUES ('deepseek-chat', 10, 10, 20, $1, $2, ${yesterday ? "DATE_TRUNC('day', NOW()) - INTERVAL '1 hour'" : 'NOW()'})`,
+          [cost, where]);
+
+    beforeAll(async () => {
+      process.env.CRON_SECRET = 'cron-pg-test';
+      await pool.query('TRUNCATE llm_usage_log');
+      await add(1.0, 'default');     // сайт: умолчание колонки
+      await add(0.5, null);          // строка до миграции — место не записано
+      await add(7.02, 'runner');     // проверка безопасности PR на раннере
+      await add(100, 'default', true); // вчера — мимо суток
+    });
+
+    it('новая строка без отметки — сайт; сумма стопа — сайт и строки без отметки, раннер мимо', async () => {
+      const { rows } = await pool.query<{ spent_where: string | null; n: string }>(
+        `SELECT spent_where, COUNT(*)::text AS n FROM llm_usage_log GROUP BY 1 ORDER BY 1 NULLS LAST`);
+      expect(rows).toEqual([
+        { spent_where: 'prod', n: '2' },
+        { spent_where: 'runner', n: '1' },
+        { spent_where: null, n: '1' },
+      ]);
+      const { readLlmSpendToday } = await import('@/lib/ai/anon-chat-guard');
+      expect(await readLlmSpendToday()).toBeCloseTo(1.5, 6);
+    });
+
+    it('приём расхода раннера пишет отметку «runner», и стоп его не считает', async () => {
+      const { POST } = await import('@/app/api/admin/llm-usage/report/route');
+      const { NextRequest } = await import('next/server');
+      const res = await POST(new NextRequest('http://localhost/api/admin/llm-usage/report', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer cron-pg-test', 'content-type': 'application/json' },
+        body: JSON.stringify({ rows: [{ model: 'deepseek-chat', prompt_tokens: 1000, completion_tokens: 100, agent_id: 'security-review' }] }),
+      }));
+      expect(res.status).toBe(200);
+      const { rows } = await pool.query<{ spent_where: string | null }>(
+        `SELECT spent_where FROM llm_usage_log WHERE agent_id = 'security-review'`);
+      expect(rows).toEqual([{ spent_where: 'runner' }]);
+      const { readLlmSpendToday } = await import('@/lib/ai/anon-chat-guard');
+      expect(await readLlmSpendToday()).toBeCloseTo(1.5, 6);
+    });
+
+    it('крон тревоги: с порогом — сайт, раннер — отдельной строкой', async () => {
+      process.env.AI_DAILY_BUDGET_USD = '5';
+      const { GET } = await import('@/app/api/cron/llm-budget-check/route');
+      const res = await GET(new Request('http://localhost/api/cron/llm-budget-check', {
+        headers: { Authorization: 'Bearer cron-pg-test' },
+      }));
+      const body = await res.json() as { status: string; spent_usd: number; runner_spent_usd: number };
+      expect(body.status).toBe('ok');
+      expect(body.spent_usd).toBeCloseTo(1.5, 6);
+      expect(body.runner_spent_usd).toBeGreaterThanOrEqual(7.02);
+    });
+
+    it('чужая отметка базой не принимается; повтор миграции прежние строки не размечает', async () => {
+      await expect(add(1, 'github' as 'prod')).rejects.toMatchObject({ code: '23514' });
+      const { readFileSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      const migration = readFileSync(join(process.cwd(), 'migrations/1510_llm_usage_spent_where.sql'), 'utf-8');
+      await pool.query(migration);
+      const { rows } = await pool.query<{ n: string }>(
+        `SELECT COUNT(*)::text AS n FROM llm_usage_log WHERE spent_where IS NULL`);
+      expect(rows[0]?.n).toBe('1');
+
+      // Первый прогон на базе с прежними строками: колонки ещё нет. Строки,
+      // лежавшие до миграции, остаются без отметки — «сайт» им не ставится,
+      // иначе расход раннера прошлых дней числился бы расходом сайта.
+      await pool.query('ALTER TABLE llm_usage_log DROP COLUMN spent_where CASCADE');
+      await pool.query(migration);
+      const after = await pool.query<{ n: string }>(
+        `SELECT COUNT(*)::text AS n FROM llm_usage_log WHERE spent_where IS NOT NULL`);
+      expect(after.rows[0]?.n).toBe('0');
+      await add(0.25, 'default');
+      const fresh = await pool.query<{ spent_where: string | null }>(
+        `SELECT spent_where FROM llm_usage_log WHERE estimated_cost_usd = 0.25`);
+      expect(fresh.rows).toEqual([{ spent_where: 'prod' }]);
+    });
+  });
 });
