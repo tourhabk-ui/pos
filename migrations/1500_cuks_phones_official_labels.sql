@@ -10,9 +10,28 @@
 --
 -- UI берёт номера из lib/safety/emergency-numbers.ts; реестр и FAQ
 -- приводим к тем же подписям, чтобы не разъехались.
--- Идемпотентна.
+--
+-- 23.11.2026, прод: первая редакция упала с SQLSTATE 23514 (file_failed).
+-- CHECK из 722 допускает source только code/visitkamchatka/seed/verified
+-- и purpose только emergency/registration/consultation/permit.
+-- UPDATE на source='withdrawn' и purpose='not_confirmed' не прошёл,
+-- транзакция откатилась, в _migrations файл не записан. Раннер сверяет
+-- только имя файла, не контрольную сумму, поэтому правим этот же файл:
+-- расширяем оба CHECK до UPDATE. Идемпотентна (DROP IF EXISTS + ADD,
+-- UPDATE по WHERE).
 
 BEGIN;
+
+-- Сначала CHECK, потом данные: иначе 23514 повторится.
+ALTER TABLE emergency_contacts DROP CONSTRAINT IF EXISTS chk_emergency_contacts_source;
+ALTER TABLE emergency_contacts
+  ADD CONSTRAINT chk_emergency_contacts_source
+  CHECK (source IS NULL OR source IN ('code', 'visitkamchatka', 'seed', 'verified', 'withdrawn'));
+
+ALTER TABLE emergency_contacts DROP CONSTRAINT IF EXISTS chk_emergency_contacts_purpose;
+ALTER TABLE emergency_contacts
+  ADD CONSTRAINT chk_emergency_contacts_purpose
+  CHECK (purpose IS NULL OR purpose IN ('emergency', 'registration', 'consultation', 'permit', 'not_confirmed'));
 
 -- 200-112: те же цифры, что у прежней записи 20-01-12.
 UPDATE emergency_contacts
