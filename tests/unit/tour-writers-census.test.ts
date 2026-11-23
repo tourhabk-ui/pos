@@ -90,7 +90,7 @@ const WRITERS: Record<string, { kind: Kind; why: string }> = {
   'lib/agents/execution/handlers/ab-scale-executor.ts': { kind: 'bypass_known', why: 'скидка победившей группы: base_price и price_old прямым UPDATE' },
   'lib/agents/execution/initiative-executor.ts': { kind: 'bypass_known', why: 'описание, переписанное моделью, прямым UPDATE' },
   'lib/services/operators/operator-tour-scraper.ts': { kind: 'bypass_known', why: 'импорт с сайта оператора правит цену и состав существующего тура' },
-  'lib/services/tours/tour.service.ts': { kind: 'bypass_known', why: 'старый сервис туров: вызывающих не найдено, разобрать и удалить' },
+  'lib/services/tours/tour.service.ts': { kind: 'bypass_known', why: 'старый сервис туров: create заводит тур своим INSERT (вызывающих не найдено); publish и unpublish пишут только is_active' },
   'scripts/scrape-operator-tours.js': { kind: 'bypass_known', why: 'скрипт импорта: пишет туры своим запросом' },
 };
 
