@@ -675,10 +675,13 @@ withPg('дедуп external_alerts на настоящем PostgreSQL', () => {
   describe('KVERT: прежнее событие о коде вулкана гасится', () => {
     it('гасит только события этого вулкана и не трогает новое', async () => {
       const { retractPreviousColorAlerts } = await import('@/lib/agents/kvert-sync');
+      // Порядок побайтовый (COLLATE "C"), как у `.sort()` ниже: правила сортировки
+      // базы в CI и локально разные — «_» и «X» меняются местами, а судим мы
+      // состав живых событий, не порядок.
       const live = async () => (await pool.query<{ external_id: string }>(
         `SELECT external_id FROM external_alerts
           WHERE external_id LIKE 'kvert-acc/%' AND expires_at > (NOW() AT TIME ZONE 'UTC')
-          ORDER BY external_id`,
+          ORDER BY external_id COLLATE "C"`,
       )).rows.map((r) => r.external_id);
       await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 'kvert-acc/%'`);
 
@@ -714,7 +717,7 @@ withPg('дедуп external_alerts на настоящем PostgreSQL', () => {
       const rows = async () => (await pool.query<{ external_id: string; live: boolean; title: string; hours: number; zones: string[] }>(
         `SELECT external_id, expires_at > (NOW() AT TIME ZONE 'UTC') AS live, title, affected_zones AS zones,
                 ROUND(EXTRACT(EPOCH FROM (expires_at - (NOW() AT TIME ZONE 'UTC'))) / 3600)::int AS hours
-           FROM external_alerts WHERE external_id LIKE 'kvert-acc/%' ORDER BY external_id`,
+           FROM external_alerts WHERE external_id LIKE 'kvert-acc/%' ORDER BY external_id COLLATE "C"`,
       )).rows;
       await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 'kvert-acc/%'`);
 
