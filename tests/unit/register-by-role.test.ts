@@ -68,7 +68,8 @@ function registerReq(body: Record<string, unknown>): NextRequest {
   return new Request('http://localhost/api/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pd_consent: true, ...body }),
+    // Отметка оферты — как её шлёт форма партнёру (этап 5 плана готовности, 23.11).
+    body: JSON.stringify({ pd_consent: true, offer_accepted: true, ...body }),
   }) as unknown as NextRequest;
 }
 
@@ -84,6 +85,8 @@ function mockDb() {
       });
     }
     if (sql.includes('INSERT INTO partners')) return Promise.resolve({ rows: [] });
+    // Акцепт оферты — строкой журнала на карточку (tests/unit/offer-acceptance.test.tsx).
+    if (sql.includes('INSERT INTO partner_offer_acceptances')) return Promise.resolve({ rows: [], rowCount: 1 });
     // Строка сессии — условие входа (register-session.test.ts держит её отдельно).
     if (sql.includes('INSERT INTO user_sessions')) return Promise.resolve({ rows: [] });
     throw new Error('unexpected SQL: ' + sql);
@@ -199,7 +202,8 @@ describe('POST /api/auth/register — роль агента заморожена
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         companyName: 'Тест', category: 'guide', contactName: 'Иван', phone: '+79000000000',
-        email: 'g2@x.ru', password: 'Secret123', pd_consent: true,
+        // Гид — сторона оферты: без отметки вторая дверь его не заводит (этап 5).
+        email: 'g2@x.ru', password: 'Secret123', pd_consent: true, offer_accepted: true,
       }),
     }) as unknown as NextRequest);
     expect(res.status).not.toBe(403);

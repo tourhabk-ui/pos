@@ -98,7 +98,8 @@ describe('форма входа читает роль из ссылки', () => 
     fireEvent.change(screen.getByLabelText(/Email/i), { target: { value: 'test@example.com' } });
     fireEvent.change(document.getElementById('reg-password')!, { target: { value: 'Vulkan2026x' } });
     fireEvent.change(document.getElementById('reg-password-confirm')!, { target: { value: 'Vulkan2026x' } });
-    fireEvent.click(screen.getByRole('checkbox'));
+    // Две отметки: согласие на обработку данных и оферта для партнёров (этап 5).
+    for (const box of screen.getAllByRole('checkbox')) fireEvent.click(box);
     fireEvent.click(screen.getByRole('button', { name: 'Зарегистрироваться' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const [url, init] = fetchMock.mock.calls[0] as [string, { body: string }];

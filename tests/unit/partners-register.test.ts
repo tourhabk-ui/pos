@@ -90,6 +90,7 @@ function mockDb(opts: { userExists?: boolean; partnerExists?: boolean } = {}) {
     if (sql.includes('INSERT INTO partners')) {
       return Promise.resolve({ rows: [{ id: 'partner-1' }] });
     }
+    if (sql.includes('INSERT INTO partner_offer_acceptances')) return Promise.resolve({ rows: [], rowCount: 1 });
     throw new Error('unexpected SQL: ' + sql);
   });
 }

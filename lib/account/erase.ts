@@ -1019,6 +1019,12 @@ export async function eraseUser(
     // но колонки есть, и старые строки могли их нести.
     ['agent_referral_events', `UPDATE agent_referral_events SET ip = NULL, user_agent = NULL
       WHERE booking_id IN (${HIS_BOOKINGS})`],
+    // Журнал акцепта оферты (1508, этап 5 плана готовности 23.11): у строки
+    // уходят IP и ссылка на человека. Сам акцепт — версия оферты и время —
+    // остаётся у карточки партнёра: это запись о договоре компании, а карточка
+    // при удалении аккаунта не стирается (ERASE_DETACH_ONLY).
+    ['partner_offer_acceptances', `UPDATE partner_offer_acceptances SET ip = NULL, user_id = NULL
+      WHERE user_id = $1`],
     ['gear_rentals', `UPDATE gear_rentals SET customer_name = '${N}', customer_email = '', customer_phone = '',
         comments = NULL, pd_consent_ip = NULL
       WHERE user_id = $1`],
