@@ -11,6 +11,9 @@
  *   photo         — фото + подпись → MAX фото + подпись
  *   video/document — только подпись (текст)
  *
+ * Пост, который платформа сама уже отправила в MAX, не пересылается:
+ * пара (chat.id, message_id) лежит в tg_channel_own_posts.
+ *
  * Env: REPOSTER_TG_BOT_TOKEN, REPOSTER_WEBHOOK_SECRET,
  *      MAX_BOT_TOKEN, MAX_CHANNEL_ID
  */
@@ -18,6 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { maxPostToChannel, maxPostPhotoToChannel } from '@/lib/notifications/max-channel';
+import { ownChannelPostRecorded } from '@/lib/notifications/own-channel-posts';
 
 export const dynamic = 'force-dynamic';
 
@@ -149,6 +153,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!post) {
     // Другие типы апдейтов (inline, callback и т.д.) — игнорируем
     return NextResponse.json({ ok: true });
+  }
+
+  // Свой пост платформа уже отправила в MAX (postToAllChannels, ручной с toMax).
+  // Пара записана до той отправки. Не проверялось — не подтверждаем приём:
+  // Telegram повторит вебхук, и тогда либо пропустим, либо перешлём.
+  const own = await ownChannelPostRecorded(post.chat?.id, post.message_id);
+  if (own === null) {
+    return NextResponse.json(
+      { ok: false, error: 'не смог проверить, свой ли это пост' },
+      { status: 503 },
+    );
+  }
+  if (own) {
+    return NextResponse.json({ ok: true, skipped: true });
   }
 
   // 3. Определяем целевой MAX-канал по источнику и тип поста
