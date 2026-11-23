@@ -327,7 +327,7 @@ async function loadAviationColors(): Promise<Map<string, AccColor>> {
  * Ошибка записи алерта не откатывает уже сохранённый volcano_status:
  * код на карточке важнее, чем строка в ленте разведки.
  */
-async function maybeInsertColorAlert(opts: {
+export async function maybeInsertColorAlert(opts: {
   slug: string;
   volcanoName: string;
   prev: AccColor | null;
@@ -342,16 +342,41 @@ async function maybeInsertColorAlert(opts: {
   const unzoned = event.affected_zones.length === 0;
   try {
     const st = await saveEvent(event);
+    // Код вернулся к прежнему («красный → зелёный → красный» с той же датой
+    // наблюдения): событие с таким id уже есть и погашено сменой кода —
+    // вставка его не трогает. Без оживления красный код остался бы без строки.
+    const revived = st === 'inserted' ? false : await reviveColorAlert(event);
     // Код сменился — прежнее событие этого вулкана больше не правда. Без
     // этого после «красный → зелёный» строка «красный код» жила в ленте ещё
     // до пяти суток рядом со строкой «зелёный» (23.11).
     await retractPreviousColorAlerts(opts.slug, event.source_id);
-    return { inserted: st === 'inserted', unzoned };
+    return { inserted: st === 'inserted' || revived, unzoned };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[kvert-sync] ${opts.volcanoName}: алерт в external_alerts не записался:`, msg);
     return { inserted: false, unzoned: false };
   }
+}
+
+/**
+ * Оживляет погашенное событие о коде: срок — от «сейчас», слова — нынешней
+ * смены. Живое событие не трогает (его срок ведёт `saveEvent`). Отметка
+ * отправленного пуша остаётся: второй раз тот же код людям не уходит.
+ */
+export async function reviveColorAlert(event: {
+  source_id: string; expires_hours: number; title: string; description: string;
+}): Promise<boolean> {
+  const r = await pool.query<{ id: string }>(
+    `UPDATE external_alerts
+        SET expires_at = ${UTC_WALL_NOW_SQL} + make_interval(hours => $2::int),
+            title = $3::text,
+            description = $4::text
+      WHERE external_id = $1::text
+        AND expires_at <= ${UTC_WALL_NOW_SQL}
+      RETURNING id::text`,
+    [event.source_id, event.expires_hours, event.title, event.description],
+  );
+  return r.rows.length > 0;
 }
 
 /**
