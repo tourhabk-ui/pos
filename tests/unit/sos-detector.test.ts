@@ -381,6 +381,15 @@ describe('detectEmergency — пропуски, найденные аудито�
     ['не можем найти тропу', 'lost'],
     ['не могу найти дорогу обратно', 'lost'],
     ['we are stuck', 'lost'],
+    ["I'm stuck on a ledge", 'lost'],
+    ['не можем выбраться отсюда', 'lost'],
+    ['не могу выбраться из машины, дверь зажало', 'lost'],
+    ['не можем найти свою группу', 'lost'],
+    ['не можем найти путь назад', 'lost'],
+    ['my friend is hurt', 'injury'],
+    ['she just collapsed', 'injury'],
+    ['землетрясение началось', 'disaster'],
+    ['только что было сильное землетрясение', 'disaster'],
     ["we're stranded on the pass", 'lost'],
     ['我们被困住了', 'lost'],
     // медведь у палатки
@@ -417,6 +426,19 @@ describe('detectEmergency — пропуски, найденные аудито�
     'не могу встать рано, есть выезд после десяти?',
     // застряли не в поле
     'застряли в аэропорту из-за погоды, перенесите бронь',
+    "I'm stuck choosing between two tours",
+    'We are stranded at the airport, can we move the booking?',
+    // «выбраться» и «найти группу» как планы
+    'Никак не можем выбраться на Камчатку, третий год собираемся',
+    'не могу выбраться из Москвы раньше августа',
+    'Не могу найти группу на Авачинский на 5 декабря',
+    'не могу встать на доску, есть ли инструктор по сёрфу?',
+    // слово беды не о человеке и не о сейчас
+    'The bridge collapsed last year, is the road open?',
+    'Сейчас читаю про землетрясение 1952 года',
+    // помощь с делом — было ложное срабатывание до 23.11
+    'Can you help us plan a trip in July?',
+    'Could you help us choose a hotel?',
     // помощь с делом
     'Please help me choose a tour',
     'I need help with booking',
