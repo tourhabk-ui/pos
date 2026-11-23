@@ -15,6 +15,7 @@ import {
   MODERATED_TOUR_COLUMNS, isModeratedTourColumn, mainPlaceIdsOf, tourEditChanges,
   type ModeratedTourColumn, type TourContentPatch, type TourEditChange,
 } from '@/lib/tours/moderation';
+import { cleanProposedBy, proposedByWords } from '@/lib/tours/automaton';
 
 type Db = Pick<PoolClient, 'query'>;
 
@@ -70,6 +71,7 @@ export interface OwnTourEdit {
 interface OwnEditRow {
   tour_id: string;
   patch: unknown;
+  proposed_by: unknown;
   wants_publish: boolean;
   moderation_status: string;
   moderation_reason: string | null;
@@ -97,11 +99,24 @@ export async function loadOwnTourEdits(
   if (tourIds.length === 0) return out;
   try {
     const { rows } = await db.query<OwnEditRow>(
+      // Отклонённое предложение автомата владельцу не показывается как «ваша
+      // правка возвращена»: он её не присылал, и на его туре ничего не
+      // изменилось. Такая строка — та, где каждое поле помечено автоматом и
+      // публикации не просили; из выборки она исключена, чтобы не заслонить
+      // более раннюю возвращённую правку самого владельца.
       `SELECT DISTINCT ON (e.tour_id)
-              e.tour_id::text AS tour_id, e.patch, e.wants_publish, e.moderation_status,
+              e.tour_id::text AS tour_id, e.patch, e.proposed_by, e.wants_publish, e.moderation_status,
               e.moderation_reason, e.moderated_at, e.updated_at
          FROM operator_tour_edits e
         WHERE e.tour_id = ANY($1::bigint[])
+          AND NOT (
+            e.moderation_status = 'rejected'
+            AND e.wants_publish = FALSE
+            AND e.patch <> '{}'::jsonb
+            AND NOT EXISTS (
+              SELECT 1 FROM jsonb_object_keys(e.patch) AS k WHERE NOT (e.proposed_by ? k)
+            )
+          )
         ORDER BY e.tour_id, e.created_at DESC`,
       [tourIds.map(String)],
     );
@@ -120,7 +135,9 @@ export async function loadOwnTourEdits(
           pending: {
             patch,
             wantsPublish: row.wants_publish === true,
-            changes: tourEditChanges(live.get(row.tour_id) ?? {}, patch, { placeNames }),
+            changes: tourEditChanges(live.get(row.tour_id) ?? {}, patch, {
+              placeNames, proposedBy: proposedByWords(cleanProposedBy(row.proposed_by)),
+            }),
             since: iso(row.updated_at) ?? '',
           },
           rejected: null,

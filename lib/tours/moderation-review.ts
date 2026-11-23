@@ -26,6 +26,7 @@ import {
 import { MainPlaceRejected } from '@/lib/tours/main-place';
 import { cleanPatch, fieldsOf, isoTime as iso, loadPlaceNames } from '@/lib/tours/moderation-read';
 import { photoAddressesOf, rejectedPhotoAddresses } from '@/lib/tours/photo-address';
+import { cleanProposedBy, proposedByWords, splitByAuthor } from '@/lib/tours/automaton';
 import { LIVE_CONTENT_COLUMNS } from '@/lib/tours/moderation-store';
 
 function sqlState(err: unknown): string {
@@ -47,6 +48,7 @@ interface PendingListRow extends LiveRow {
   e_tour_id: string;
   e_partner_id: string;
   e_patch: unknown;
+  e_proposed_by: unknown;
   e_wants_publish: boolean;
   e_updated_at: Date | string;
   partner_name: string;
@@ -71,7 +73,8 @@ export async function listPendingTourEdits(): Promise<{ outcome: 'ok'; edits: Pe
   try {
     const { rows } = await pool.query<PendingListRow>(
       `SELECT e.id::text AS e_id, e.tour_id::text AS e_tour_id, e.partner_id::text AS e_partner_id,
-              e.patch AS e_patch, e.wants_publish AS e_wants_publish, e.updated_at AS e_updated_at,
+              e.patch AS e_patch, e.proposed_by AS e_proposed_by,
+              e.wants_publish AS e_wants_publish, e.updated_at AS e_updated_at,
               p.name AS partner_name, p.category AS partner_category,
               ot.is_published, ${LIVE_CONTENT_COLUMNS}
          FROM operator_tour_edits e
@@ -97,7 +100,9 @@ export async function listPendingTourEdits(): Promise<{ outcome: 'ok'; edits: Pe
         partnerName: row.partner_name,
         partnerCategory: row.partner_category,
         kind: wantsPublish ? 'publish' : 'edit',
-        changes: tourEditChanges(row, patch, ctx),
+        // Чьё предложение — в строке диффа: поле автомата администратор
+        // одобряет, зная, что владелец его не присылал.
+        changes: tourEditChanges(row, patch, { ...ctx, proposedBy: proposedByWords(cleanProposedBy(row.e_proposed_by)) }),
         content: contentLines(content, ctx),
         seen: seenToken(row, patch, wantsPublish),
         since: iso(row.e_updated_at) ?? '',
@@ -123,6 +128,8 @@ export type DecideTourEdit =
       published: boolean;
       /** Правка просила первую публикацию (у отказа — «тур не опубликован»). */
       askedPublish: boolean;
+      /** Поля, предложенные автоматом платформы: владелец их не присылал. */
+      automatonFields: ModeratedTourColumn[];
       /** Категория карточки владельца — в какой кабинет вести из сообщения. */
       partnerCategory: string | null;
     }
@@ -140,13 +147,14 @@ interface LockedEdit {
   tour_id: string;
   partner_id: string;
   patch: unknown;
+  proposed_by: unknown;
   wants_publish: boolean;
   moderation_status: string;
   partner_category: string | null;
 }
 
 const LOCK_EDIT_SQL = `SELECT e.id::text AS id, e.tour_id::text AS tour_id, e.partner_id::text AS partner_id,
-          e.patch, e.wants_publish, e.moderation_status,
+          e.patch, e.proposed_by, e.wants_publish, e.moderation_status,
           (SELECT p.category FROM partners p WHERE p.id = e.partner_id) AS partner_category
      FROM operator_tour_edits e
     WHERE e.id = $1::uuid
@@ -214,6 +222,7 @@ export async function decideTourEdit(opts: {
     const base = {
       partnerId: edit.partner_id, tourId: edit.tour_id, fields,
       askedPublish: wantsPublish, partnerCategory: edit.partner_category,
+      automatonFields: splitByAuthor(fields, cleanProposedBy(edit.proposed_by)).automaton,
     };
 
     if (opts.action === 'reject') {

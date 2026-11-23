@@ -60,7 +60,14 @@ export function TourEditDiff({ changes }: { changes: TourEditChange[] }) {
     <dl className="space-y-3">
       {changes.map((change) => (
         <div key={change.field} data-testid="tour-edit-change">
-          <dt className="text-sm font-medium text-[var(--text-primary)]">{change.label}</dt>
+          <dt className="text-sm font-medium text-[var(--text-primary)]">
+            {change.label}
+            {change.proposedBy ? (
+              <span data-testid="tour-edit-proposed-by" className="block text-xs font-normal text-[var(--text-muted)]">
+                Предложил автомат платформы: {change.proposedBy}
+              </span>
+            ) : null}
+          </dt>
           <dd className="grid gap-2 sm:grid-cols-2">
             <div>
               <p className="text-xs text-[var(--text-muted)]">На сайте сейчас</p>

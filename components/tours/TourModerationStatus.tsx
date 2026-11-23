@@ -45,18 +45,28 @@ export function TourModerationStatus({ moderation, busy, onAskPublish, onUnpubli
 
   if (state === 'pending' && pending) {
     const since = when(pending.since);
+    // Вся правка — предложение автомата платформы: владелец её не отправлял,
+    // и экран не должен говорить «отправлено» от его имени.
+    const platformOnly = !pending.wantsPublish && pending.changes.length > 0 && pending.changes.every((c) => Boolean(c.proposedBy));
+    const fromPlatform = !platformOnly && pending.changes.some((c) => Boolean(c.proposedBy));
     return (
       <div className="rounded-lg border border-[var(--warning)]/40 bg-[var(--bg-primary)] p-3 space-y-3" role="status" data-testid="tour-moderation" data-state="pending">
         <p className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)]">
           <Clock className="w-4 h-4 text-[var(--warning)]" aria-hidden />
-          {pending.wantsPublish ? 'Тур на проверке' : 'Правка на проверке'}
+          {pending.wantsPublish ? 'Тур на проверке' : platformOnly ? 'Платформа предложила правку' : 'Правка на проверке'}
         </p>
         <p className="text-sm text-[var(--text-secondary)]">
           {pending.wantsPublish
             ? 'Туристы увидят тур после одобрения администратором.'
-            : 'На сайте пока прежняя версия. Новая выйдет после одобрения администратором.'}
-          {since ? ` Отправлено ${since}.` : ''}
-          {' '}Решение появится здесь; если подключён MAX или Telegram — придёт сообщением.
+            : platformOnly
+              ? 'На сайте пока прежняя версия. Предложение выйдет после одобрения администратором. Вы можете изменить его в форме ниже или убрать.'
+              : 'На сайте пока прежняя версия. Новая выйдет после одобрения администратором.'}
+          {since ? (platformOnly ? ` Предложено ${since}.` : ` Отправлено ${since}.`) : ''}
+          {platformOnly
+            // Отказ предложению платформы владельцу не показывается: он его не присылал.
+            ? ' Одобрят — правка выйдет на сайт и придёт сообщение, если подключён MAX или Telegram. Отклонят — предложение исчезнет, тур не изменится.'
+            : ' Решение появится здесь; если подключён MAX или Telegram — придёт сообщением.'}
+          {fromPlatform ? ' Часть правок предложила платформа — они подписаны.' : ''}
         </p>
         {pending.changes.length > 0 && (
           <div>
@@ -66,7 +76,7 @@ export function TourModerationStatus({ moderation, busy, onAskPublish, onUnpubli
         )}
         <button type="button" onClick={onWithdraw} disabled={busy} className={btn}>
           <RotateCcw className="w-4 h-4" aria-hidden />
-          {pending.wantsPublish ? 'Отозвать с проверки' : 'Отозвать правку'}
+          {pending.wantsPublish ? 'Отозвать с проверки' : platformOnly ? 'Убрать предложение' : 'Отозвать правку'}
         </button>
       </div>
     );

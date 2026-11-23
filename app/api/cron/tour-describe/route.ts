@@ -20,6 +20,11 @@
  *   - партия не больше 10 — правка публичного текста чужого продукта;
  *   - причина у партии обязательна и без умолчания;
  *   - старое описание возвращается в ответе и служит откатом.
+ *
+ * Своей записи в тур здесь нет (слово владельца 23.11: «Автоматы … пишут в
+ * туры только через очередь проверки, своих обходных путей у них нет»).
+ * Текст уходит дверью правки (lib/tours/describe-door): у тура на сайте он
+ * ждёт проверки администратора, и до одобрения туристы видят прежний.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -27,6 +32,7 @@ import { getCronSecret } from '@/lib/auth/cron';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { pool } from '@/lib/db-pool';
 import { composeTourDescription, MIN_DESCRIPTION_CHARS, type TourFacts } from '@/lib/tours/describe';
+import { proposeTourDescription, type DescribeOutcome } from '@/lib/tours/describe-door';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -148,29 +154,28 @@ export async function POST(request: NextRequest) {
       plan.push({ id: r.id, title: r.title, chars: c.chars, used: c.used, before: r.description, after: c.text });
     }
 
-    let written = 0;
+    // Исход по каждому туру: «на проверке» и «записано» — разные вещи, и
+    // оба не равны «пропущено». Отбор повторяет дверь, под замком строки.
+    const outcomes: Array<{ id: string; outcome: DescribeOutcome }> = [];
     if (!dry_run) {
-      for (const p of plan) {
-        // Условие в UPDATE повторяет отбор: между переписью и записью оператор
-        // мог дописать описание сам, и перетирать его нельзя.
-        const res = await pool.query(
-          `UPDATE operator_tours
-              SET description = $1, updated_at = NOW()
-            WHERE id = $2::bigint
-              AND deleted_at IS NULL
-              AND COALESCE(LENGTH(description), 0) < $3`,
-          [p.after, p.id, MIN_DESCRIPTION_CHARS],
-        );
-        if (res.rowCount && res.rowCount > 0) written++;
-      }
+      for (const p of plan) outcomes.push({ id: p.id, outcome: await proposeTourDescription(p.id, p.after) });
     }
+    const count = (o: DescribeOutcome) => outcomes.filter((x) => x.outcome === o).length;
 
     return NextResponse.json({
       success: true,
       dry_run,
       reason,
       planned: plan.length,
-      written,
+      // На сайте этих текстов ещё нет: они ждут проверки администратора.
+      staged_for_review: count('staged'),
+      // Туры, которых туристы не видят: текст записан в строку.
+      written_not_on_site: count('written'),
+      skipped_owner_pending: count('skipped_owner_pending'),
+      skipped_already_long: count('skipped_already_long'),
+      unchanged: count('unchanged'),
+      not_found: count('not_found'),
+      outcomes,
       skipped_not_enough_data: skipped.length,
       // Старый текст едет в ответе: это откат, а не украшение.
       plan,
