@@ -8,6 +8,11 @@
  * (lib/guides/own-tour-edit); подпись уходит в карту авторов владельца тура
  * (lib/tours/editor-media). GET отдаёт форме клипы с адресами превью,
  * подписи снимков и «видит ли тур турист» (шлюз каталога).
+ *
+ * С 23.11 (план готовности, этап 4) содержание тура идёт на витрину через
+ * проверку: PATCH владельца кладёт его черновиком (lib/tours/tour-change),
+ * а GET отдаёт форме «витрину плюс правку на проверке» — иначе следующее
+ * сохранение формы стёрло бы черновик значениями витрины.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -20,7 +25,9 @@ import {
   softDeleteTour,
 } from '@/lib/api/operator-tours';
 import { MainPlaceRejected } from '@/lib/tours/main-place';
-import { writeTourPatch } from '@/lib/tours/tour-write';
+import { saveTourChange } from '@/lib/tours/tour-change';
+import { loadOwnTourEdits } from '@/lib/tours/moderation-store';
+import { tourModerationState } from '@/lib/tours/moderation';
 import { editorClips, photoCreditsOf, writePhotoCredits } from '@/lib/tours/editor-media';
 import { transaction } from '@/lib/database';
 import { pingTourChanged } from '@/lib/seo/indexnow';
@@ -70,11 +77,35 @@ export async function GET(
       return NextResponse.json({ error: 'Tour not found' }, { status: 404 });
     }
 
+    // Правка на проверке: форма показывает то, что владелец ввёл, а не то,
+    // что стоит на витрине. Не прочитали — форму не отдаём вовсе: сохранение
+    // формы со значениями витрины стёрло бы черновик (§4.0).
+    const edits = await loadOwnTourEdits([String(tourId)], new Map([[String(tourId), tour as Record<string, unknown>]]));
+    if (edits === null) {
+      return NextResponse.json({ error: 'Не удалось прочитать правку на проверке, попробуйте позже' }, { status: 503 });
+    }
+    const edit = edits.get(String(tourId)) ?? { pending: null, rejected: null };
+    const shown = { ...tour, ...(edit.pending?.patch ?? {}) } as typeof tour;
+
     // Клипы — с адресами для превью в форме, подписи — только строки (08.11,
     // те же правила, что у формы гида: lib/tours/editor-media).
     return NextResponse.json({
       success: true,
-      data: { ...tour, video_clips: editorClips(tour.video_clips), photo_credits: photoCreditsOf(tour.photo_credits) },
+      data: {
+        ...shown,
+        video_clips: editorClips(shown.video_clips),
+        photo_credits: photoCreditsOf(tour.photo_credits),
+        moderation: {
+          state: tourModerationState({
+            published: tour.is_published === true, pending: edit.pending !== null, rejected: edit.rejected !== null,
+          }),
+          published: tour.is_published === true,
+          pending: edit.pending
+            ? { changes: edit.pending.changes, wantsPublish: edit.pending.wantsPublish, since: edit.pending.since }
+            : null,
+          rejected: edit.rejected,
+        },
+      },
     });
   } catch (error) {
     const e = error as { code?: string; message?: string };
@@ -125,39 +156,58 @@ export async function PATCH(
     // без него правит программу, описание и даты, но не цену. Редактор шлёт
     // форму целиком, поэтому судим по изменению против строки из базы, а не
     // по тому, что поле прислано.
-    if (!isAdmin && changesTourPrice(input, tour as Record<string, unknown>)) {
-      const denied = await requireTeamPermission(authOrResponse.userId, 'can_edit_prices');
-      if (denied) return denied;
+    // Цена сверяется с тем, что форма показала: с витриной плюс правкой на
+    // проверке. Иначе менеджер без права цены не смог бы сохранить форму,
+    // пока чужая правка цены ждёт администратора.
+    if (!isAdmin) {
+      const edits = await loadOwnTourEdits([String(tourId)], new Map());
+      if (edits === null) {
+        return NextResponse.json({ error: 'Не удалось прочитать правку на проверке, попробуйте позже' }, { status: 503 });
+      }
+      const shown = { ...(tour as Record<string, unknown>), ...(edits.get(String(tourId))?.pending?.patch ?? {}) };
+      if (changesTourPrice(input, shown)) {
+        const denied = await requireTeamPermission(authOrResponse.userId, 'can_edit_prices');
+        if (denied) return denied;
+      }
     }
 
-    // Запись — общая функция (lib/tours/tour-write): тем же путём тур гида
-    // правится из чата кабинета. Владение уже проверено выше; функция
-    // проверяет его ещё раз в самом UPDATE. Теги — в той же транзакции.
-    const written = await transaction(async (client) => {
-      const w = await writeTourPatch(client, {
+    // Запись — единая дверь владельца (lib/tours/tour-change): содержание
+    // идёт на проверку, остальное — сразу; администратор пишет напрямую.
+    // Тем же путём тур гида правится из его кабинета и из чата. Владение
+    // проверено выше и ещё раз — в самой записи. Теги — в той же транзакции.
+    const saved = await transaction(async (client) => {
+      const w = await saveTourChange(client, {
         tourId,
         ownerId: isAdmin ? null : operator_id,
+        userId: authOrResponse.userId,
         input,
         current: tour as Record<string, unknown>,
       });
       // «Фото: <автор>» снимкам тура без подписи — в карту владельца тура
       // (у администратора тоже: снимки принадлежат партнёру, не правящему).
-      if (w.outcome === 'written' && photoCredit && input.photos?.length && typeof tour.operator_id === 'string') {
+      // Подпись пишется и когда снимки ушли на проверку: она про снимок, а не про витрину.
+      if ((w.outcome === 'written' || w.outcome === 'pending') && photoCredit && input.photos?.length && typeof tour.operator_id === 'string') {
         await writePhotoCredits(client, tour.operator_id, photoCredit, input.photos);
       }
       return w;
     });
-    if (written.outcome === 'empty') {
+    if (saved.outcome === 'empty') {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
-    if (written.outcome === 'not_found') {
+    if (saved.outcome === 'not_found') {
       return NextResponse.json({ error: 'Tour not found' }, { status: 404 });
     }
-    const updatedRow = written.row;
 
-    pingTourChanged(tourId);
+    // Поисковикам сообщаем только о том, что изменилось на витрине.
+    if (saved.row) pingTourChanged(tourId);
 
-    return NextResponse.json({ success: true, data: updatedRow });
+    return NextResponse.json({
+      success: true,
+      data: saved.row ?? { id: String(tourId) },
+      pending: saved.pending
+        ? { fields: saved.pending.fields, wantsPublish: saved.pending.wantsPublish, notice: saved.pending.notice }
+        : null,
+    });
   } catch (error) {
     if (error instanceof MainPlaceRejected) {
       return NextResponse.json({ error: error.message }, { status: 400 });

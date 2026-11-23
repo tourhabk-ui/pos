@@ -22,6 +22,10 @@ vi.mock('@/lib/auth/middleware', () => ({
 vi.mock('@/lib/auth/operator-helpers', () => ({ getOperatorPartnerId: vi.fn(async () => 'op-mestechko') }));
 vi.mock('@/lib/operators/team-access', () => ({ requireTeamPermission: vi.fn(async () => null) }));
 vi.mock('@/lib/operators/team-money', () => ({ changesTourPrice: () => false }));
+// Здесь судится сама запись полей; дверь владельца подменена прямой записью
+// (тур не на витрине). Модерацию правок судит tests/integration/tour-moderation.pg.test.ts.
+vi.mock('@/lib/tours/tour-change', async () => (await import('../helpers/tour-change-passthrough')).tourChangePassthrough());
+vi.mock('@/lib/tours/moderation-store', async () => (await import('../helpers/tour-change-passthrough')).noTourEdits());
 vi.mock('@/lib/seo/indexnow', () => ({ pingTourChanged: vi.fn() }));
 vi.mock('@/lib/db/column-types', () => ({ getColumnTypes: vi.fn(async () => new Map()), valueForColumn: (v: unknown) => v }));
 vi.mock('@/lib/database', () => ({
