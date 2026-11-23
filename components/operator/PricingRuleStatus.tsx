@@ -7,6 +7,8 @@ export interface PricingRuleStatusProps {
   live: string | null;
   /** Действующее правило владелец попросил снять: до решения оно действует. */
   removalAsked: boolean;
+  /** Администратор отказал в снятии действующего правила: причина. Не отказывал — `null`. */
+  removalRefused?: string | null;
   /** Просьба о новом правиле: ждёт проверки либо отклонена. Нет — `null`. */
   request: { words: string; status: 'pending' | 'rejected'; reason: string | null } | null;
   /** Род правила для слов. */
@@ -29,7 +31,7 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
  * разных состояния, и они не сливаются в одно «сохранено»: действует, ждёт
  * проверки, отклонено. Что туристы видят прямо сейчас — сказано словами.
  */
-export function PricingRuleStatus({ live, removalAsked, request, noun, busy, onWithdraw }: PricingRuleStatusProps) {
+export function PricingRuleStatus({ live, removalAsked, removalRefused = null, request, noun, busy, onWithdraw }: PricingRuleStatusProps) {
   const btn = 'ds-btn ds-btn-secondary inline-flex items-center gap-1.5 text-sm disabled:opacity-50';
   return (
     <div className="space-y-2 text-sm" data-testid="pricing-rule-status" role="status">
@@ -39,6 +41,12 @@ export function PricingRuleStatus({ live, removalAsked, request, noun, busy, onW
           <span>
             Действует на сайте: {live}.
             {removalAsked ? ` Вы просили снять — до решения администратора ${noun} действует.` : ''}
+            {/* Отказ в снятии виден, пока владелец не попросил снова: иначе о нём знал бы только мессенджер. */}
+            {!removalAsked && removalRefused ? (
+              <span className="whitespace-pre-wrap break-words" data-state="removal-refused">
+                {' '}В снятии отказано, {noun} действует. Причина: {removalRefused}
+              </span>
+            ) : null}
           </span>
         </p>
       ) : !request ? (

@@ -426,6 +426,17 @@ withPg('правила цены: действует только провере�
       // Не число и ни одного параметра — отказ без записи.
       expect((await dropMarkup('ruleId=1%3B')).status).toBe(404);
       expect((await dropMarkup('')).status).toBe(400);
+      // Администратор отказал в снятии: владелец видит причину рядом с действующей наценкой.
+      expect((await markupOf(tour)).removalRefused).toBeNull();
+      await decideRule(both.ruleId!, 'reject', 'Наценка согласована до конца сезона.');
+      expect(await markupOf(tour)).toMatchObject({
+        percent: 15, removalAsked: false, removalRefused: 'Наценка согласована до конца сезона.',
+      });
+      const listed = await call('/api/hub/operator/pricing-rules', 'GET');
+      expect(listed.status).toBe(200);
+      // Попросил снова — прошлый отказ ещё в строке, но экран его уже не показывает (просьба в пути).
+      expect((await dropMarkup(`ruleId=${both.ruleId}`)).body.state).toBe('removal_pending');
+      expect(await markupOf(tour)).toMatchObject({ removalAsked: true });
     });
 
     it('снять все наценки тура (как из чата): действующая — просьбой, ждущая — сразу', async () => {

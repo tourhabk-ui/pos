@@ -52,6 +52,8 @@ export interface RuleSlot {
   live: RuleView | null;
   /** Действующую скидку просят снять: до решения она действует. */
   removalAsked: boolean;
+  /** В снятии действующей скидки отказано: причина администратора. */
+  removalRefused: string | null;
   request: (RuleView & { status: 'pending' | 'rejected'; reason: string | null }) | null;
 }
 
@@ -96,7 +98,7 @@ export function groupRows(rows: Row[]): TourRules[] {
     }
     if (r.rule_id && r.rule_type && (OPERATOR_RULE_TYPES as readonly string[]).includes(r.rule_type)) {
       const type = r.rule_type as OperatorRuleType;
-      const slot: RuleSlot = t.rules[type] ?? { live: null, removalAsked: false, request: null };
+      const slot: RuleSlot = t.rules[type] ?? { live: null, removalAsked: false, removalRefused: null, request: null };
       const view: RuleView = {
         id: r.rule_id,
         percent: r.multiplier !== null ? multiplierToDiscount(r.multiplier) : null,
@@ -108,6 +110,9 @@ export function groupRows(rows: Row[]): TourRules[] {
       if (r.moderation_status === 'approved') {
         slot.live = view;
         slot.removalAsked = r.removal_asked === true;
+        // У действующего правила причина записана только отказом в снятии:
+        // одобрение её стирает.
+        slot.removalRefused = r.moderation_reason ?? null;
       } else {
         slot.request = { ...view, status: r.moderation_status === 'rejected' ? 'rejected' : 'pending', reason: r.moderation_reason ?? null };
       }
@@ -264,7 +269,7 @@ export default function PricingClient() {
           </div>
 
           {OPERATOR_RULE_TYPES.map((type) => {
-            const slot: RuleSlot = t.rules[type] ?? { live: null, removalAsked: false, request: null };
+            const slot: RuleSlot = t.rules[type] ?? { live: null, removalAsked: false, removalRefused: null, request: null };
             // В поля — то, о чём владелец просил последним; нет просьбы — то, что действует.
             const current: RuleView | null = slot.request ?? slot.live;
             const d = draftOf(t.tourId, type, current);
@@ -369,6 +374,7 @@ export default function PricingClient() {
                   noun="скидка"
                   live={slot.live ? discountWords(type, slot.live) : null}
                   removalAsked={slot.removalAsked}
+                  removalRefused={slot.removalRefused}
                   request={slot.request
                     ? { words: discountWords(type, slot.request), status: slot.request.status, reason: slot.request.reason }
                     : null}

@@ -30,6 +30,8 @@ export interface TourMarkup {
   ruleId: string | null;
   /** Действующую наценку просят снять: до решения она действует. */
   removalAsked: boolean;
+  /** В снятии действующей наценки отказано: причина администратора. Не отказывали — `null`. */
+  removalRefused: string | null;
   /** Просьба о новой наценке: ждёт проверки либо отклонена. Нет — `null`. */
   request: { ruleId: string; percent: number | null; status: 'pending' | 'rejected'; reason: string | null } | null;
 }
@@ -40,11 +42,12 @@ export async function listWeekendMarkups(db: Db, operatorId: string): Promise<To
   const { rows } = await db.query(
     `SELECT ot.id::int AS tour_id, ot.title, ot.base_price, ot.price_unit,
             live.id::text AS rule_id, live.multiplier, live.removal_requested_at IS NOT NULL AS removal_asked,
+            live.moderation_reason AS live_reason,
             ask.id::text AS ask_id, ask.multiplier AS ask_multiplier, ask.moderation_status AS ask_status,
             ask.moderation_reason AS ask_reason
        FROM operator_tours ot
        LEFT JOIN LATERAL (
-         SELECT pr.id, pr.multiplier, pr.removal_requested_at FROM tour_pricing_rules pr
+         SELECT pr.id, pr.multiplier, pr.removal_requested_at, pr.moderation_reason FROM tour_pricing_rules pr
           WHERE pr.operator_tour_id = ot.id AND pr.rule_type = $2 AND pr.is_active = TRUE AND pr.moderation_status = 'approved'
           ORDER BY pr.id DESC LIMIT 1
        ) live ON TRUE
@@ -62,6 +65,8 @@ export async function listWeekendMarkups(db: Db, operatorId: string): Promise<To
     tourId: Number(r.tour_id), title: r.title, basePrice: Number(r.base_price), priceUnit: r.price_unit,
     percent: r.multiplier != null ? multiplierToMarkup(r.multiplier) : null, ruleId: r.rule_id ?? null,
     removalAsked: r.removal_asked === true,
+    // У действующего правила причина записана только отказом в снятии.
+    removalRefused: r.rule_id != null ? r.live_reason ?? null : null,
     request: r.ask_id == null ? null : {
       ruleId: r.ask_id,
       percent: r.ask_multiplier != null ? multiplierToMarkup(r.ask_multiplier) : null,

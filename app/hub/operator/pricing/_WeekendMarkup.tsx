@@ -24,6 +24,8 @@ interface Row {
   percent: number | null;
   ruleId: string | null;
   removalAsked: boolean;
+  /** В снятии действующей наценки отказано: причина администратора. */
+  removalRefused?: string | null;
   request: { ruleId: string; percent: number | null; status: 'pending' | 'rejected'; reason: string | null } | null;
 }
 const MAX = 30;
@@ -124,6 +126,7 @@ export default function WeekendMarkup() {
               noun="наценка"
               live={t.ruleId !== null ? markupWords(t.percent) : null}
               removalAsked={t.removalAsked}
+              removalRefused={t.removalRefused ?? null}
               request={t.request
                 ? { words: markupWords(t.request.percent), status: t.request.status, reason: t.request.reason }
                 : null}

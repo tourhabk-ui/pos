@@ -57,6 +57,18 @@ describe('состояние правила — три разных, а не о�
       .toBe('Действует на сайте: −10% за 7 дн. до выезда. Вы просили снять — до решения администратора скидка действует.');
   });
 
+  it('в снятии отказано — причина видна рядом с действующим правилом; попросил снова — отказ уже не показан', () => {
+    const { rerender } = render(<PricingRuleStatus {...base} live="−10% за 7 дн. до выезда" removalAsked={false}
+      removalRefused="Скидка обещана туристам до конца месяца." request={null} />);
+    expect(state()).toEqual(['live', 'removal-refused']);
+    expect(screen.getByTestId('pricing-rule-status').textContent).toBe(
+      'Действует на сайте: −10% за 7 дн. до выезда. В снятии отказано, скидка действует. Причина: Скидка обещана туристам до конца месяца.');
+    rerender(<PricingRuleStatus {...base} live="−10% за 7 дн. до выезда" removalAsked
+      removalRefused="Скидка обещана туристам до конца месяца." request={null} />);
+    expect(state()).toEqual(['live']);
+    expect(screen.getByTestId('pricing-rule-status').textContent).not.toContain('В снятии отказано');
+  });
+
   it('просьба ждёт проверки: туристы её не видят, на сайте — цена без скидки; просьбу можно отозвать', () => {
     const onWithdraw = vi.fn();
     render(<PricingRuleStatus {...base} onWithdraw={onWithdraw} live={null} removalAsked={false}
@@ -113,12 +125,22 @@ describe('строки сервера → действующее правило 
     expect(tour.rules.last_minute).toEqual({
       live: { id: '1', percent: 10, daysBefore: 7, guestsMin: null },
       removalAsked: true,
+      removalRefused: null,
       request: { id: '3', percent: 15, daysBefore: 3, guestsMin: null, status: 'pending', reason: null },
     });
     expect(tour.rules.group_discount).toEqual({
-      live: null, removalAsked: false,
+      live: null, removalAsked: false, removalRefused: null,
       request: { id: '4', percent: 5, daysBefore: null, guestsMin: 4, status: 'rejected', reason: 'Уточните.' },
     });
+  });
+
+  it('отказ в снятии действующей скидки доходит до экрана причиной; причина отказа просьбе — в просьбе, а не здесь', () => {
+    const [tour] = groupRows([
+      row({ rule_id: '1', rule_type: 'last_minute', multiplier: '0.900', days_before_max: 7, moderation_status: 'approved', removal_asked: false, moderation_reason: 'Обещана до конца месяца.' }),
+      row({ rule_id: '2', rule_type: 'last_minute', multiplier: '0.800', days_before_max: 5, moderation_status: 'rejected', moderation_reason: 'Много.' }),
+    ] as never);
+    expect(tour.rules.last_minute?.removalRefused).toBe('Обещана до конца месяца.');
+    expect(tour.rules.last_minute?.request?.reason).toBe('Много.');
   });
 
   it('статус не пришёл — правило не считается действующим молча', () => {
@@ -220,6 +242,18 @@ describe('экран «Скидки»: просьба уходит на пров
     await waitFor(() => expect(calls.find((c) => c.method === 'DELETE')?.url).toBe('/api/hub/operator/pricing-rules?id=30'));
   });
 
+  it('в снятии скидки отказано — экран говорит об этом с причиной и даёт попросить снова', async () => {
+    rules.length = 0;
+    rules.push(tourRow({
+      rule_id: '30', rule_type: 'last_minute', multiplier: '0.900', days_before_max: 7,
+      moderation_status: 'approved', removal_asked: false, moderation_reason: 'Скидка обещана туристам до конца месяца.',
+    }));
+    render(<PricingClient />);
+    await screen.findByText('Вулкан Горелый');
+    expect(lastMinute().textContent).toContain('В снятии отказано, скидка действует. Причина: Скидка обещана туристам до конца месяца.');
+    expect(screen.getByRole('button', { name: 'Попросить снять' })).toBeTruthy();
+  });
+
   it('снятие уже попросили — второй кнопки «Попросить снять» нет', async () => {
     rules.length = 0;
     rules.push(tourRow({ rule_id: '30', rule_type: 'last_minute', multiplier: '0.900', days_before_max: 7, moderation_status: 'approved', removal_asked: true }));
@@ -317,6 +351,14 @@ describe('экран «Наценка на выходные»: просьба, �
     expect(first.textContent).toContain('Наценка отклонена: +30% в субботу и воскресенье. Причина: Наценка 30% без объяснения.');
     expect(second.textContent).toContain('Вы просили снять — до решения администратора наценка действует.');
     expect(within(second).queryByRole('button', { name: 'Попросить снять' })).toBeNull();
+  });
+
+  it('в снятии наценки отказано — причина видна, кнопка «Попросить снять» на месте', async () => {
+    data = [tour({ percent: 10, ruleId: '60', removalRefused: 'Наценка согласована до конца сезона.' })];
+    render(<WeekendMarkup />);
+    await screen.findByText('Вулкан Горелый');
+    expect(status().textContent).toContain('В снятии отказано, наценка действует. Причина: Наценка согласована до конца сезона.');
+    expect(screen.getByRole('button', { name: 'Попросить снять' })).toBeTruthy();
   });
 
   it('отказ сервера показан, слов «отправлена» нет', async () => {
