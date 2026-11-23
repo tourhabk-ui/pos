@@ -41,7 +41,7 @@ export const TOUR_PATCH_COLUMNS = [
   'title', 'short_description', 'description',
   'location_type', 'activity_type', 'location_name',
   'latitude', 'longitude',
-  'base_price', 'price_old', 'price_unit',
+  'base_price', 'price_old', 'price_unit', 'price_note',
   'max_participants', 'min_participants',
   'duration_hours', 'duration_type', 'multi_day_count',
   'season_start', 'season_end', 'seasonal_only', 'schedule_kind',

@@ -153,6 +153,8 @@ export const UpdateTourSchema = TourFieldsSchema.partial().extend({
   // Прежнее поле точки сбора (до 932). Форма владельца его не шлёт; пишет
   // ручной крон tour-pickup — дверью правки, через очередь проверки.
   meeting_point:       z.string().trim().max(500).nullable().optional(),
+  // Примечание к цене (690): пишет импорт с сайта оператора — тоже дверью.
+  price_note:          z.string().trim().max(500).nullable().optional(),
   // Как тур выезжает (#3476, миграция 1457): только в даты календаря, в любой
   // день сезона или не указано (NULL — «даты по запросу», как до 16.11).
   schedule_kind:       z.enum(SCHEDULE_KINDS).nullable().optional(),

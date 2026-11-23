@@ -174,56 +174,10 @@ export const tourService = {
   async read(id: string) {
     return this.getById(id);
   },
-  async create(data: Record<string, unknown>) {
-    const name = toStringOrNull(data.name) ?? toStringOrNull(data.title);
-    const description = toStringOrNull(data.description);
-    const operatorId = toStringOrNull(data.operatorId) ?? toStringOrNull(data.operator_id);
-    const difficulty = toStringOrNull(data.difficulty) ?? 'medium';
-    const duration = toNumberOrNull(data.duration) ?? 1;
-    const price = toNumberOrNull(data.price) ?? toNumberOrNull(data.priceFrom) ?? toNumberOrNull(data.price_from);
-    const category = toStringOrNull(data.category) ?? toStringOrNull(data.activity) ?? 'adventure';
-    const currency = toStringOrNull(data.currency) ?? 'RUB';
-    const maxGroupSize = toNumberOrNull(data.maxGroupSize) ?? toNumberOrNull(data.max_group_size) ?? 20;
-    const minGroupSize = toNumberOrNull(data.minGroupSize) ?? toNumberOrNull(data.min_group_size) ?? 1;
-
-    if (!name || !description || !operatorId || price === null) {
-      throw new TourValidationError('Required fields: name, description, operatorId, price');
-    }
-
-    if (duration < 1 || duration > 30) {
-      throw new TourValidationError('Duration must be between 1 and 30');
-    }
-
-    const validDifficulties = new Set(['easy', 'medium', 'hard', 'extreme']);
-    if (!validDifficulties.has(difficulty)) {
-      throw new TourValidationError('Invalid difficulty value');
-    }
-
-    const result = await pool.query(
-      // Пишем в мастер-таблицу: `tours` — совместимая VIEW (миграция 132), и
-      // половины этих колонок в ней нет (currency, max_group_size), а значит
-      // запрос падал на разборе.
-      `INSERT INTO operator_tours (
-         title,
-         description,
-         activity_type,
-         difficulty,
-         duration_hours,
-         base_price,
-         currency,
-         operator_id,
-         max_participants,
-         min_participants,
-         is_active,
-         created_at,
-         updated_at
-       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, FALSE, NOW(), NOW())
-       RETURNING *`,
-      [name, description, category, difficulty, duration, price, currency, operatorId, maxGroupSize, minGroupSize]
-    );
-    return this.normalize(result.rows[0] ?? null);
-  },
+  // `create()` снят 23.11: вызывающих не было, а тур он заводил своим INSERT
+  // — мимо кабинета оператора и очереди проверки (слово владельца: автоматы
+  // и сервисы пишут в туры только через одну дверь). Новый тур заводят
+  // `lib/api/operator-tours` (оператор) и `lib/guides/own-tour-create` (гид).
   // `update()` снят (аудит 15.10, P2-02): сирота без единого вызывающего
   // (#1827), писал `UPDATE tours` — в запрещённую таблицу (CLAUDE.md §4) и
   // колонками, которых у мастер-таблицы нет (`name`, `category`, `duration`,
@@ -254,11 +208,6 @@ export const tourService = {
   // ни одного вызова из интерфейса. Запрос отзывов в нём не выполнялся
   // никогда (`reviews.tour_id` uuid против bigint id тура), и роут отвечал
   // 500 на любой тур.
-  async delete(id: string) {
-    const result = await pool.query(`DELETE FROM operator_tours WHERE id = $1 RETURNING id`, [id]);
-    if (!result.rows[0]) {
-      throw new TourNotFoundError(id);
-    }
-    return { success: true, id: result.rows[0].id };
-  },
+  // `delete()` снят 23.11: вызывающих не было, а строку тура он стирал
+  // безвозвратно. Удаление тура — отметка `deleted_at` в кабинете оператора.
 };

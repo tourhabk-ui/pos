@@ -1096,7 +1096,8 @@ describe('запреты', () => {
     // предложил», а с пустой карточкой тура — как администратор, мимо очереди.
     const automata = outside.filter((f) => /proposeTourChange/.test(read(f)));
     expect(automata).toEqual([
-      'lib/agents/execution/handlers/ab-scale-executor.ts', 'lib/tours/describe-door.ts', 'lib/tours/photos-door.ts',
+      'lib/agents/execution/handlers/ab-scale-executor.ts', 'lib/services/operators/operator-tour-scraper.ts',
+      'lib/tours/describe-door.ts', 'lib/tours/photos-door.ts',
     ]);
     for (const f of automata) {
       const src = read(f);

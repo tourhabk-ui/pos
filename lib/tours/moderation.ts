@@ -35,6 +35,8 @@ export const MODERATED_TOUR_COLUMNS = [
   // не записан. Владелец его не правит — пишет только ручной крон, дверью.
   'meeting_point',
   'base_price', 'price_old', 'price_unit',
+  // Примечание к цене читает турист (ответы MCP); пишет его импорт с сайта оператора.
+  'price_note',
   'photos', 'tour_image', 'video_clips',
   // Слово владельца 23.11: сложность, длительность, место и сезон.
   'difficulty',
@@ -72,6 +74,7 @@ export const TOUR_FIELD_LABELS: Record<ModeratedTourColumn, string> = {
   meeting_point: 'Точка сбора (прежнее поле)',
   base_price: 'Цена',
   price_old: 'Старая цена',
+  price_note: 'Примечание к цене',
   price_unit: 'Единица цены',
   photos: 'Фото',
   tour_image: 'Главное фото',

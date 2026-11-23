@@ -193,6 +193,9 @@ describe('мёртвые писатели сняты', () => {
     // отзывы тем же несовместимым соединением uuid = bigint.
     expect('reviewService' in services, 'reviewService писал отзыв о туре в reviews.tour_id → tours').toBe(false);
     expect('getStats' in tourService, 'tourService.getStats читал reviews.tour_id = bigint и падал на любом туре').toBe(false);
+    // 23.11: мёртвые create и delete сняты — тур они заводили и стирали своим запросом, мимо кабинета и очереди проверки.
+    expect('create' in tourService, 'tourService.create заводил тур своим INSERT').toBe(false);
+    expect('delete' in tourService, 'tourService.delete стирал строку тура безвозвратно').toBe(false);
   });
 
   it.each([

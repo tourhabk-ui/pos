@@ -21,6 +21,8 @@ import { tourEditChanges } from '@/lib/tours/moderation';
 import { TourEditDiff } from '@/components/tours/TourEditDiff';
 import { TourModerationStatus, type TourModerationView } from '@/components/tours/TourModerationStatus';
 import { editDecisionText } from '@/lib/notifications/partner-edit-notify';
+import { importedContent, sitePriceUnit } from '@/lib/services/operators/operator-tour-scraper';
+import { bookingTotal } from '@/lib/tours/booking-total';
 
 afterEach(cleanup);
 
@@ -230,6 +232,44 @@ describe('сообщение владельцу о решении', () => {
     expect(first.split('\n')).toEqual([
       '<b>Тур одобрен</b>', '«Вулкан &lt;Горелый&gt;»: проверка пройдена, тур опубликован.', 'Из этого предложила платформа: описание.',
     ]);
+  });
+});
+
+describe('импорт с сайта оператора: что он предлагает существующему туру', () => {
+  const scraped = (over: Record<string, unknown> = {}) => ({
+    title: 'Вулкан Горелый', category: 'volcano', price_from: 12000, price_unit: 'per_person', group_size_max: 8,
+    price_note: 'Детям — скидка', includes: 'Гид', duration_hours: 9, departures: null,
+    source_url: 'https://example.test/tour', description: 'Описание с сайта оператора.', ...over,
+  }) as Parameters<typeof importedContent>[0];
+
+  it('единица цены — словарём сайта: «за группу» — это «за тур», «не понял» — не единица', () => {
+    expect(sitePriceUnit('per_person')).toBe('per_person');
+    expect(sitePriceUnit('per_group')).toBe('per_tour');
+    expect(sitePriceUnit('unknown')).toBeNull();
+  });
+
+  it('цена предлагается только с понятой единицей; ненайденное не очищает поле; вид активности не трогается', () => {
+    expect(importedContent(scraped())).toEqual({
+      base_price: 12000, price_unit: 'per_person', price_note: 'Детям — скидка',
+      description: 'Описание с сайта оператора.', duration_hours: 9,
+    });
+    expect(importedContent(scraped({ price_unit: 'per_group' }))).toMatchObject({ base_price: 12000, price_unit: 'per_tour' });
+    // Число без единицы — не цена: ни цены, ни единицы.
+    const noUnit = importedContent(scraped({ price_unit: 'unknown' }));
+    expect('base_price' in noUnit || 'price_unit' in noUnit).toBe(false);
+    // Единица есть, цены на сайте нет — единицу одну не предлагаем.
+    const noPrice = importedContent(scraped({ price_from: null }));
+    expect('base_price' in noPrice || 'price_unit' in noPrice).toBe(false);
+    expect(importedContent(scraped({ price_from: null, price_note: null, description: null, duration_hours: null }))).toEqual({});
+    expect('activity_type' in importedContent(scraped())).toBe(false);
+  });
+
+  it('зачем словарь: цена за группу, записанная словом импорта, считалась бы за каждого участника', () => {
+    // Расчёт брони незнакомую единицу читает как «за человека».
+    const wrong = bookingTotal({ priceUnit: 'per_group', basePrice: 60000, participants: 6 });
+    const right = bookingTotal({ priceUnit: sitePriceUnit('per_group'), basePrice: 60000, participants: 6 });
+    expect(wrong).toBe(360000);
+    expect(right).toBe(60000);
   });
 });
 

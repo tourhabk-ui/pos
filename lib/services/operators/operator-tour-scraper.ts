@@ -8,9 +8,20 @@
  *   1. СБОР   — Bright Data (mcp_unlocker) → прямой fallback
  *   2. AI     — callAIFast + Zod → структура (не regex: вёрстка у всех разная)
  *   3. ХРАНЕНИЕ — PostgreSQL → operator_tours + tour_availability
+ *
+ * Существующий тур импорт своим запросом не правит (слово владельца 23.11:
+ * «Автоматы (кроны описаний и фото, импортёры) пишут в туры только через
+ * очередь проверки, своих обходных путей у них нет»). Цена, единица,
+ * примечание к цене, описание и длительность уходят дверью правки под
+ * именем импорта: у тура на сайте они ждут проверки администратора. Своим
+ * запросом пишутся только служебные отметки импорта, которых турист не
+ * видит. Новый тур заводится неопубликованным, как и раньше.
  */
 
 import { pool } from '@/lib/db-pool';
+import { transaction } from '@/lib/database';
+import { proposeTourChange, readTourForAutomaton } from '@/lib/tours/tour-change';
+import type { TourPatchInput } from '@/lib/tours/tour-write';
 import { fetchViaBrightData } from '@/lib/scraping/brightdata';
 import { extractToursFromPage, type ScrapedTour } from '@/lib/operators/structurer';
 
@@ -51,31 +62,84 @@ function findTourPageLinks(html: string, website: string): string[] {
   return [...links].slice(0, 10);
 }
 
-async function saveTour(tour: ScrapedTour, operatorId: string): Promise<'inserted' | 'updated'> {
+/** Чем кончилась запись тура из импорта — словами для журнала прогона. */
+export type SavedTour =
+  | 'inserted'
+  /** Тура на сайте нет: правка записана в строку. */
+  | 'updated'
+  /** Тур на сайте: правка ждёт проверки администратора. */
+  | 'staged'
+  /** Содержание владелец уже отправил на проверку: импорт его не перебил. */
+  | 'kept_owner'
+  /** Содержание то же, что стоит: обновлены только отметки импорта. */
+  | 'unchanged';
+
+/**
+ * Единица цены импорта → словарь сайта (`lib/tours/booking-total`): «за
+ * человека» и «за тур». До 23.11 импорт писал в тур свои слова — `per_group`
+ * и `unknown`, — а расчёт брони незнакомое значение читает как «за человека»:
+ * цена за группу умножалась бы на число участников. «Не понял» — `null`:
+ * единицу и цену импорт тогда не трогает вовсе.
+ */
+export function sitePriceUnit(unit: ScrapedTour['price_unit']): 'per_person' | 'per_tour' | null {
+  if (unit === 'per_person') return 'per_person';
+  if (unit === 'per_group') return 'per_tour';
+  return null;
+}
+
+/**
+ * Что импорт предлагает существующему туру. Пустое значение разбора — «на
+ * сайте не найдено», а не «очистить»: такое поле не трогается. Цена
+ * предлагается только вместе с понятой единицей: число без единицы — не цена.
+ * Вид активности существующего тура импорт не переписывает: его выбирает
+ * оператор в кабинете.
+ */
+export function importedContent(tour: ScrapedTour): Record<string, unknown> {
+  const content: Record<string, unknown> = {};
+  const unit = sitePriceUnit(tour.price_unit);
+  if (unit !== null && tour.price_from != null) {
+    content.base_price = tour.price_from;
+    content.price_unit = unit;
+  }
+  if (tour.price_note != null) content.price_note = tour.price_note;
+  if (tour.description != null) content.description = tour.description;
+  if (tour.duration_hours != null) content.duration_hours = tour.duration_hours;
+  return content;
+}
+
+export async function saveTour(tour: ScrapedTour, operatorId: string): Promise<SavedTour> {
   const { rows } = await pool.query<{ id: number }>(
-    `SELECT id FROM operator_tours WHERE operator_id = $1 AND title = $2 LIMIT 1`,
+    `SELECT id FROM operator_tours WHERE operator_id = $1 AND title = $2 AND deleted_at IS NULL LIMIT 1`,
     [operatorId, tour.title],
   );
 
   if (rows.length > 0) {
+    const tourId = String(rows[0].id);
+    // Отметки импорта — не содержание: турист их не видит.
     await pool.query(
       `UPDATE operator_tours SET
-         price_unit     = $2,
-         price_note     = COALESCE($3, price_note),
-         includes       = COALESCE($4, includes),
-         source_url     = $5,
+         includes       = COALESCE($2, includes),
+         source_url     = $3,
          parsed_at      = NOW(),
          is_stale       = FALSE,
-         base_price     = COALESCE($6, base_price),
-         activity_type  = $7,
-         description    = COALESCE($8, description),
-         duration_hours = COALESCE($9, duration_hours),
-         group_size_max = COALESCE($10, group_size_max)
+         group_size_max = COALESCE($4, group_size_max)
        WHERE id = $1`,
-      [rows[0].id, tour.price_unit, tour.price_note, tour.includes, tour.source_url,
-       tour.price_from, tour.category, tour.description, tour.duration_hours, tour.group_size_max],
+      [rows[0].id, tour.includes, tour.source_url, tour.group_size_max],
     );
-    return 'updated';
+    // Содержание — дверью правки, под именем импорта.
+    const content = importedContent(tour);
+    if (Object.keys(content).length === 0) return 'unchanged';
+    return transaction(async (client): Promise<SavedTour> => {
+      const view = await readTourForAutomaton(client, tourId);
+      if (!view) return 'unchanged';
+      const change = await proposeTourChange(client, {
+        tourId, source: 'operator-site-import', input: content as TourPatchInput, tour: view,
+      });
+      if (change.outcome === 'pending') return 'staged';
+      if (change.outcome === 'written') return 'updated';
+      if (change.outcome === 'kept_owner') return 'kept_owner';
+      return 'unchanged';
+    });
   }
 
   const { rows: inserted } = await pool.query<{ id: number }>(
@@ -86,8 +150,9 @@ async function saveTour(tour: ScrapedTour, operatorId: string): Promise<'inserte
        max_participants, currency
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),FALSE,COALESCE($8,10),'RUB')
      RETURNING id`,
+    // Единица — словарём сайта; «не понял» остаётся «unknown», а не «за человека».
     [operatorId, tour.title, tour.category, tour.description, tour.duration_hours,
-     tour.price_from, tour.price_unit, tour.group_size_max, tour.price_note, tour.includes,
+     tour.price_from, sitePriceUnit(tour.price_unit) ?? 'unknown', tour.group_size_max, tour.price_note, tour.includes,
      tour.source_url],
   );
 
