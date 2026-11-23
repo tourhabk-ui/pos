@@ -3756,8 +3756,12 @@ export async function askKuzmichForEval(question: string): Promise<{ answer: str
 
   const { system: systemContent, dynamic } = kuzmichSystemContent(turn);
 
-  const raw = await aiChatAgentLoop(question, systemContent, [], [{ role: 'user', content: question }], toolRuns)
-    .catch(() => null);
+  // Отказ цикла не глушится (#3494, 23.11): до этого дня здесь стояло
+  // `.catch(() => null)`, и прогон 23.11 не получил ни одного ответа из 98 —
+  // закрыт был суточный стоп расходов, — а в логе не осталось ни строки, и
+  // «стоп закрыт» читался как «Кузьмич промолчал». Исключение уходит
+  // вызывающему: прогон проверки называет причину у каждого вопроса.
+  const raw = await aiChatAgentLoop(question, systemContent, [], [{ role: 'user', content: question }], toolRuns);
   if (!raw?.trim()) return null;
 
   /**

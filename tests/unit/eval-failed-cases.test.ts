@@ -89,6 +89,7 @@ describe('попадает в запись прогона', () => {
   });
 
   it('импортировано из того же модуля, что и сам прогон', () => {
-    expect(ROUTE).toMatch(/import \{ runKuzmichFaithfulnessEval, failedCases \}/);
+    // Рядом в том же импорте могут стоять и другие имена модуля (#3494: noAnswerOutcome).
+    expect(ROUTE).toMatch(/import \{ runKuzmichFaithfulnessEval, failedCases[ ,][^}]*\} from '@\/lib\/agents\/eval\/kuzmich-faithfulness'/);
   });
 });

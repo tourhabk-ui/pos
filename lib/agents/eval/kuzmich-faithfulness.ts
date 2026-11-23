@@ -28,6 +28,7 @@ import { judgeWithFallback } from '@/lib/agents/eval/editor-judge';
 import { wilsonInterval, type WilsonInterval } from '@/lib/agents/learning/experiment-tracker';
 import questionsFixture from '@/lib/agents/eval/kuzmich-eval-questions.json';
 import { redactPII } from '@/lib/security/pii-redact';
+import { isDailyBudgetStopped } from '@/lib/ai/daily-spend-gate';
 import {
   CommercialCheckSchema,
   judgeCommercial,
@@ -84,6 +85,50 @@ export interface EvalCase {
   reason: string;
   /** Только у коммерческих вопросов: исход критериев. */
   commercial?: CommercialVerdict;
+  /** Только у вопроса без ответа: почему Кузьмич не ответил. */
+  no_answer?: NoAnswerCause;
+}
+
+/**
+ * Почему вопрос остался без ответа (#3494, 23.11). Три причины чинятся в
+ * разных местах: стоп расходов — решением о бюджете, ошибка цикла — в коде
+ * ответа, пустой ответ — у провайдеров. До этого дня у всех трёх была одна
+ * строка «waterfall недоступен или таймаут», и прогон без единого ответа
+ * выглядел как прогон с молчащим судьёй.
+ */
+export type NoAnswerCause = 'daily_budget_stopped' | 'error' | 'empty';
+
+const NO_ANSWER_REASON: Record<NoAnswerCause, string> = {
+  daily_budget_stopped: 'нет ответа: закрыт суточный стоп расходов на ИИ — туристам Кузьмич сейчас тоже не отвечает',
+  error: 'нет ответа: цикл ответа Кузьмича упал с ошибкой — текст ошибки в логе прогона',
+  empty: 'нет ответа: Кузьмич вернул пустой ответ — ни одна модель не ответила',
+};
+
+/**
+ * Прогон, в котором Кузьмич не ответил ни на один вопрос, ничего не измерил.
+ * Возвращает код и слова причины; null — хоть один ответ есть.
+ *
+ * Код `daily_budget_stopped` — только когда стоп назван у КАЖДОГО вопроса:
+ * смесь причин называется общим `no_answers`, а не самой удобной из них.
+ */
+export function noAnswerOutcome(cases: EvalCase[]): { skip_reason: 'daily_budget_stopped' | 'no_answers'; text: string } | null {
+  if (cases.length === 0 || cases.some((c) => c.answer)) return null;
+  if (cases.every((c) => c.no_answer === 'daily_budget_stopped')) {
+    return {
+      skip_reason: 'daily_budget_stopped',
+      text: `Кузьмич не ответил ни на один из ${cases.length} вопросов: закрыт суточный стоп расходов на ИИ. Туристам он сейчас тоже не отвечает. Ответы не измерены.`,
+    };
+  }
+  const counts = new Map<string, number>();
+  for (const c of cases) {
+    const key = c.no_answer ?? 'не названа';
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const parts = [...counts.entries()].map(([k, n]) => `${k} — ${n}`).join(', ');
+  return {
+    skip_reason: 'no_answers',
+    text: `Кузьмич не ответил ни на один из ${cases.length} вопросов (причины: ${parts}). Ответы не измерены, судья тут ни при чём.`,
+  };
 }
 
 export interface EvalReport {
@@ -338,6 +383,12 @@ export function decideAlert(summary: Omit<EvalReport, 'alerts_sent'>): string | 
   // Два понедельничных прогона фикстуры — базовый и о турах — тревожат одним
   // заголовком; без пометки владелец не отличил бы один от другого.
   const set = summary.commercial ? ' (вопросы о турах)' : '';
+  // Ни одного ответа — не «судья недоступен»: судье нечего было судить. Так
+  // прогон 23.11 (стоп расходов закрыт) тревожил бы владельца чужой причиной.
+  const silent = noAnswerOutcome(summary.cases);
+  if (silent) {
+    return `<b>Kuzmich Eval${set}: Кузьмич не ответил ни на один вопрос</b>\n${silent.text}`;
+  }
   if (summary.asked > 0 && summary.judge_unavailable_ratio > ALERT_JUDGE_NULL_RATIO) {
     return `<b>Kuzmich Eval${set}: судья недоступен</b>\n` +
       `Не оценено ${summary.asked - summary.judged} из ${summary.asked} вопросов ` +
@@ -378,6 +429,7 @@ export async function runKuzmichFaithfulnessEval(opts?: { questions?: EvalQuesti
   const cases: EvalCase[] = await mapWithConcurrency(questions, EVAL_CONCURRENCY, async (q) => {
     let answer: string | null = null;
     let context = '';
+    let cause: NoAnswerCause = 'empty';
     try {
       const result = await ask(q.question);
       answer = result?.answer ?? null;
@@ -385,8 +437,10 @@ export async function runKuzmichFaithfulnessEval(opts?: { questions?: EvalQuesti
     } catch (err) {
       // Отказ не глушится (§4.0): без строки в логе «нет ответа от Кузьмича»
       // неотличимо от «Кузьмич промолчал по делу».
+      cause = isDailyBudgetStopped(err) ? 'daily_budget_stopped' : 'error';
       console.error('[kuzmich-eval] вопрос не отработал', {
         id: q.id,
+        cause,
         message: err instanceof Error ? err.message : String(err),
       });
       answer = null;
@@ -396,7 +450,8 @@ export async function runKuzmichFaithfulnessEval(opts?: { questions?: EvalQuesti
       return {
         id: q.id, category: q.category, question: q.question,
         answer: null, context_len: context.length, score: null,
-        reason: 'нет ответа от Кузьмича (waterfall недоступен или таймаут)',
+        reason: NO_ANSWER_REASON[cause],
+        no_answer: cause,
         // Нет ответа — критерии судить не по чему: «не смог», а не «прошёл».
         ...(q.checks ? { commercial: {
           outcome: 'unknown' as const,
