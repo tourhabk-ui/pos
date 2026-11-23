@@ -63,6 +63,7 @@ process.env.JWT_SECRET = 'test-secret-for-register-by-role';
 
 import { POST } from '@/app/api/auth/register/route';
 import { POST as POST_OPERATOR_FORM } from '@/app/api/auth/register-operator/route';
+import { OFFER_REQUIRED_TEXT, OFFER_VERSION } from '@/lib/legal/offer';
 
 function registerReq(body: Record<string, unknown>): NextRequest {
   return new Request('http://localhost/api/auth/register', {
@@ -283,5 +284,114 @@ describe('регистрация: аккаунт и партнёрский пр�
 
   it('пустого catch в этом роуте не осталось', () => {
     expect(SRC).not.toMatch(/catch \(error: unknown\) \{\s*return NextResponse\.json\(/);
+  });
+});
+
+// Этап 5 плана готовности (23.11): партнёр — сторона оферты — без отметки не
+// заводится, а акцепт пишется строкой журнала в транзакции регистрации. На
+// настоящем PostgreSQL то же держит tests/integration/register.pg.test.ts.
+describe('оферта: двери регистрации партнёра', () => {
+  const sqls = () => clientQueryMock.mock.calls.map(([sql]) => String(sql));
+  const at = (needle: string) => sqls().findIndex((s) => s.includes(needle));
+  const acceptCalls = () => clientQueryMock.mock.calls.filter(([sql]) => String(sql).includes('INSERT INTO partner_offer_acceptances'));
+  /** Журнал не записал ни строки: карточки, которой писать акцепт, не нашлось. */
+  const journalWritesNothing = () => {
+    const base = clientQueryMock.getMockImplementation()!;
+    clientQueryMock.mockImplementation((sql: string, ...rest: unknown[]) => (
+      sql.includes('INSERT INTO partner_offer_acceptances') ? Promise.resolve({ rows: [], rowCount: 0 }) : base(sql, ...rest)
+    ));
+  };
+  const secondDoor = (body: Record<string, unknown>) => POST_OPERATOR_FORM(new Request('http://localhost/api/auth/register-operator', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      companyName: 'Тест', category: 'guide', contactName: 'Тест', phone: '+70000000000',
+      email: 'g@x.ru', password: 'Secret123', pd_consent: true, ...body,
+    }),
+  }) as unknown as NextRequest);
+  /** Вторая дверь читает id карточки и пишет заявку оператора — этого в общем mockDb нет. */
+  const secondDoorDb = () => {
+    const base = clientQueryMock.getMockImplementation()!;
+    clientQueryMock.mockImplementation((sql: string, ...rest: unknown[]) => {
+      if (sql.includes('INSERT INTO partners')) return Promise.resolve({ rows: [{ id: 'partner-1', slug: 'test' }] });
+      if (sql.includes('INSERT INTO operator_applications')) return Promise.resolve({ rows: [] });
+      return base(sql, ...rest);
+    });
+  };
+
+  it.each(['operator', 'guide', 'transfer', 'stay', 'gear', 'cars'])('главная дверь, роль %s без отметки — 400 словами, база не тронута', async (role) => {
+    for (const mark of [undefined, false]) {
+      const res = await POST(registerReq({ email: 'p@x.ru', password: 'Secret123', name: 'Тест', role, roles: [role], offer_accepted: mark }));
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ success: false, error: OFFER_REQUIRED_TEXT, code: 'offer_required' });
+    }
+    expect(clientQueryMock).not.toHaveBeenCalled();
+  });
+
+  it('главная дверь: роль с заявками среди нескольких — отметка всё равно нужна', async () => {
+    const res = await POST(registerReq({ email: 'p@x.ru', password: 'Secret123', name: 'Тест', role: 'tourist', roles: ['tourist', 'gear'], offer_accepted: undefined }));
+    expect(res.status).toBe(400);
+    expect(clientQueryMock).not.toHaveBeenCalled();
+  });
+
+  it('главная дверь, отметка стоит: акцепт — в транзакции, после карточки, с версией оферты', async () => {
+    const res = await POST(registerReq({ email: 'p@x.ru', password: 'Secret123', name: 'Тест', role: 'stay', roles: ['stay'] }));
+    expect(res.status).toBe(201);
+    expect(acceptCalls()).toHaveLength(1);
+    const params = acceptCalls()[0][1] as unknown[];
+    expect(params[0]).toBe('user-uuid-12345678');
+    expect(params[1]).toBe(OFFER_VERSION);
+    expect(params[2]).toBe('10.0.0.1');
+    expect(params[3]).toBe('registration');
+    expect(sqls().indexOf('BEGIN')).toBeLessThan(at('INSERT INTO partners'));
+    expect(at('INSERT INTO partners')).toBeLessThan(at('INSERT INTO partner_offer_acceptances'));
+    expect(at('INSERT INTO partner_offer_acceptances')).toBeLessThan(sqls().indexOf('COMMIT'));
+  });
+
+  it('главная дверь: туристу отметка не нужна, и акцепт ему не пишется', async () => {
+    const res = await POST(registerReq({ email: 't@x.ru', password: 'Secret123', name: 'Тест', role: 'tourist', offer_accepted: undefined }));
+    expect(res.status).toBe(201);
+    expect(acceptCalls()).toHaveLength(0);
+  });
+
+  it('главная дверь: журнал не записал ни строки — откат, а не партнёр без акцепта', async () => {
+    journalWritesNothing();
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const res = await POST(registerReq({ email: 'p@x.ru', password: 'Secret123', name: 'Тест', role: 'stay', roles: ['stay'] }));
+    errors.mockRestore();
+    expect(res.status).toBe(500);
+    expect(sqls()).toContain('ROLLBACK');
+    expect(sqls()).not.toContain('COMMIT');
+  });
+
+  it('вторая дверь, гид без отметки — 400 словами, база не тронута', async () => {
+    for (const mark of [undefined, false]) {
+      const res = await secondDoor(mark === undefined ? {} : { offer_accepted: mark });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ success: false, error: OFFER_REQUIRED_TEXT, code: 'offer_required' });
+    }
+    expect(clientQueryMock).not.toHaveBeenCalled();
+  });
+
+  it('вторая дверь, отметка стоит: акцепт — в транзакции, после карточки, с версией оферты', async () => {
+    secondDoorDb();
+    const res = await secondDoor({ offer_accepted: true });
+    expect(res.status).toBe(201);
+    expect(acceptCalls()).toHaveLength(1);
+    const params = acceptCalls()[0][1] as unknown[];
+    expect(params[1]).toBe(OFFER_VERSION);
+    expect(params[3]).toBe('registration');
+    expect(sqls().indexOf('BEGIN')).toBeLessThan(at('INSERT INTO partners'));
+    expect(at('INSERT INTO partners')).toBeLessThan(at('INSERT INTO partner_offer_acceptances'));
+    expect(at('INSERT INTO partner_offer_acceptances')).toBeLessThan(sqls().indexOf('COMMIT'));
+  });
+
+  it('вторая дверь: журнал не записал ни строки — откат, а не партнёр без акцепта', async () => {
+    secondDoorDb();
+    journalWritesNothing();
+    const res = await secondDoor({ offer_accepted: true });
+    expect(res.status).toBe(500);
+    expect(sqls()).toContain('ROLLBACK');
+    expect(sqls()).not.toContain('COMMIT');
   });
 });
