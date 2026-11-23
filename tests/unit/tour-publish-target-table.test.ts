@@ -28,10 +28,12 @@ describe('деактивация/публикация тура оператор�
     expect(src).not.toMatch(/UPDATE\s+tours\s+SET/);
   });
 
-  it('publish: UPDATE нацелен на operator_tours', () => {
+  it('publish: своей записи у двери нет — ни в tours, ни в operator_tours', () => {
+    // С этапа 4 плана готовности (23.11) дверь пишет через единую дверь
+    // владельца (lib/tours/tour-change): показ — сразу, публикация — просьба.
     const src = read('app/api/operator/tours/[id]/publish/route.ts');
-    expect(src).toMatch(/UPDATE\s+operator_tours\s+SET\s+is_active\s*=\s*true/i);
     expect(src).not.toMatch(/UPDATE\s+tours\s+SET/);
+    expect(src).not.toMatch(/UPDATE\s+operator_tours/i);
   });
 });
 

@@ -73,20 +73,24 @@ interface CountRow {
   pending: number | string | null;
 }
 
+/** Сколько туров и правок партнёра ждут проверки администратором. */
+const PENDING_TOUR_EDITS_SQL = `(SELECT COUNT(*)::int FROM operator_tour_edits pe
+            WHERE pe.partner_id = $1 AND pe.moderation_status = 'pending')`;
+
 const CONTENT_SQL: Record<ReadinessCategory, string> = {
-  // Туры: «всего» — без удалённых; «на сайте» — шлюз витрины туров. Очереди
-  // проверки у туров пока нет (этап 4 плана), поэтому pending = 0.
+  // Туры: «всего» — без удалённых; «на сайте» — шлюз витрины туров; «на
+  // проверке» — туры и правки, которые ждут администратора (миграция 1507).
   operator: `
     SELECT COUNT(*) FILTER (WHERE ot.deleted_at IS NULL)::int AS total,
            COUNT(*) FILTER (WHERE ${publicTourSql('ot')})::int AS live,
-           0::int AS pending
+           ${PENDING_TOUR_EDITS_SQL} AS pending
       FROM operator_tours ot
      WHERE ot.operator_id = $1`,
   // Свои туры гида лежат там же: operator_id — карточка гида (миграция 1338).
   guide: `
     SELECT COUNT(*) FILTER (WHERE ot.deleted_at IS NULL)::int AS total,
            COUNT(*) FILTER (WHERE ${publicTourSql('ot')})::int AS live,
-           0::int AS pending
+           ${PENDING_TOUR_EDITS_SQL} AS pending
       FROM operator_tours ot
      WHERE ot.operator_id = $1`,
   stay: `

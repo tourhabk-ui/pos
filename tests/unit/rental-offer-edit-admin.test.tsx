@@ -83,6 +83,10 @@ describe('модерация правки прайса', () => {
       if (url.includes('/api/admin/moderation/charter-price-edits')) {
         return new Response(JSON.stringify({ success: true, data: { edits: [] } }));
       }
+      // Очередь туров (этап 4 плана готовности, 23.11) — своя; здесь она пуста.
+      if (url.includes('/api/admin/moderation/tour-edits')) {
+        return new Response(JSON.stringify({ success: true, data: { edits: [] } }));
+      }
       if (url.includes('/api/admin/moderation/rental-edits/') && init?.method === 'POST') {
         return new Response(JSON.stringify({
           success: false, code: 'changed',

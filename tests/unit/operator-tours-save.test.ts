@@ -149,8 +149,13 @@ describe('прочее', () => {
     expect(read('lib/tours/tour-write.ts')).toMatch(/fields\.push\(`tour_image = \$\$\{idx\+\+\}`\)/);
   });
 
-  it('публикация ставит is_published', () => {
-    expect(read('app/api/operator/tours/[id]/publish/route.ts')).toMatch(/SET is_active = true, is_published = true/);
+  it('дверь публикации сама is_published не ставит — это делает одобрение администратора', () => {
+    // Этап 4 плана готовности (23.11): публикация — просьба через единую
+    // дверь владельца. Что просьба не выводит тур на витрину, проверяет
+    // PostgreSQL: tests/integration/tour-moderation.pg.test.ts.
+    const src = read('app/api/operator/tours/[id]/publish/route.ts');
+    expect(src).not.toMatch(/UPDATE\s+operator_tours/i);
+    expect(src).not.toMatch(/is_published\s*=\s*true/i);
   });
 
   it('AI-автозаполнение пишет только в пустое и без координат', () => {

@@ -10,6 +10,7 @@ import {
   CalendarDays,
 } from 'lucide-react';
 import { readApiResponse } from '@/lib/http/api-response';
+import { TourModerationStatus, type TourModerationView } from '@/components/tours/TourModerationStatus';
 import MainPlacePicker, { asMainPlaceSource, type MainPlaceValue } from '@/components/operator/Tours/MainPlacePicker';
 import TourDateAdd from '@/components/operator/Tours/TourDateAdd';
 import TourScheduleKind, { type ScheduleKindValue } from '@/components/operator/Tours/TourScheduleKind';
@@ -70,6 +71,8 @@ interface TourData {
   photo_credits?: { [url: string]: string };
   /** Видит ли тур турист — ответ шлюза каталога. */
   on_storefront?: boolean | null;
+  /** Проверка администратором: статус и что ждёт (этап 4 плана готовности, 23.11). */
+  moderation?: TourModerationView & { direct?: boolean };
 }
 
 const NO_EXTRAS: OperatorTourExtras = { program: [], safety_notes: '', video_clips: [], photo_credit: '' };
@@ -103,6 +106,10 @@ export default function EditTourClient() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  // Что сказать после сохранения, когда правка ушла на проверку, а не на сайт.
+  const [pendingNotice, setPendingNotice] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [statusBusy, setStatusBusy] = useState(false);
 
   // Форм-стейт
   const [form, setForm] = useState({
@@ -253,7 +260,7 @@ export default function EditTourClient() {
       }
     }
     load();
-  }, [tourId]);
+  }, [tourId, reloadKey]);
 
   // Экран «Чего не хватает» ведёт на #якорь секции (lib/operator/blocker-targets).
   // Форма рисуется после загрузки тура, а браузер прокручивает по хэшу в
@@ -274,7 +281,51 @@ export default function EditTourClient() {
     return s.split('\n').map(l => l.trim()).filter(Boolean);
   }
 
-  async function handleSave() {
+  // Администратор ставит и снимает публикацию сам; владелец — через проверку.
+  const publishesDirectly = tour?.moderation?.direct === true;
+
+  /** Снять с публикации — сразу, отдельным запросом: форма публикацию не шлёт. */
+  async function handleUnpublish() {
+    if (!confirm('Снять тур с публикации? Туристы перестанут его видеть сразу. Вернуть на сайт можно будет только через проверку.')) return;
+    setStatusBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/hub/operator/tours/${tourId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_published: false }),
+      });
+      const { data, error: apiError } = await readApiResponse<{ success?: boolean; error?: string }>(res);
+      if (apiError) throw new Error(apiError);
+      if (!data?.success) throw new Error(data?.error || 'Не удалось снять с публикации');
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось снять с публикации');
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
+  /** Отозвать правку или просьбу о публикации, пока её не решили. */
+  async function handleWithdraw() {
+    if (!confirm('Отозвать с проверки? Правка, которая ждёт администратора, будет удалена: в форме останется то, что сейчас на сайте.')) return;
+    setStatusBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/hub/operator/tours/${tourId}/edit`, { method: 'DELETE' });
+      const { data, error: apiError } = await readApiResponse<{ success?: boolean; error?: string }>(res);
+      if (apiError) throw new Error(apiError);
+      if (!data?.success) throw new Error(data?.error || 'Не удалось отозвать');
+      setPendingNotice(null);
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось отозвать');
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
+  async function handleSave(opts: { askPublish?: boolean } = {}) {
     // Чего не хватает программе, правилам и видео — словами, до отправки.
     const gaps = operatorExtrasGaps(extras, photos);
     if (gaps.length > 0) {
@@ -284,6 +335,7 @@ export default function EditTourClient() {
     setSaving(true);
     setError(null);
     setSuccess(false);
+    setPendingNotice(null);
     try {
       const payload: Record<string, unknown> = {
         title: form.title,
@@ -307,7 +359,10 @@ export default function EditTourClient() {
         difficulty: form.difficulty || null,
         weather_dependent: form.weather_dependent,
         is_active: form.is_active,
-        is_published: form.is_published,
+        // Публикацию форма владельца не шлёт: её ставит одобрение, а снятие —
+        // отдельная кнопка. Иначе форма, открытая до одобрения, при сохранении
+        // сняла бы только что одобренный тур с сайта.
+        ...(publishesDirectly ? { is_published: form.is_published } : opts.askPublish ? { is_published: true } : {}),
         pinned: form.pinned,
         included: parseLines(form.included),
         not_included: parseLines(form.not_included),
@@ -339,9 +394,11 @@ export default function EditTourClient() {
       });
       // Через общий разбор: пустое тело пятисотки раньше превращалось в
       // «Unexpected end of JSON input» вместо причины отказа.
-      const { data, error: apiError } = await readApiResponse<{ success?: boolean; error?: string }>(res);
+      const { data, error: apiError } = await readApiResponse<{ success?: boolean; error?: string; pending?: { notice?: string } | null }>(res);
       if (apiError) throw new Error(apiError);
       if (!data?.success) throw new Error(data?.error || 'Ошибка сохранения');
+      // Содержание ушло на проверку: «сохранено» без оговорки читалось бы как «на сайте».
+      setPendingNotice(typeof data.pending?.notice === 'string' ? data.pending.notice : null);
       // Сохранённая связь теперь — выбор оператора (или снята): подпись
       // «связано по координатам» больше к ней не относится.
       setTour(prev => prev && ({
@@ -362,7 +419,7 @@ export default function EditTourClient() {
         const fj = await fresh.json() as { success?: boolean; data?: TourData };
         if (!fresh.ok || !fj.success || !fj.data) throw new Error(`HTTP ${fresh.status}`);
         const d = fj.data;
-        setTour(prev => prev && ({ ...prev, photo_credits: d.photo_credits, on_storefront: d.on_storefront }));
+        setTour(prev => prev && ({ ...prev, photo_credits: d.photo_credits, on_storefront: d.on_storefront, moderation: d.moderation }));
       } catch {
         setError('Сохранено, но подписи фото и видимость для туристов не обновились — обновите страницу');
       }
@@ -418,7 +475,7 @@ export default function EditTourClient() {
             className="px-4 py-2 text-xs border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors">
             Отмена
           </button>
-          <button onClick={handleSave} disabled={saving}
+          <button onClick={() => handleSave()} disabled={saving}
             className="flex items-center gap-1.5 px-4 py-2 text-xs bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-lg font-medium transition-colors disabled:opacity-50">
             <Save className="w-3.5 h-3.5" />
             {saving ? 'Сохранение...' : 'Сохранить'}
@@ -427,9 +484,14 @@ export default function EditTourClient() {
       </div>
 
       {/* Статус сохранения */}
-      {success && (
+      {success && !pendingNotice && (
         <div className="px-4 py-2 bg-[var(--success)]/10 border border-[var(--success)]/30 rounded-lg text-xs text-[var(--success)]">
           Изменения сохранены
+        </div>
+      )}
+      {pendingNotice && (
+        <div role="status" className="px-4 py-2 bg-[var(--warning)]/10 border border-[var(--warning)]/30 rounded-lg text-xs text-[var(--text-primary)]">
+          {pendingNotice}
         </div>
       )}
       {error && (
@@ -447,11 +509,13 @@ export default function EditTourClient() {
               className="w-4 h-4 accent-[var(--accent)]" />
             <span className="text-sm text-[var(--text-primary)]">Активен</span>
           </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={form.is_published} onChange={e => setF('is_published', e.target.checked)}
-              className="w-4 h-4 accent-[var(--accent)]" />
-            <span className="text-sm text-[var(--text-primary)]">Опубликован</span>
-          </label>
+          {publishesDirectly && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={form.is_published} onChange={e => setF('is_published', e.target.checked)}
+                className="w-4 h-4 accent-[var(--accent)]" />
+              <span className="text-sm text-[var(--text-primary)]">Опубликован</span>
+            </label>
+          )}
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={form.pinned} onChange={e => setF('pinned', e.target.checked)}
               className="w-4 h-4 accent-[var(--accent)]" />
@@ -461,6 +525,20 @@ export default function EditTourClient() {
         <p className="text-xs text-[var(--text-muted)]">
           Закреплённые туры идут первыми на вашей странице на Ведаре, в порядке закрепления. Остальные — по началу сезона.
         </p>
+        {tour.moderation && !publishesDirectly && (
+          <TourModerationStatus
+            moderation={tour.moderation}
+            busy={saving || statusBusy}
+            onAskPublish={() => handleSave({ askPublish: true })}
+            onUnpublish={handleUnpublish}
+            onWithdraw={handleWithdraw}
+          />
+        )}
+        {tour.moderation?.direct && tour.moderation.pending && (
+          <p className="text-xs text-[var(--text-muted)]">
+            У владельца тура есть правка на проверке — она в очереди модерации. В этой форме — то, что сейчас на сайте.
+          </p>
+        )}
       </section>
 
       {/* Основное */}
@@ -848,7 +926,7 @@ export default function EditTourClient() {
           className="px-5 py-2.5 text-sm border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors">
           Отмена
         </button>
-        <button onClick={handleSave} disabled={saving}
+        <button onClick={() => handleSave()} disabled={saving}
           className="flex items-center gap-2 px-5 py-2.5 text-sm bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white rounded-lg font-medium transition-colors disabled:opacity-50">
           <Save className="w-4 h-4" />
           {saving ? 'Сохранение...' : 'Сохранить изменения'}

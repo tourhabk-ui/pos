@@ -41,6 +41,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
 import { createTestDatabase } from '../helpers/pg-schema';
+import { approveTourEdit } from '../helpers/tour-edit-approve';
 
 vi.mock('next/cache', () => ({ unstable_cache: (fn: () => unknown) => fn }));
 
@@ -739,7 +740,12 @@ withPg('витрина туров: снятый тур не в плане и н�
     const section = async () => (await loadOwnTours(guide)).find((t) => t.id === tourId);
     expect(await inCatalog()).toBe(false);
     expect(await section()).toMatchObject({ on_storefront: false, blockers: [] });
-    expect(await setOwnTourOnSite({ ownerId: guide, tourId, publish: true })).toMatchObject({ outcome: 'published' });
+    // «Опубликовать» — просьба: в каталог тур ставит одобрение администратора
+    // (план готовности 23.11, этап 4).
+    expect(await setOwnTourOnSite({ ownerId: guide, tourId, publish: true })).toMatchObject({ outcome: 'requested' });
+    expect(await inCatalog()).toBe(false);
+    expect(await setOwnTourOnSite({ ownerId: guide, tourId, publish: true })).toMatchObject({ outcome: 'already_requested' });
+    await approveTourEdit(tourId);
     expect(await inCatalog()).toBe(true);
     expect((await section())?.on_storefront).toBe(true);
     expect(await setOwnTourOnSite({ ownerId: OPERATOR.id, tourId, publish: false })).toEqual({ outcome: 'not_found' });

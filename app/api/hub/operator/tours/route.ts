@@ -5,6 +5,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { loadOwnTourEdits } from '@/lib/tours/moderation-store';
+import { tourReviewMark } from '@/lib/tours/moderation';
 import { z } from 'zod';
 import { requireOperator } from '@/lib/auth/middleware';
 import {
@@ -36,9 +38,17 @@ export async function GET(request: NextRequest) {
 
     const data = await getToursByOperator(operator_id, pagination);
 
+    // Метка проверки у каждого тура (план готовности 23.11, этап 4): тур или
+    // правка ждут администратора либо возвращены. Правки не прочитались —
+    // «не прочитано», а не «проверки нет»; сам список от этого не падает.
+    const ids = data.rows.map((r) => String(r.id));
+    const edits = await loadOwnTourEdits(ids, new Map());
     return NextResponse.json({
       success: true,
-      data: data.rows,
+      data: data.rows.map((r) => ({
+        ...r,
+        review: edits === null ? 'unknown' as const : tourReviewMark(edits.get(String(r.id))),
+      })),
       pagination: {
         total: data.total,
         limit: data.limit,

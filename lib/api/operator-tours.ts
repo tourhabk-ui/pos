@@ -5,6 +5,7 @@
 
 import { TOUR_DESCRIPTION_MAX } from '@/lib/tours/text-limits';
 import { z } from 'zod';
+import { PHOTO_ADDRESS_TEXT, photoAddressHasForeignScheme } from '@/lib/tours/photo-address';
 import { SCHEDULE_KINDS } from '@/lib/tours/schedule-kind';
 import { query, transaction } from '@/lib/database';
 import { assertLiveMainPlace } from '@/lib/tours/main-place';
@@ -44,6 +45,13 @@ export const CREATE_ACTIVITY_TYPES = ['trekking', 'thermal', 'boat_trip', 'rafti
  */
 const KIND_VALUE = z.string().regex(/^[a-z_]{2,40}$/, 'Недопустимое значение вида');
 
+/**
+ * Адрес снимка тура от оператора: ссылка на его сайт или загруженное здесь.
+ * Чужая схема (`javascript:`, `data:` …) не сохраняется: очередь администратора
+ * ставит адрес в ссылку (lib/tours/photo-address).
+ */
+const PhotoAddress = z.string().max(500).refine((u) => !photoAddressHasForeignScheme(u), PHOTO_ADDRESS_TEXT);
+
 const TourFieldsSchema = z.object({
   title: z.string().min(5).max(255),
   description: z.string().max(TOUR_DESCRIPTION_MAX).nullable().optional(),
@@ -69,8 +77,8 @@ const TourFieldsSchema = z.object({
   included: z.array(z.string().max(200)).max(30).optional(),
   not_included: z.array(z.string().max(200)).max(30).optional(),
   what_to_bring: z.array(z.string().max(200)).max(30).optional(),
-  photos: z.array(z.string().max(500)).max(20).optional(),
-  tour_image: z.string().max(500).optional(),
+  photos: z.array(PhotoAddress).max(20).optional(),
+  tour_image: PhotoAddress.optional(),
   agent_route_id: z.string().uuid().optional(),
   /** Маршрут тура (kamchatka_routes.id) — по нему карточка тура находит трек и точки. */
   route_id: z.string().uuid().optional(),
@@ -118,7 +126,7 @@ export const UpdateTourSchema = TourFieldsSchema.partial().extend({
   season_start:      z.string().date().nullable().optional(),
   season_end:        z.string().date().nullable().optional(),
   difficulty:          z.enum(['easy', 'medium', 'hard', 'expert']).nullable().optional(),
-  tour_image:          z.string().max(500).nullable().optional(),
+  tour_image:          PhotoAddress.nullable().optional(),
   agent_route_id:      z.string().uuid().nullable().optional(),
   latitude:            z.number().min(-90).max(90).nullable().optional(),
   longitude:           z.number().min(-180).max(180).nullable().optional(),

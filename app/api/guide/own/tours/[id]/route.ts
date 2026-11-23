@@ -8,7 +8,7 @@
  * (`POST /api/upload/tour-photo`): хранилище платформы или /images/, чужой
  * сайт на витрину гида не поставить.
  *
- * Запись — общая функция правки тура (`writeTourPatch`, lib/tours/tour-write)
+ * Запись — единая дверь владельца (`saveTourChange`, lib/tours/tour-change)
  * — та же, что у кабинета оператора и у «Сохранить» в чате гида; владелец
  * проверяется в самом UPDATE (`operator_id` = карточка вошедшего гида). Чужой
  * или удалённый тур — 404, ни строки не тронуто. Публикация здесь не меняется:
@@ -18,7 +18,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/auth/middleware';
 import { getGuidePartnerId } from '@/lib/auth/guide-helpers';
 import { transaction } from '@/lib/database';
-import { writeTourPatch } from '@/lib/tours/tour-write';
+import { saveTourChange } from '@/lib/tours/tour-change';
+import { lockPendingTourEdit } from '@/lib/tours/moderation-store';
 import { setPhotoCaptions, writePhotoCredits } from '@/lib/tours/editor-media';
 import { pingTourChanged } from '@/lib/seo/indexnow';
 import { OwnTourEditSchema as BodySchema, keptStoredPhotos } from '@/lib/guides/own-tour-edit';
@@ -68,18 +69,25 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           [id, partnerId],
         );
         const have = new Set(cur.rows[0]?.photos ?? []);
+        // Снимки правки, которая ждёт проверки, — тоже снимки этого тура:
+        // форма показывает их и присылает обратно.
+        const waiting = (await lockPendingTourEdit(c, id))?.patch as { photos?: unknown } | undefined;
+        if (Array.isArray(waiting?.photos)) for (const u of waiting.photos) if (typeof u === 'string') have.add(u);
         if (kept.some((u) => !have.has(u))) return { outcome: 'foreign_photo' as const };
       }
-      const w = await writeTourPatch(c, { tourId: id, ownerId: partnerId, input, current: {} });
+      // Единая дверь владельца (lib/tours/tour-change): содержание
+      // опубликованного тура уходит на проверку, остальное пишется сразу.
+      const w = await saveTourChange(c, { tourId: id, ownerId: partnerId, userId: auth.userId, input, current: {} });
+      const saved = w.outcome === 'written' || w.outcome === 'pending';
       // «Фото: <автор>» (05.11, слово владельца): снимкам тура без подписи —
       // автор из формы, в карту партнёра (partners.gallery_credits, её читает
       // карточка тура). Уже подписанное не переписывается.
-      if (w.outcome === 'written' && photoCredit && fields.photos?.length) {
+      if (saved && photoCredit && fields.photos?.length) {
         await writePhotoCredits(c, partnerId, photoCredit, fields.photos);
       }
       // Подпись каждого снимка своей рукой (11.11) — после общей: правка
       // конкретного фото сильнее «чьи снимки». Только снимки этого тура.
-      if (w.outcome === 'written' && photoCaptions) {
+      if (saved && photoCaptions) {
         await setPhotoCaptions(c, partnerId, id, photoCaptions);
       }
       return w;
@@ -93,8 +101,19 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (written.outcome === 'not_found') {
       return NextResponse.json({ success: false, error: 'Тур не найден среди ваших' }, { status: 404 });
     }
-    pingTourChanged(id);
-    return NextResponse.json({ success: true, data: { id: written.row.id, title: written.row.title } });
+    // Сохранили форму без единой правки — успех, а не ошибка.
+    if (written.outcome === 'unchanged') {
+      return NextResponse.json({ success: true, data: { id, title: null }, pending: null, unchanged: true });
+    }
+    // Поисковикам — только о том, что изменилось на витрине.
+    if (written.row) pingTourChanged(id);
+    return NextResponse.json({
+      success: true,
+      data: { id, title: written.row?.title ?? null },
+      pending: written.pending
+        ? { fields: written.pending.fields, wantsPublish: written.pending.wantsPublish, notice: written.pending.notice }
+        : null,
+    });
   } catch (error) {
     const e = error as { code?: string };
     if (e?.code === '23514') {

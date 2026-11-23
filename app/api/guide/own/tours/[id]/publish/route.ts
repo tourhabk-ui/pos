@@ -51,6 +51,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       }, { status: 409 });
     case 'published':
       return NextResponse.json({ success: true, outcome: r.outcome, message: `«${r.title}» опубликован — туристы его видят` });
+    // Публикацию ставит одобрение администратора (план готовности 23.11, этап 4).
+    case 'requested':
+      return NextResponse.json({
+        success: true, outcome: r.outcome,
+        message: `«${r.title}» отправлен на проверку. Туристы увидят тур после одобрения администратором.`,
+      });
+    case 'already_requested':
+      return NextResponse.json({ success: true, outcome: r.outcome, message: `«${r.title}» уже ждёт проверки администратором` });
     case 'already_on':
       return NextResponse.json({ success: true, outcome: r.outcome, message: `«${r.title}» уже на сайте` });
     case 'unpublished':

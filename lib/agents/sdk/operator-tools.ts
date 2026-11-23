@@ -12,6 +12,8 @@
 
 import type { SDKTool } from './sdk-runner';
 import { pool } from '@/lib/db-pool';
+import { transaction } from '@/lib/database';
+import { saveTourChange } from '@/lib/tours/tour-change';
 import { executeGovernedAction, hashInput } from '@/lib/agents/kernel';
 import { checkPriceMove } from '@/lib/agents/kernel/guardrails';
 import { redactPII } from '@/lib/security/pii-redact';
@@ -31,6 +33,18 @@ function invocationKey(args: Record<string, unknown>, tool: string): string | un
   const publicArgs = Object.fromEntries(Object.entries(args).filter(([k]) => !k.startsWith('_')));
   return `op:${tool}:${hashInput({ seed, publicArgs })}`;
 }
+
+/**
+ * «Строка та же, что я видел» — сверка версии по `updated_at` ($3).
+ *
+ * Сверяется с точностью до миллисекунды: столько несёт JS-`Date`, которым
+ * версия прочитана и возвращена в запрос. В базе у `NOW()` — микросекунды, и
+ * прямое `updated_at = $3` не совпадало почти никогда: оба инструмента ниже
+ * отвечали «тур изменён параллельно» на любой вызов. Нашёл это тест двери на
+ * настоящем PostgreSQL (tests/integration/tour-moderation.pg.test.ts, 23.11) —
+ * на подменённой базе сравнение «совпадало» всегда.
+ */
+const SAME_VERSION_SQL = `date_trunc('milliseconds', updated_at) = date_trunc('milliseconds', $3::timestamptz)`;
 
 // ── My Tours ─────────────────────────────────────────────────
 
@@ -227,7 +241,7 @@ const revenue: SDKTool = {
 
 const updatePrice: SDKTool = {
   name: 'update_tour_price',
-  description: 'Обновить цену тура. Только для туров этого оператора. Нужен ID тура и новая цена. Ход цены больше 50% от текущей требует явного подтверждения оператора (confirm_large_move=true) — иначе отказ с названным процентом.',
+  description: 'Обновить цену тура. Только для туров этого оператора. Нужен ID тура и новая цена. Ход цены больше 50% от текущей требует явного подтверждения оператора (confirm_large_move=true) — иначе отказ с названным процентом. Цена тура, который уже на сайте, меняется после проверки администратором: если в ответе pending_review — скажи оператору, что цена отправлена на проверку и на сайте пока прежняя.',
   parameters: {
     type: 'object',
     properties: {
@@ -271,23 +285,35 @@ const updatePrice: SDKTool = {
     // события эффекта, trace. Ключ идемпотентности стабилен на ИНВОКАЦИЮ
     // (seed от сообщения пользователя): один запрос — один эффект, повтор
     // модели внутри той же инвокации эффект не удвоит.
-    const gov = await executeGovernedAction<{ conflict: boolean }>({
+    const gov = await executeGovernedAction<{ conflict: boolean; pending: string | null }>({
       principal: { type: 'operator', id: operatorId },
       capability: 'tour.update_price',
       resource: { type: 'tour', id: String(tourId) },
       idempotencyKey: invocationKey(args, 'update_tour_price'),
       inputHash: hashInput({ tourId, newPrice }),
-      execute: async () => {
-        const upd = await pool.query(
-          `UPDATE operator_tours SET base_price = $1, updated_at = NOW()
-           WHERE id = $2 AND operator_id = $3 AND updated_at = $4`,
-          [newPrice, tourId, operatorId, expectedVersion],
+      // Запись — единая дверь владельца (lib/tours/tour-change, план готовности
+      // 23.11, этап 4): цена тура на витрине уходит на проверку администратору,
+      // а не в живую строку. Версия строки сверяется под замком.
+      execute: () => transaction(async (client) => {
+        const seen = await client.query(
+          `SELECT 1 FROM operator_tours
+            WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL AND ${SAME_VERSION_SQL}
+            FOR UPDATE`,
+          [tourId, operatorId, expectedVersion],
         );
-        return { conflict: upd.rowCount === 0 };
-      },
+        if (seen.rowCount === 0) return { conflict: true, pending: null };
+        const w = await saveTourChange(client, {
+          tourId: String(tourId), ownerId: operatorId, userId: null,
+          input: { base_price: newPrice }, current: {},
+        });
+        if (w.outcome === 'not_found') return { conflict: true, pending: null };
+        return { conflict: false, pending: w.outcome === 'pending' ? w.pending.notice : null };
+      }),
       summarize: (r) => (r.conflict
         ? `цена тура ${tourId}: конфликт версий, не применено`
-        : `цена тура ${tourId}: ${oldPrice} → ${newPrice}`),
+        : r.pending
+          ? `цена тура ${tourId}: ${oldPrice} → ${newPrice}, на проверке`
+          : `цена тура ${tourId}: ${oldPrice} → ${newPrice}`),
     });
     if (!gov.ok) return JSON.stringify({ error: `Изменение не выполнено: ${gov.reason}` });
     if (gov.duplicate) return JSON.stringify({ error: 'Повтор запроса: цена уже менялась этим же запросом' });
@@ -300,6 +326,9 @@ const updatePrice: SDKTool = {
       tour: check.rows[0].title,
       old_price: oldPrice,
       new_price: newPrice,
+      // Цена ушла на проверку: на сайте пока прежняя. Модель обязана сказать
+      // это оператору, а не «цена изменена».
+      ...(gov.result.pending ? { pending_review: true, note: gov.result.pending } : {}),
       task_id: gov.taskId,
     });
   },
@@ -313,7 +342,7 @@ const updatePrice: SDKTool = {
 
 const setPublished: SDKTool = {
   name: 'set_tour_published',
-  description: 'Установить статус публикации тура: published=true — опубликовать, published=false — снять с публикации. Повторный вызов с тем же значением безопасен.',
+  description: 'Установить статус публикации тура: published=true — попросить опубликовать (тур выходит на сайт после проверки администратором; в ответе pending_review), published=false — снять с публикации сразу. Повторный вызов с тем же значением безопасен.',
   parameters: {
     type: 'object',
     properties: {
@@ -346,22 +375,39 @@ const setPublished: SDKTool = {
     // (seed от сообщения пользователя): статичный ключ «tour:id:published»
     // навсегда запретил бы опубликовать тур повторно после снятия, а
     // инвокационный не даёт одному запросу исполниться дважды.
-    const gov = await executeGovernedAction<{ title: string; is_published: boolean } | null>({
+    const gov = await executeGovernedAction<{ title: string; is_published: boolean; pending: string | null } | null>({
       principal: { type: 'operator', id: operatorId },
       capability: 'tour.set_published',
       resource: { type: 'tour', id: String(tourId) },
       idempotencyKey: invocationKey(args, 'set_tour_published'),
       inputHash: hashInput({ tourId, published }),
+      // Запись — единая дверь владельца (lib/tours/tour-change, этап 4): снять
+      // тур с публикации можно сразу, а опубликовать — только просьбой, которую
+      // одобряет администратор. Версия строки сверяется под замком.
       execute: async () => {
-        const res = await pool.query(
-          `UPDATE operator_tours
-           SET is_published = $3, updated_at = NOW()
-           WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL AND updated_at = $4
-           RETURNING id, title, is_published`,
-          [tourId, operatorId, published, expectedVersion],
-        );
-        if (res.rowCount === 0) return null;
-        const row = res.rows[0];
+        const row = await transaction(async (client) => {
+          const seen = await client.query(
+            `SELECT 1 FROM operator_tours
+              WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL AND ${SAME_VERSION_SQL}
+              FOR UPDATE`,
+            [tourId, operatorId, expectedVersion],
+          );
+          if (seen.rowCount === 0) return null;
+          const w = await saveTourChange(client, {
+            tourId: String(tourId), ownerId: operatorId, userId: null,
+            input: { is_published: published }, current: {},
+          });
+          if (w.outcome === 'not_found') return null;
+          const now = await client.query<{ title: string; is_published: boolean | null }>(
+            `SELECT title, is_published FROM operator_tours WHERE id = $1`, [tourId],
+          );
+          return {
+            title: now.rows[0].title,
+            is_published: now.rows[0].is_published === true,
+            pending: w.outcome === 'pending' ? w.pending.notice : null,
+          };
+        });
+        if (row === null) return null;
 
         // Аудит эффекта: кто, что, во что перевёл. Отказ записи не роняет
         // действие, но и не молчит (§4.0). Колонки по миграции 059: у
@@ -374,9 +420,11 @@ const setPublished: SDKTool = {
         ).catch((err) => {
           console.error('[operator-tools] audit set_tour_published не записан:', err instanceof Error ? err.message : err);
         });
-        return { title: row.title, is_published: row.is_published };
+        return row;
       },
-      summarize: (row) => (row ? `тур ${tourId}: is_published=${row.is_published}` : `тур ${tourId} не найден`),
+      summarize: (row) => (row
+        ? `тур ${tourId}: is_published=${row.is_published}${row.pending ? ', просьба о публикации на проверке' : ''}`
+        : `тур ${tourId} не найден`),
     });
 
     if (!gov.ok) return JSON.stringify({ error: `Изменение не выполнено: ${gov.reason}` });
@@ -390,7 +438,10 @@ const setPublished: SDKTool = {
       success: true,
       tour: gov.result.title,
       is_published: gov.result.is_published,
-      message: gov.result.is_published ? 'Тур опубликован' : 'Тур снят с публикации',
+      // Просьба о публикации ждёт администратора: «опубликован» было бы неправдой.
+      ...(gov.result.pending ? { pending_review: true } : {}),
+      message: gov.result.pending
+        ?? (gov.result.is_published ? 'Тур опубликован' : 'Тур снят с публикации'),
       task_id: gov.taskId,
     });
   },

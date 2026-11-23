@@ -307,14 +307,22 @@ export class OperatorAgency {
     // зовётся напрямую, в процессе — HTTP-прыжок был чистым риском без пользы.
     try {
       const outcome = await runAutoFillAI(String(partnerId), tourId);
-      const body = outcome.body as { success?: boolean; error?: string };
+      const body = outcome.body as { success?: boolean; error?: string; data?: { filled?: number; pending?: string | null } };
 
       if (outcome.status >= 400 || !body.success) {
         return { response: `Ошибка AI-заполнения: ${body.error ?? outcome.status}` };
       }
 
+      // Что на самом деле случилось: «обновлены автоматически» было неправдой,
+      // когда заполнять нечего или тексты ушли на проверку (этап 4, 23.11).
+      const filledCount = body.data?.filled ?? 0;
+      const pendingNote = typeof body.data?.pending === 'string' ? body.data.pending : null;
       return {
-        response: `AI-заполнение тура ${tourId} запущено. Поля обновлены автоматически.`,
+        response: filledCount === 0
+          ? `В туре ${tourId} нечего заполнять: пустых полей для AI нет.`
+          : pendingNote
+            ? `AI заполнил в туре ${tourId} полей: ${filledCount}. ${pendingNote}`
+            : `AI заполнил в туре ${tourId} полей: ${filledCount}.`,
         data:     { tourId },
       };
     } catch (err) {

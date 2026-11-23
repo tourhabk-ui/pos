@@ -329,7 +329,7 @@ export async function guideTourPress(press: TourPress, who: {
         case 'saved': {
           const t = await readEditTour(partner.partnerId, r.draft.tourId ?? '');
           const published = t.outcome === 'ok' ? t.tour.isActive && t.tour.isPublished : true;
-          return savedScreen({ field: r.draft.field, title: r.title, tourId: r.draft.tourId ?? '', slug: r.slug, siteBase: site, published, back });
+          return savedScreen({ field: r.draft.field, title: r.title, tourId: r.draft.tourId ?? '', slug: r.slug, siteBase: site, published, pending: r.pending, back });
         }
         case 'changed':
           return previewScreen({
@@ -374,12 +374,14 @@ async function onSitePress(partnerId: string, tourId: string, publish: boolean, 
   if (r.outcome === 'not_found') return toursWithNotice(partnerId, EDIT_TEXT.tourNotFound);
   if (r.outcome === 'db_error') {
     return failedScreen(publish
-      ? 'Не опубликовал — база не ответила. Тур остался как был, нажмите ещё раз.'
+      ? 'Не отправил на проверку — база не ответила. Тур остался как был, нажмите ещё раз.'
       : 'Не снял с сайта — база не ответила. Тур остался как был, нажмите ещё раз.');
   }
   let notice: string;
   switch (r.outcome) {
     case 'published': notice = `Опубликовано: «${escapeHtml(r.title)}» на сайте — ${site.replace(/\/$/, '')}${tourPath({ id: tourId, slug: r.slug })}`; break;
+    case 'requested': notice = `«${escapeHtml(r.title)}» отправлен на проверку. Туристы увидят тур после одобрения администратором — о решении напишу сюда.`; break;
+    case 'already_requested': notice = `«${escapeHtml(r.title)}» уже ждёт проверки администратором — второй раз отправлять не нужно.`; break;
     case 'already_on': notice = `«${escapeHtml(r.title)}» уже на сайте — ничего не менял.`; break;
     case 'blocked': notice = `Не опубликовал «${escapeHtml(r.title)}»: тур остался черновиком, не хватает того, что ниже.`; break;
     case 'unpublished': notice = `Снято с сайта: «${escapeHtml(r.title)}» — теперь черновик, туристы его не видят. Брони и даты не тронуты.`; break;

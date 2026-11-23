@@ -3,7 +3,7 @@
  *
  * Черновик (`tour_chat_edits`) живёт до кнопки: «Сохранить» в одной
  * транзакции блокирует черновик и тур, сверяет «было» из предпросмотра с
- * тем, что в туре сейчас, и пишет тур ОБЩЕЙ функцией `writeTourPatch`
+ * тем, что в туре сейчас, и пишет тур ОБЩЕЙ дверью владельца `saveTourChange`
  * (lib/tours/tour-write) — той же, что кабинет оператора на сайте. Без
  * нажатия в `operator_tours` не пишется ничего.
  *
@@ -18,7 +18,8 @@
 import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
 import { pingTourChanged } from '@/lib/seo/indexnow';
-import { writeTourPatch, type TourPatchInput } from '@/lib/tours/tour-write';
+import type { TourPatchInput } from '@/lib/tours/tour-write';
+import { saveTourChange } from '@/lib/tours/tour-change';
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { scheduleKindOf, type ScheduleKind } from '@/lib/tours/schedule-kind';
 import { EDIT_FIELDS, type EditField, type EditTour, type EditValue } from './parse';
@@ -42,6 +43,12 @@ export interface ChatTour extends EditTour {
   slug: string | null;
   isActive: boolean;
   isPublished: boolean;
+  /**
+   * Содержание тура идёт через проверку администратора (план готовности
+   * 23.11, этап 4): тур уже опубликован или ждёт одобрения. Иначе правка
+   * пишется прямо в строку — туристы тура не видят.
+   */
+  throughReview: boolean;
   basePrice: number | null;
   priceUnit: string | null;
   maxParticipants: number | null;
@@ -55,12 +62,16 @@ export interface ChatTour extends EditTour {
 
 const TOUR_COLUMNS = `t.id::text AS id, t.title, NULLIF(btrim(t.slug), '') AS slug,
        COALESCE(t.is_active, FALSE) AS is_active, COALESCE(t.is_published, FALSE) AS is_published,
+       (COALESCE(t.is_published, FALSE) OR EXISTS (
+          SELECT 1 FROM operator_tour_edits pe
+           WHERE pe.tour_id = t.id AND pe.moderation_status = 'pending')) AS through_review,
        t.base_price, t.price_unit, t.max_participants,
        t.schedule_kind, t.season_start::text AS season_start, t.season_end::text AS season_end,
        t.short_description, t.description, t.program, t.included, t.not_included, t.what_to_bring, t.safety_notes`;
 
 interface TourRowDb {
   id: string; title: string; slug: string | null; is_active: boolean; is_published: boolean;
+  through_review?: boolean | null;
   base_price: string | number | null; price_unit: string | null; max_participants: number | null;
   schedule_kind: string | null; season_start: string | null; season_end: string | null;
   short_description: string | null; description: string | null; program: unknown;
@@ -76,6 +87,7 @@ function toTour(r: TourRowDb): ChatTour {
     slug: r.slug,
     isActive: r.is_active === true,
     isPublished: r.is_published === true,
+    throughReview: r.through_review === true || r.is_published === true,
     basePrice: r.base_price === null ? null : Number(r.base_price),
     priceUnit: r.price_unit,
     maxParticipants: r.max_participants,
@@ -365,7 +377,11 @@ export async function chooseDraftTour(who: Who, index: number): Promise<ChooseTo
 }
 
 export type SaveDraft =
-  | { kind: 'saved'; draft: Draft; title: string; slug: string | null }
+  /**
+   * `pending` — правка не на витрине, а на проверке у администратора (тур
+   * опубликован или ждёт публикации): строка — что сказать гиду.
+   */
+  | { kind: 'saved'; draft: Draft; title: string; slug: string | null; pending: string | null }
   /** Тур поменяли после предпросмотра: ничего не записано, вот новое «было». */
   | { kind: 'changed'; draft: Draft; tour: ChatTour }
   | { kind: 'need_tour' }
@@ -404,24 +420,29 @@ export async function saveDraft(who: Who): Promise<SaveDraft> {
       return { kind: 'changed', draft: { ...draft, liveValue: now }, tour };
     }
     const input = { [draft.field]: draft.newValue } as TourPatchInput;
-    const written = await writeTourPatch(c, {
+    // Единая дверь владельца (lib/tours/tour-change): содержание
+    // опубликованного тура уходит на проверку, остальное пишется сразу.
+    const saved = await saveTourChange(c, {
       tourId: row.tour_id,
       ownerId: who.partnerId,
+      userId: null,
       input,
       current: tourRow as unknown as Record<string, unknown>,
     });
-    if (written.outcome !== 'written') {
+    if (saved.outcome === 'not_found') {
       // Тур проверен под блокировкой строкой выше: сюда не доходит, но
       // «записал» без записи сказать нельзя.
-      throw new Error(`тур не записан: ${written.outcome}`);
+      throw new Error('тур не записан: not_found');
     }
     await c.query(
       `UPDATE tour_chat_edits SET status = 'saved', decided_at = NOW() WHERE id = $1::uuid AND status = 'pending'`,
       [who.draftId],
     );
-    return { kind: 'saved', draft, title: written.row.title, slug: tour.slug };
+    const title = (saved.outcome === 'written' || saved.outcome === 'pending') && saved.row ? saved.row.title : tour.title;
+    return { kind: 'saved', draft, title, slug: tour.slug, pending: saved.outcome === 'pending' ? saved.pending.notice : null };
   }, { kind: 'db_error' });
-  if (out.kind === 'saved' && out.draft.tourId) pingTourChanged(out.draft.tourId);
+  // Поисковикам — только о том, что изменилось на витрине.
+  if (out.kind === 'saved' && out.pending === null && out.draft.tourId) pingTourChanged(out.draft.tourId);
   return out;
 }
 
@@ -453,7 +474,8 @@ export async function setTourScheduleKind(
   kind: ScheduleKind,
 ): Promise<{ outcome: 'written'; title: string } | { outcome: 'not_found' } | { outcome: 'db_error' }> {
   try {
-    const w = await writeTourPatch(pool, { tourId, ownerId: partnerId, input: { schedule_kind: kind }, current: {} });
+    // Расписание — не содержание: единая дверь пишет его сразу.
+    const w = await saveTourChange(pool, { tourId, ownerId: partnerId, userId: null, input: { schedule_kind: kind }, current: {} });
     if (w.outcome !== 'written') return { outcome: 'not_found' };
     pingTourChanged(tourId);
     return { outcome: 'written', title: w.row.title };

@@ -15,7 +15,7 @@ import type { TourProgramStep } from '@/lib/tours/tour-write';
 import { FIELD_LABEL, type EditReject } from './parse';
 import { DOC_FIELDS, type DocField } from './doc-sections';
 import { docFieldsOf, type DocDraft } from './doc-store';
-import { rejectText, CHOOSE_MAX } from './screens';
+import { rejectText, CHOOSE_MAX, afterSaveWords } from './screens';
 import { DRAFT_TTL_HOURS, type ChatTour } from './store';
 
 const EXCERPT = 160;
@@ -67,7 +67,7 @@ export function docPreviewScreen(args: {
   for (const f of fields) {
     const label = FIELD_LABEL[f];
     if (draft.saved.includes(f)) {
-      lines.push(`• ${label} — сохранено.`);
+      lines.push(tour.throughReview ? `• ${label} — принято, ждёт проверки.` : `• ${label} — сохранено.`);
       continue;
     }
     lines.push(`• <b>${label}</b>\n  было: ${valueGist(f, draft.live?.[f] ?? null)}\n  станет: ${valueGist(f, draft.values[f])}`);
@@ -76,13 +76,15 @@ export function docPreviewScreen(args: {
   for (const s of args.skipped) lines.push(`• Подзаголовок «${escapeHtml(clip(s, 80))}» — не записываю: название и анонс правятся фразой.`);
   const rows: CabinetButton[][] = [];
   if (pending.length > 0) {
-    lines.push('', `Ничего не записано, пока вы не нажмёте кнопку. «Сохранить всё» — все поля выше, или по одному. После записи — сразу на сайте. Черновик ждёт ${DRAFT_TTL_HOURS} часа.`);
+    lines.push('', `Ничего не записано, пока вы не нажмёте кнопку. «Сохранить всё» — все поля выше, или по одному. ${afterSaveWords(tour)} Черновик ждёт ${DRAFT_TTL_HOURS} часа.`);
     rows.push([{ text: `Сохранить всё (${pending.length})`, payload: cabinetPayload.docSaveAll(draft.id), intent: 'positive' }]);
     const one = pending.map((f) => ({ text: `Сохранить: ${FIELD_LABEL[f]}`, payload: cabinetPayload.docSaveField(draft.id, DOC_FIELDS.indexOf(f)) }));
     for (let i = 0; i < one.length; i += 2) rows.push(one.slice(i, i + 2));
     rows.push([{ text: 'Отмена', payload: cabinetPayload.docCancel(draft.id), intent: 'negative' }]);
   } else {
-    lines.push('', 'Всё из документа записано.');
+    lines.push('', tour.throughReview
+      ? 'Всё из документа принято: на сайте появится после проверки администратором.'
+      : 'Всё из документа записано.');
   }
   rows.push([{ text: 'К туру', payload: cabinetPayload.tour(tour.id) }]);
   return screen(lines, rows);

@@ -11,7 +11,7 @@
  *  - предпросмотр: цена «было → станет», кнопки «Сохранить» / «Отмена»,
  *    введённое человеком экранировано;
  *  - без кнопки в тур не пишется ничего: фраза заводит только черновик;
- *  - сайт и чат пишут тур ОДНОЙ функцией (`writeTourPatch`): PATCH кабинета
+ *  - сайт и чат пишут тур ОДНОЙ дверью (`saveTourChange`): PATCH кабинета
  *    оператора и «Сохранить» в чате зовут её, и владелец передаётся в неё;
  *  - помощник-модель знает, что сам тур не правит.
  * Путь записи на настоящей базе — tests/integration/chat-cabinet.pg.test.ts.
@@ -25,10 +25,11 @@ const h = vi.hoisted(() => ({
   getTourById: vi.fn(),
 }));
 
-vi.mock('@/lib/tours/tour-write', async (orig) => {
-  const real = await orig<typeof import('@/lib/tours/tour-write')>();
-  return { ...real, writeTourPatch: h.write };
-});
+// С 23.11 двери владельца пишут тур единой дверью (lib/tours/tour-change):
+// содержание опубликованного тура идёт на проверку. Здесь судится, что дверь
+// зовёт именно её и с владельцем; модерацию — tests/integration/tour-moderation.pg.test.ts.
+vi.mock('@/lib/tours/tour-change', () => ({ saveTourChange: h.write }));
+vi.mock('@/lib/tours/moderation-store', async () => (await import('../helpers/tour-change-passthrough')).noTourEdits());
 vi.mock('@/lib/db-pool', () => ({
   pool: {
     query: (sql: string, params?: unknown[]) => h.query(sql, params ?? []),
@@ -248,7 +249,7 @@ describe('предпросмотр', () => {
 });
 
 describe('без кнопки — в тур не пишется ничего', () => {
-  it('фраза заводит черновик и показывает предпросмотр; writeTourPatch и UPDATE operator_tours не звучат', async () => {
+  it('фраза заводит черновик и показывает предпросмотр; запись тура и UPDATE operator_tours не звучат', async () => {
     h.query.mockImplementation(async (sql: string) => {
       if (/FROM operator_tours t\s+WHERE t\.operator_id/.test(sql)) return { rows: [tourRow()] };
       if (/INSERT INTO tour_chat_edits/.test(sql)) return { rows: [{ id: DRAFT }] };
@@ -268,7 +269,7 @@ describe('без кнопки — в тур не пишется ничего', (
 });
 
 describe('сайт и чат пишут тур одной функцией', () => {
-  it('PATCH кабинета оператора зовёт writeTourPatch с владельцем — карточкой вошедшего', async () => {
+  it('PATCH кабинета оператора зовёт единую дверь с владельцем — карточкой вошедшего', async () => {
     h.getTourById.mockResolvedValue({ id: '51', operator_id: 'op-partner', base_price: 15000 });
     h.write.mockResolvedValue({ outcome: 'written', row: { id: '51', title: 'Тур', updated_at: 'now' } });
     const res = await PATCH(
@@ -322,7 +323,7 @@ describe('помощник-модель тур не правит', () => {
 /**
  * Туроператор правит тур фразой (слово владельца 09.11 «делай 1»: помощник
  * оператора, как Klook K.ai — цену поменять одной фразой). Тот же черновик,
- * та же кнопка, та же `writeTourPatch`; сохраняет только владелец карточки.
+ * та же кнопка, та же единая дверь записи; сохраняет только владелец карточки.
  */
 describe('туроператор правит тур фразой (09.11)', () => {
   const OPERATOR = {
@@ -380,7 +381,7 @@ describe('туроператор правит тур фразой (09.11)', () =
     expect(h.query.mock.calls.some(([sql]) => /INSERT INTO tour_chat_edits/.test(String(sql)))).toBe(false);
   });
 
-  it('«Сохранить» владельца — та же writeTourPatch с владельцем-оператором, только цена; после — «‹ Календарь»', async () => {
+  it('«Сохранить» владельца — та же единая дверь с владельцем-оператором, только цена; после — «‹ Календарь»', async () => {
     h.query.mockImplementation(async (sql: string) => {
       if (/FROM tour_chat_edits\s+WHERE id = \$1::uuid/.test(sql)) return { rows: [draftRow()] };
       if (/FOR UPDATE/.test(sql) && /FROM operator_tours t/.test(sql)) return { rows: [tourRow()] };

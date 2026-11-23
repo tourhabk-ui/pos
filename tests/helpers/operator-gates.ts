@@ -62,6 +62,9 @@ export const GATES: Record<string, Gate> = {
   'app/api/hub/operator/tours/route.ts': { seat: 'team', perms: ['can_edit_prices'] },
   'app/api/hub/operator/tours/[id]/route.ts': { seat: 'team', perms: ['can_edit_prices'] },
   'app/api/hub/operator/tours/[id]/availability/route.ts': { seat: 'team', perms: ['can_edit_prices'] },
+  // Отзыв правки, ждущей проверки (план готовности 23.11, этап 4): менеджеру
+  // команды открыт, как и сама правка; денег и настроек не касается.
+  'app/api/hub/operator/tours/[id]/edit/route.ts': { seat: 'team' },
   // Календарь (2г-2б): даты и места — команде, цена на дату — по праву цен,
   // выручка месяца — владельцу.
   'app/api/operator/calendar/route.ts': { seat: 'team', perms: ['can_edit_prices'] },

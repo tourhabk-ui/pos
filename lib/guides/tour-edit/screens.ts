@@ -91,7 +91,7 @@ export const NEW_TOUR_LINES: readonly string[] = [
   '• группа — сколько человек вы берёте максимум;',
   '• описание — последним, можно с абзацами.',
   'Или документом Word (.docx) в MAX: первая строка — название в «ёлочках», подпись к файлу — «цена 15000; группа 4».',
-  'Я покажу, что получится, — тур создаст только кнопка «Создать черновик». Черновик туристы не видят; на сайт — кнопкой «Опубликовать» у тура.',
+  'Я покажу, что получится, — тур создаст только кнопка «Создать черновик». Черновик туристы не видят; на сайт он выходит после проверки администратором — кнопка «На проверку» у тура.',
 ];
 
 export function newTourHintScreen(): CabinetScreen {
@@ -135,19 +135,28 @@ export function tourScreen(t: ChatTour, siteBase: string, notice?: string | null
     `Анонс — ${filled(t, 'short_description')}; описание — ${filled(t, 'description')}; программа — ${filled(t, 'program')}.`,
     `Что включено — ${filled(t, 'included')}; не входит — ${filled(t, 'not_included')}; что взять — ${filled(t, 'what_to_bring')}; безопасность — ${filled(t, 'safety_notes')}.`,
   );
-  // Чего не хватает до сайта — тем же SQL, что проверяет «Опубликовать»
+  // Чего не хватает до сайта — тем же SQL, что проверяет кнопка
   // (lib/guides/own-tour-publish); не проверилось — так и сказано (§4.0).
+  // Публикацию ставит одобрение администратора (план готовности 23.11, этап 4):
+  // кнопка гида — просьба. Одобренный и скрытый тур возвращается сразу.
+  const askText = t.isPublished ? 'Вернуть на сайт' : 'На проверку';
+  // Не опубликован, но «идёт через проверку» — значит просьба уже ждёт.
+  const asked = !t.isPublished && t.throughReview;
   const publish: CabinetButton[] = [];
-  if (gate === 'unknown') {
-    lines.push('Чего не хватает до сайта — не проверилось: база не ответила. Кнопка «Опубликовать» проверит сама.');
-    if (!onSite) publish.push({ text: 'Опубликовать', payload: cabinetPayload.tourPublish(t.id), intent: 'positive' });
+  if (asked && !onSite) {
+    lines.push('Тур ждёт проверки администратором: на сайт он выйдет после одобрения.');
+  } else if (gate === 'unknown') {
+    lines.push(`Чего не хватает до сайта — не проверилось: база не ответила. Кнопка «${askText}» проверит сама.`);
+    if (!onSite) publish.push({ text: askText, payload: cabinetPayload.tourPublish(t.id), intent: 'positive' });
   } else if (gate.onStorefront) {
     publish.push({ text: 'Снять с сайта', payload: cabinetPayload.tourUnpublish(t.id), intent: 'negative' });
   } else if (gate.blockers.length > 0) {
     lines.push('Чего не хватает до сайта:', ...gate.blockers.map((b) => `• ${escapeHtml(publishBlockerLabel(b))}`));
   } else {
-    lines.push('До сайта всего хватает: «Опубликовать» — и тур увидят туристы.');
-    publish.push({ text: 'Опубликовать', payload: cabinetPayload.tourPublish(t.id), intent: 'positive' });
+    lines.push(t.isPublished
+      ? 'До сайта всего хватает: «Вернуть на сайт» — и тур снова увидят туристы.'
+      : 'До сайта всего хватает: отправьте тур на проверку — туристы увидят его после одобрения администратором.');
+    publish.push({ text: askText, payload: cabinetPayload.tourPublish(t.id), intent: 'positive' });
   }
   const rows: CabinetButton[][] = [
     [{ text: 'Даты', payload: cabinetPayload.tourDates(t.id) }, { text: 'Править текст', payload: cabinetPayload.tourHint(t.id) }],
@@ -206,6 +215,17 @@ function renderValue(field: EditField, v: unknown, max: number, unit: string | n
   return { text: out, clipped };
 }
 
+/**
+ * Что будет с правкой после «Сохранить» (план готовности 23.11, этап 4).
+ * «Сразу на сайте» было правдой, пока правка писалась в живую строку; теперь
+ * содержание опубликованного тура выходит на витрину только после одобрения.
+ */
+export function afterSaveWords(tour: { throughReview: boolean }): string {
+  return tour.throughReview
+    ? 'Правка уйдёт на проверку администратору: на сайте до одобрения — прежняя версия.'
+    : 'Тур не на витрине: правка запишется сразу, туристы увидят её после публикации.';
+}
+
 export function previewScreen(args: {
   draftId: string;
   tour: ChatTour;
@@ -231,7 +251,7 @@ export function previewScreen(args: {
     lines.push('<b>Было:</b>', was.text, '', '<b>Станет:</b>', next.text);
     if (was.clipped || next.clipped) lines.push('(Здесь сокращено для чата — сохранится полностью.)');
   }
-  lines.push('', `Ничего не записано, пока вы не нажмёте «Сохранить». После него — сразу на сайте. Черновик ждёт ${DRAFT_TTL_HOURS} часа.`);
+  lines.push('', `Ничего не записано, пока вы не нажмёте «Сохранить». ${afterSaveWords(tour)} Черновик ждёт ${DRAFT_TTL_HOURS} часа.`);
   return screen(lines, [[
     { text: 'Сохранить', payload: cabinetPayload.editSave(args.draftId), intent: 'positive' },
     { text: 'Отмена', payload: cabinetPayload.editCancel(args.draftId), intent: 'negative' },
@@ -252,14 +272,24 @@ export function chooseTourScreen(draftId: string, field: EditField, tours: reado
 
 export function savedScreen(args: {
   field: EditField; title: string; tourId: string; slug: string | null; siteBase: string; published: boolean;
+  /**
+   * Правка ушла на проверку администратору, а не на витрину (план готовности
+   * 23.11, этап 4): строка — что сказать. null — записано сразу.
+   */
+  pending?: string | null;
   /** Туроператору — «‹ Календарь» вместо кнопок «Моих туров» гида (09.11). */
   back?: DatesBack;
 }): CabinetScreen {
   const url = `${base(args.siteBase)}${tourPath({ id: args.tourId, slug: args.slug })}`;
-  return screen([
-    `Сохранено: ${FIELD_LABEL[args.field].toLowerCase()} тура «${escapeHtml(args.title)}».`,
-    args.published ? `На сайте — сразу: ${url}` : 'Тур не на витрине: туристы увидят правку, когда он будет опубликован.',
-  ], [args.back === 'calendar'
+  const what = `${FIELD_LABEL[args.field].toLowerCase()} тура «${escapeHtml(args.title)}»`;
+  const lines = args.pending
+    // «На сайте — сразу» при правке на проверке было бы неправдой.
+    ? [`Принято: ${what}.`, escapeHtml(args.pending)]
+    : [
+      `Сохранено: ${what}.`,
+      args.published ? `На сайте — сразу: ${url}` : 'Тур не на витрине: туристы увидят правку, когда он будет опубликован.',
+    ];
+  return screen(lines, [args.back === 'calendar'
     ? backRow('calendar', null)
     : [{ text: 'К туру', payload: cabinetPayload.tour(args.tourId) }, { text: '‹ Мои туры', payload: cabinetPayload.myTours() }]]);
 }

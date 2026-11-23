@@ -35,6 +35,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createTestDatabase } from '../helpers/pg-schema';
+import { approveTourEdit, pendingTourEdits } from '../helpers/tour-edit-approve';
 
 // Письмо с данными выезда для МЧС (1415): почта подменена, судятся журнал и экраны.
 const mail = vi.hoisted(() => ({ send: vi.fn(async (_m: { to: string; subject: string; html: string }) => ({ success: true, messageId: 'pg' })) }));
@@ -594,10 +595,17 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       expect(save).toMatch(/^cb:e:s:/);
       // Чужой чат той же кнопкой не сохраняет.
       const stranger = await gpress(save, STRANGER_CHAT);
-      expect(stranger.text).not.toMatch(/^Сохранено/);
+      expect(stranger.text).not.toMatch(/^(Сохранено|Принято)/);
       expect(Number((await tour(gorely)).base_price)).toBe(15000);
+      expect(await pendingTourEdits(gorely)).toBe(0);
+      // Тур на витрине: «Сохранить» кладёт цену на проверку, витрина прежняя
+      // (план готовности 23.11, этап 4). «На сайте — сразу» чат не говорит.
       const saved = await gpress(save);
-      expect(saved.text).toMatch(/^Сохранено: цена тура «Восхождение на вулкан Горелый»/);
+      expect(saved.text).toMatch(/^Принято: цена тура «Восхождение на вулкан Горелый»/);
+      expect(saved.text).toContain('отправлена на проверку');
+      expect(saved.text).not.toContain('На сайте — сразу');
+      expect(Number((await tour(gorely)).base_price)).toBe(15000);
+      await approveTourEdit(gorely);
       expect(Number((await tour(gorely)).base_price)).toBe(16000);
       expect((await gpress(save)).text).toBe('Эта правка уже сохранена.');
     });
@@ -610,7 +618,9 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       expect(stale.text).toMatch(/изменили/);
       expect(stale.text).toContain('Правка на сайте.');
       expect((await tour(gorely)).description).toBe('Правка на сайте.');
-      expect((await gpress(save)).text).toMatch(/^Сохранено/);
+      expect((await gpress(save)).text).toMatch(/^Принято/);
+      expect((await tour(gorely)).description).toBe('Правка на сайте.');
+      await approveTourEdit(gorely);
       expect((await tour(gorely)).description).toBe('Новое описание гида.');
     });
 
@@ -621,7 +631,9 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       const preview = await gpress(second.payload);
       expect(preview.text).toContain('• ботинки');
       expect((await tour(kur4)).what_to_bring).toBeNull();
-      expect((await gpress(draftOf(preview, 'Сохранить'))).text).toMatch(/^Сохранено/);
+      expect((await gpress(draftOf(preview, 'Сохранить'))).text).toMatch(/^Принято/);
+      expect((await tour(kur4)).what_to_bring).toBeNull();
+      await approveTourEdit(kur4);
       expect((await tour(kur4)).what_to_bring).toEqual(['ботинки', 'куртка', 'перчатки']);
       expect((await tour(kur3)).what_to_bring).toBeNull();
     });
@@ -692,16 +704,21 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       // Чужой чат той же кнопкой не пишет.
       const one = draftOf(shown!, 'Сохранить: Что взять с собой');
       expect(one).toMatch(/^cb:q:f:/);
-      expect((await gpress(one, STRANGER_CHAT)).text).not.toMatch(/Сохранено/);
+      expect((await gpress(one, STRANGER_CHAT)).text).not.toMatch(/Сохранено|Принято/);
       expect(await full()).toEqual(before);
+      // Тур на витрине: поле уходит на проверку, витрина прежняя до одобрения.
       const saved = await gpress(one);
-      expect(saved.text).toMatch(/Сохранено: что взять с собой/);
+      expect(saved.text).toMatch(/Принято: что взять с собой/);
+      expect(saved.text).toContain('отправлена на проверку');
+      expect(await full()).toEqual(before);
+      await approveTourEdit(gorely);
       expect((await full()).what_to_bring).toEqual(['треккинговые ботинки;', 'ветрозащитная куртка & шапка <тёплая>;']);
       expect((await full()).included).toEqual(before.included);
       // Описание правят на сайте после предпросмотра — «Сохранить всё» его не трогает.
       await pool.query(`UPDATE operator_tours SET description = 'Правка на сайте поверх документа.' WHERE id = $1`, [gorely]);
       const all = await gpress(draftOf(saved, 'Сохранить всё (4)'));
       expect(all.text).toMatch(/Не записал: описание/);
+      await approveTourEdit(gorely);
       const after = await full();
       expect(after.description).toBe('Правка на сайте поверх документа.');
       expect(after.included).toEqual(['Трансфер на внедорожнике.']);
@@ -712,7 +729,9 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       ]);
       // Описание осталось — гид видит новое «было» и решает сам.
       const last = await gpress(draftOf(all, 'Сохранить: Описание'));
-      expect(last.text).toMatch(/Всё из документа записано/);
+      expect(last.text).toMatch(/Всё из документа принято: на сайте появится после проверки/);
+      expect((await full()).description).toBe('Правка на сайте поверх документа.');
+      await approveTourEdit(gorely);
       expect((await full()).description).toBe('Вулкан Горелый (1829 м) — действующий вулкан на юге Камчатки.');
       expect((await pool.query(`SELECT status FROM tour_doc_drafts WHERE chat_id = $1 ORDER BY created_at DESC LIMIT 1`, [GUIDE_CHAT])).rows[0]).toEqual({ status: 'saved' });
     }, 20_000); // модули документа импортируются в самом тесте: на холодном раннере CI один импорт съел 5 с (PR #2911), локально тест идёт 0,2 с
@@ -819,7 +838,10 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       });
       expect(Number(rows[0]!.base_price)).toBe(15000);
       // Одобренному гиду с описанием и ценой до сайта всего хватает — кнопка есть.
-      expect(button(made, 'Опубликовать')).toBe(`cb:u:p:${rows[0]!.id}`);
+      // Кнопка — просьба о проверке (план готовности 23.11, этап 4), не «Опубликовать».
+      expect(button(made, 'На проверку')).toBe(`cb:u:p:${rows[0]!.id}`);
+      expect(button(made, 'Опубликовать')).toBe('');
+      expect(made.text).toContain('на сайт тур выйдет после одобрения администратором');
       const again = await press(create);
       expect(again.text).toMatch(/уже создан — второй не заводил/);
       expect(await toursOf(guideId)).toHaveLength(1);
@@ -838,11 +860,23 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
 
     it('«Опубликовать» — общей функцией: тур на витрине по шлюзу каталога; «Снять с сайта» — снова черновик; чужой чат не публикует', async () => {
       const [t] = await toursOf(guideId);
-      expect((await press(`cb:u:p:${t!.id}`, STRANGER)).text).not.toMatch(/^Опубликовано/);
+      expect((await press(`cb:u:p:${t!.id}`, STRANGER)).text).not.toMatch(/^Опубликовано|отправлен на проверку/);
       expect((await toursOf(guideId))[0]!.on_storefront).toBe(false);
-      const shown = await press(`cb:u:p:${t!.id}`);
-      expect(shown.text).toMatch(/^Опубликовано: «Восхождение на Горелый» на сайте/);
+      expect(await pendingTourEdits(t!.id)).toBe(0);
+      // «Опубликовать» — просьба: на витрину тур ставит одобрение
+      // администратора (план готовности 23.11, этап 4).
+      const asked = await press(`cb:u:p:${t!.id}`);
+      expect(asked.text).toMatch(/«Восхождение на Горелый» отправлен на проверку/);
+      expect((await toursOf(guideId))[0]!.on_storefront).toBe(false);
+      expect((await press(`cb:u:p:${t!.id}`)).text).toMatch(/уже ждёт проверки администратором/);
+      expect(await pendingTourEdits(t!.id)).toBe(1);
+      // Экран тура: просьба ждёт — второй кнопки «На проверку» нет.
+      const waiting = await press(`cb:u:${t!.id}`);
+      expect(waiting.text).toContain('Тур ждёт проверки администратором: на сайт он выйдет после одобрения.');
+      expect(button(waiting, 'На проверку')).toBe('');
+      await approveTourEdit(t!.id);
       expect((await toursOf(guideId))[0]!.on_storefront).toBe(true);
+      const shown = await press(`cb:u:${t!.id}`);
       expect(button(shown, 'Снять с сайта')).toBe(`cb:u:s:${t!.id}`);
       expect((await press(`cb:u:p:${t!.id}`)).text).toMatch(/уже на сайте — ничего не менял/);
       const off = await press(`cb:u:s:${t!.id}`);
@@ -859,7 +893,7 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       partner = await findByChat(NEW_CHAT);
       const screen = await press(`cb:u:${bare}`);
       expect(screen.text).toContain('Чего не хватает до сайта:\n• нет описания тура');
-      expect(button(screen, 'Опубликовать')).toBe('');
+      expect(button(screen, 'На проверку')).toBe('');
       const refused = await press(`cb:u:p:${bare}`);
       expect(refused.text).toMatch(/Не опубликовал «Бухта Русская»: тур остался черновиком/);
       expect((await toursOf(guideId)).find((x) => x.id === bare)).toMatchObject({ is_published: false });
@@ -881,7 +915,7 @@ withPg('кабинет в чате на настоящем PostgreSQL', () => {
       expect((shown?.text ?? '').replace(/\u00a0/g, ' ')).toContain('Цена: 8 000 ₽ за группу.');
       const made = await press(button(shown!, 'Создать черновик'), FRESH_CHAT);
       expect(made.text).toContain('анкету гида ещё не одобрила платформа');
-      expect(button(made, 'Опубликовать')).toBe('');
+      expect(button(made, 'На проверку')).toBe('');
       const [own] = await toursOf(freshId);
       expect(own).toMatchObject({ price_unit: 'per_tour', is_published: false });
       expect((await press(`cb:u:p:${own!.id}`, FRESH_CHAT)).text).toMatch(/Не опубликовал/);

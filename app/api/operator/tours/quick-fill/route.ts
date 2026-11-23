@@ -1,10 +1,16 @@
 /**
  * PATCH /api/operator/tours/quick-fill
- * Quick update of specific tour fields
+ * Одно поле тура с экрана «Чего не хватает».
+ *
+ * Запись — единая дверь владельца (lib/tours/tour-change, план готовности
+ * 23.11, этап 4): название, описание и цена опубликованного тура уходят на
+ * проверку, остальное пишется сразу. Ответ говорит, что из двух случилось.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { pool } from '@/lib/db-pool';
+import { transaction } from '@/lib/database';
+import { saveTourChange } from '@/lib/tours/tour-change';
+import type { TourPatchInput } from '@/lib/tours/tour-write';
 import { requireOperator } from '@/lib/auth/middleware';
 import { getOperatorPartnerId } from '@/lib/auth/operator-helpers';
 import { requireTeamPermission } from '@/lib/operators/team-access';
@@ -53,31 +59,20 @@ export async function PATCH(request: NextRequest) {
       if (denied) return denied;
     }
 
-    // Verify tour belongs to operator
-    const { rows: tours } = await pool.query(
-      `SELECT id FROM operator_tours WHERE id = $1 AND operator_id = $2 AND deleted_at IS NULL`,
-      [tourId, operatorId]
-    );
+    // Владение проверяет сама запись: чужой и удалённый тур — «не найден».
+    const saved = await transaction((client) => saveTourChange(client, {
+      tourId: String(tourId),
+      ownerId: operatorId,
+      userId,
+      input: { [field]: parsed.value } as TourPatchInput,
+      current: {},
+    }));
 
-    if (tours.length === 0) {
+    if (saved.outcome === 'not_found') {
       return NextResponse.json(
         { error: 'Tour not found or access denied' },
         { status: 404 }
       );
-    }
-
-    // Update field
-    const updateQuery = `
-      UPDATE operator_tours
-      SET ${field} = $1, updated_at = NOW()
-      WHERE id = $2
-      RETURNING id, ${field}
-    `;
-
-    const { rows } = await pool.query(updateQuery, [parsed.value, tourId]);
-
-    if (rows.length === 0) {
-      throw new Error('Failed to update tour');
     }
 
     return NextResponse.json({
@@ -85,8 +80,10 @@ export async function PATCH(request: NextRequest) {
       data: {
         tourId,
         field,
-        value: rows[0][field],
+        value: parsed.value,
       },
+      // Поле ушло на проверку: что сказать оператору. null — записано сразу.
+      pending: saved.outcome === 'pending' ? saved.pending.notice : null,
     });
   } catch (error) {
     console.error('[operator/quick-fill] отказ:', error instanceof Error ? error.message : String(error));

@@ -203,7 +203,11 @@ export async function guideDocPress(press: DocPress, who: {
       switch (r.kind) {
         case 'saved': {
           const parts: string[] = [];
-          if (r.written.length > 0) parts.push(`Сохранено: ${r.written.map((f) => fieldWord(f)).join(', ')}. На сайте — сразу.`);
+          if (r.written.length > 0) {
+            const what = r.written.map((f) => fieldWord(f)).join(', ');
+            // Правка на проверке у администратора — «на сайте сразу» не говорим.
+            parts.push(r.pending ? `Принято: ${what}. ${r.pending}` : `Сохранено: ${what}. На сайте — сразу.`);
+          }
           if (r.changed.length > 0) {
             parts.push(`Не записал: ${r.changed.map((f) => fieldWord(f)).join(', ')} — пока документ ждал, это поле тура изменили. Ниже — что в нём сейчас.`);
           }

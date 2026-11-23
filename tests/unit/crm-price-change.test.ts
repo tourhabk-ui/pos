@@ -2,6 +2,13 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { CHANGE_TTL_MS, confirmPendingChange, confirmUrl, createPendingChange, loadPendingChange } from '@/lib/crm/price-change';
 
+// Запись цены — единая дверь владельца (lib/tours/tour-change, этап 4 плана
+// готовности 23.11). Здесь она подменена: судим, что подтверждение сверяет
+// цену с предпросмотром и раскладывает туры по трём спискам. Сама дверь и
+// очередь проверяются на PostgreSQL — tests/integration/tour-moderation.pg.test.ts.
+const door = vi.hoisted(() => ({ save: vi.fn() }));
+vi.mock('@/lib/tours/tour-change', () => ({ saveTourChange: door.save }));
+
 const ID = '11111111-2222-3333-4444-555555555555';
 const NOW = Date.parse('2026-11-03T08:00:00Z');
 const preview = (kind: 'base_price' | 'weekend_markup') => ({
@@ -38,11 +45,37 @@ describe('подтверждение цен — K.ai B3', () => {
     expect(await confirmPendingChange(db(open('base_price'), 0), 'op', ID, 'u', NOW)).toEqual({ outcome: 'used' }); // гонка двух кликов
   });
   it('база: ставит показанное и только если цена не менялась', async () => {
+    door.save.mockReset().mockResolvedValue({ outcome: 'written', row: { id: '7', title: 'Вулкан', updated_at: '' }, pending: null });
     const d = db(open('base_price'));
-    expect(await confirmPendingChange(d, 'op', ID, 'u', NOW)).toEqual({ outcome: 'applied', applied: [7], skipped: [] });
-    const upd = d.calls.find(([s]: any) => s.includes('UPDATE operator_tours'));
-    expect(upd[0]).toMatch(/base_price = \$4/);
-    expect(upd[1]).toEqual([7, 'op', 14245, 12950]);
+    expect(await confirmPendingChange(d, 'op', ID, 'u', NOW)).toEqual({ outcome: 'applied', applied: [7], pending: [], skipped: [] });
+    // Сверка с предпросмотром — под замком строки, по цене «было».
+    const same = d.calls.find(([s]: any) => s.includes('FROM operator_tours') && s.includes('FOR UPDATE'));
+    expect(same[0]).toMatch(/base_price = \$3/);
+    expect(same[1]).toEqual([7, 'op', 12950]);
+    // Пишется показанная цена — через дверь владельца, от имени подтвердившего.
+    expect(door.save).toHaveBeenCalledTimes(1);
+    expect(door.save.mock.calls[0][1]).toMatchObject({ tourId: '7', ownerId: 'op', userId: 'u', input: { base_price: 14245 } });
+    // Своего UPDATE цены у подтверждения нет: мимо двери цена на витрину не попадает.
+    expect(d.calls.some(([s]: any) => /UPDATE operator_tours/.test(s))).toBe(false);
+  });
+  it('база: цена менялась после предпросмотра — тур пропущен, дверь не звана', async () => {
+    door.save.mockReset();
+    const d = db(open('base_price'));
+    d.query.mockImplementation(async (sql: string) => {
+      if (sql.startsWith('SELECT id::text')) return { rows: [open('base_price')], rowCount: 1 };
+      if (sql.includes('FOR UPDATE')) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: 1 };
+    });
+    expect(await confirmPendingChange(d, 'op', ID, 'u', NOW)).toEqual({ outcome: 'applied', applied: [], pending: [], skipped: [7] });
+    expect(door.save).not.toHaveBeenCalled();
+  });
+  it('база: тур на витрине — цена ушла на проверку, в «изменено» его нет', async () => {
+    door.save.mockReset().mockResolvedValue({
+      outcome: 'pending', row: null,
+      pending: { editId: 'e', fields: ['base_price'], wantsPublish: false, notice: 'Правка отправлена на проверку (цена). На витрине пока прежняя версия.' },
+    });
+    expect(await confirmPendingChange(db(open('base_price')), 'op', ID, 'u', NOW))
+      .toEqual({ outcome: 'applied', applied: [], pending: [7], skipped: [] });
   });
   it('наценка: через setWeekendMarkup', async () => {
     const d = db(open('weekend_markup'));

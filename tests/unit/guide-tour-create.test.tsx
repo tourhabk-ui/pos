@@ -51,10 +51,10 @@ vi.mock('@/lib/guides/own-tour-publish', async (orig) => {
   const real = await orig<typeof import('@/lib/guides/own-tour-publish')>();
   return { ...real, setOwnTourOnSite: h.onSite, readPublishGate: h.gate };
 });
-vi.mock('@/lib/tours/tour-write', async (orig) => {
-  const real = await orig<typeof import('@/lib/tours/tour-write')>();
-  return { ...real, writeTourPatch: h.write };
-});
+// С 23.11 двери владельца пишут тур единой дверью (lib/tours/tour-change):
+// содержание опубликованного тура идёт на проверку. Здесь судится, что дверь
+// зовёт именно её и с владельцем; модерацию — tests/integration/tour-moderation.pg.test.ts.
+vi.mock('@/lib/tours/tour-change', () => ({ saveTourChange: h.write }));
 vi.mock('@/lib/auth/middleware', () => ({ requireRole: vi.fn(async () => ({ userId: 'user-guide', role: 'guide' })) }));
 vi.mock('@/lib/auth/guide-helpers', () => ({ getGuidePartnerId: vi.fn(async () => 'guide-partner') }));
 
@@ -316,19 +316,22 @@ describe('раздел «Свои туры»: «Мои туры» рендеро
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it('черновик с пробелом — перечень и без «Опубликовать»; готовый — «Опубликовать»; на сайте — ссылка и «Снять с сайта»', async () => {
+  // С 23.11 (план готовности, этап 4) публикацию ставит одобрение администратора:
+  // кнопка гида — просьба, и называется так.
+  it('черновик с пробелом — перечень и без кнопки; готовый — «Отправить на проверку»; на сайте — ссылка и «Снять с сайта»', async () => {
     const done = vi.fn();
     render(<OwnToursManager tours={[ON, READY, GAP]} onDone={done} />);
     const gap = within(screen.getByTestId('own-tour-13'));
     expect(gap.getByText('нет описания тура')).toBeTruthy();
-    expect(gap.queryByRole('button', { name: /Опубликовать/ })).toBeNull();
+    expect(gap.queryByRole('button', { name: /Отправить на проверку/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Опубликовать/ })).toBeNull();
     expect(gap.getByText('черновик — туристы не видят')).toBeTruthy();
     const on = within(screen.getByTestId('own-tour-11'));
     expect(on.getByRole('link', { name: 'Горелый' }).getAttribute('href')).toBe('/catalog/tours/11');
     fireEvent.click(on.getByRole('button', { name: /Снять с сайта/ }));
     await waitFor(() => expect(done).toHaveBeenCalled());
     expect(calls.at(-1)).toEqual({ url: '/api/guide/own/tours/11/publish', method: 'POST', body: { publish: false } });
-    fireEvent.click(within(screen.getByTestId('own-tour-12')).getByRole('button', { name: /Опубликовать/ }));
+    fireEvent.click(within(screen.getByTestId('own-tour-12')).getByRole('button', { name: /Отправить на проверку/ }));
     await waitFor(() => expect(calls.at(-1)?.body).toEqual({ publish: true }));
     expect(calls.at(-1)?.url).toBe('/api/guide/own/tours/12/publish');
   });

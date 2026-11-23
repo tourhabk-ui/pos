@@ -44,6 +44,7 @@ import { pingTourChanged } from '@/lib/seo/indexnow';
 import { publicTourSql } from '@/lib/tours/public-visibility';
 import { publicGuideWhere } from '@/lib/guides/visibility';
 import { PUBLISH_BLOCKERS, type PublishBlocker } from '@/lib/guides/own-tour-words';
+import { LIVE_CONTENT_COLUMNS, lockPendingTourEdit, stageTourEdit } from '@/lib/tours/moderation-store';
 
 export { PUBLISH_BLOCKERS, PUBLISH_BLOCKER_LABELS, publishBlockerLabel, type PublishBlocker } from '@/lib/guides/own-tour-words';
 
@@ -106,7 +107,12 @@ export async function readPublishGate(
 // ── Запись ──────────────────────────────────────────────────────────────────
 
 export type PublishResult =
+  /** Тур уже был одобрен и скрыт: показан снова. */
   | { outcome: 'published'; title: string; slug: string | null }
+  /** Просьба о публикации ушла администратору; на витрине тура пока нет. */
+  | { outcome: 'requested'; title: string }
+  /** Просьба уже ждёт администратора — второй не нужно. */
+  | { outcome: 'already_requested'; title: string }
   /** Гейт не пройден — ничего не записано; тур остался черновиком. */
   | { outcome: 'blocked'; title: string; blockers: PublishBlocker[] }
   | { outcome: 'already_on'; title: string; slug: string | null }
@@ -133,11 +139,14 @@ async function lockOwn(c: Pick<PoolClient, 'query'>, ownerId: string, tourId: st
 }
 
 /**
- * Опубликовать. Строка блокируется (чей тур, на сайте ли он, чего не хватает);
- * решает же ОДИН UPDATE — гейт стоит в его WHERE, и проверки «до» в коде нет:
- * гейт не пройден — строка не тронута, и отказ называет перечень, прочитанный
- * под той же блокировкой. Ответ шлюза каталога из RETURNING обязан быть «на
- * витрине». Транзакцию даёт вызывающий.
+ * Опубликовать. С 23.11 (план готовности, этап 4) это просьба: публикацию
+ * ставит одобрение администратора (lib/tours/moderation-review), гид её
+ * только просит. Строка блокируется (чей тур, на сайте ли он, чего не
+ * хватает); гейт не пройден — ничего не записано, и отказ называет перечень,
+ * прочитанный под той же блокировкой.
+ *
+ * Тур, уже одобренный раньше и скрытый гидом, показывается снова сразу:
+ * проверять в нём нечего. Транзакцию даёт вызывающий.
  */
 export async function publishOwnTour(
   c: Pick<PoolClient, 'query'>,
@@ -146,26 +155,40 @@ export async function publishOwnTour(
   const row = await lockOwn(c, opts.ownerId, opts.tourId);
   if (!row) return { outcome: 'not_found' };
   if (row.on_storefront === true) return { outcome: 'already_on', title: row.title, slug: row.slug };
-  const { rows } = await c.query<{ title: string; slug: string | null; on_storefront: boolean }>(
-    `UPDATE operator_tours ot SET is_active = TRUE, is_published = TRUE, updated_at = NOW()
-       FROM partners p
+  const blockers = blockersOf(row.blockers);
+  if (blockers.length > 0) return { outcome: 'blocked', title: row.title, blockers };
+
+  const live = (await c.query<Record<string, unknown> & { is_published: boolean | null }>(
+    `SELECT ot.is_published, ${LIVE_CONTENT_COLUMNS}
+       FROM operator_tours ot
+      WHERE ot.id = $2::bigint AND ot.operator_id = $1::uuid AND ot.deleted_at IS NULL`,
+    [opts.ownerId, opts.tourId],
+  )).rows[0];
+  if (!live) return { outcome: 'not_found' };
+
+  // «Показать» — не содержание: пишется сразу и нужно, чтобы одобренный тур
+  // вышел на витрину, а не остался скрытым.
+  const shown = await c.query<{ title: string; slug: string | null; on_storefront: boolean }>(
+    `UPDATE operator_tours ot SET is_active = TRUE, updated_at = NOW()
       WHERE ot.id = $2::bigint AND ot.operator_id = $1::uuid AND ot.deleted_at IS NULL
-        AND p.id = ot.operator_id
-        AND cardinality(${publishBlockersSql()}) = 0
       RETURNING ot.title, NULLIF(btrim(ot.slug), '') AS slug, ${publicTourSql('ot')} AS on_storefront`,
     [opts.ownerId, opts.tourId],
   );
-  const done = rows[0];
-  if (!done) {
-    const blockers = blockersOf(row.blockers);
-    // Строка под блокировкой, а UPDATE её не взял: значит, гейт. Пустой
-    // перечень при этом — расхождение, а не «всего хватает»: откат и лог.
-    if (blockers.length === 0) throw new Error('публикация не записана, а гейт пуст');
-    return { outcome: 'blocked', title: row.title, blockers };
+  const now = shown.rows[0];
+  if (!now) return { outcome: 'not_found' };
+  if (live.is_published === true) {
+    // «Опубликовал» без слова шлюза каталога не говорим — откат у вызывающего.
+    if (now.on_storefront !== true) throw new Error('публикация не подтверждена шлюзом каталога');
+    return { outcome: 'published', title: now.title, slug: now.slug };
   }
-  // «Опубликовал» без слова шлюза каталога не говорим — откат у вызывающего.
-  if (done.on_storefront !== true) throw new Error('публикация не подтверждена шлюзом каталога');
-  return { outcome: 'published', title: done.title, slug: done.slug };
+
+  const pending = await lockPendingTourEdit(c, opts.tourId);
+  if (pending?.wants_publish === true) return { outcome: 'already_requested', title: row.title };
+  const staged = await stageTourEdit(c, {
+    tourId: opts.tourId, partnerId: opts.ownerId, userId: null, live, content: {}, wantsPublish: true, pending,
+  });
+  if (staged.outcome !== 'pending') throw new Error('просьба о публикации не записана');
+  return { outcome: 'requested', title: row.title };
 }
 
 /** Снять с сайта — тур становится черновиком. Транзакцию даёт вызывающий. */

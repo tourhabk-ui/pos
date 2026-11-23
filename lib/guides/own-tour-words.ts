@@ -24,3 +24,25 @@ export function publishBlockerLabel(b: string): string {
 export function ownTourStateWords(onStorefront: boolean): string {
   return onStorefront ? 'на сайте' : 'черновик — туристы не видят';
 }
+
+/**
+ * Состояние своего тура с учётом проверки администратором (план готовности
+ * 23.11, этап 4): публикацию и правку содержания ставит одобрение, и гид
+ * обязан видеть, что именно сейчас ждёт.
+ */
+export function ownTourReviewWords(
+  onStorefront: boolean,
+  review: { state: string; pending: { wantsPublish: boolean } | null; rejected: { wantsPublish: boolean } | null } | null | undefined,
+): string {
+  if (review?.state === 'pending' && review.pending) {
+    return review.pending.wantsPublish
+      ? 'на проверке — туристы увидят после одобрения'
+      : `${ownTourStateWords(onStorefront)} · правка на проверке`;
+  }
+  if (review?.state === 'rejected' && review.rejected) {
+    return review.rejected.wantsPublish
+      ? 'возвращён на доработку — туристы не видят'
+      : `${ownTourStateWords(onStorefront)} · правка отклонена`;
+  }
+  return ownTourStateWords(onStorefront);
+}

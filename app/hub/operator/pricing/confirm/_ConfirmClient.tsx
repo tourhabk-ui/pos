@@ -30,7 +30,13 @@ export default function ConfirmClient() {
     setBusy(false);
     if (!r.ok || !j?.success) { setMsg(j?.error ?? 'Не удалось применить'); return; }
     const skipped = j.data.skipped.length;
-    setMsg(`Готово: изменено туров — ${j.data.applied.length}.${skipped ? ` Пропущено ${skipped}: цена менялась после предпросмотра.` : ''}`);
+    const pending = Array.isArray(j.data.pending) ? j.data.pending.length : 0;
+    setMsg([
+      `Готово: изменено туров — ${j.data.applied.length}.`,
+      // Цена тура на витрине меняется после проверки администратором (этап 4, 23.11).
+      pending ? `На проверку администратору ушло ${pending}: на сайте пока прежняя цена.` : '',
+      skipped ? `Пропущено ${skipped}: цена менялась после предпросмотра.` : '',
+    ].filter(Boolean).join(' '));
     setData((d) => (d ? { ...d, state: 'used' } : d));
   }
 

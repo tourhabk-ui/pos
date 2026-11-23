@@ -36,7 +36,12 @@ describe('set_tour_published: команда называет целевое с�
   it('SQL не инвертирует состояние', () => {
     expect(src, 'вернулся NOT is_published — повтор вызова отменяет результат')
       .not.toMatch(/is_published\s*=\s*NOT\s+is_published/);
-    expect(src).toMatch(/SET is_published = \$3/);
+    // С 23.11 (план готовности, этап 4) инструмент пишет через единую дверь
+    // владельца: целевое состояние называется полем правки, своего UPDATE
+    // публикации у инструмента нет. Что повтор не отменяет результат и что
+    // «опубликовать» — просьба, судит PostgreSQL: tour-moderation.pg.test.ts.
+    expect(src).toMatch(/input: \{ is_published: published \}/);
+    expect(src).not.toMatch(/SET\s+is_published/);
   });
 
   it('published — обязательный булев параметр', () => {
