@@ -21,6 +21,8 @@ export type EmergencyCategory =
   | 'avalanche'
   | 'group_missing'
   | 'freezing'
+  /** Стихия: землетрясение, цунами, пепел (аудит 23.11). */
+  | 'disaster'
   | 'distress';
 
 export interface EmergencyDetection {
@@ -58,7 +60,14 @@ const CATEGORY_PATTERNS: Record<EmergencyCategory, RegExp[]> = {
     re('не (знаю|знаем|понимаю|понимаем),? где (я|мы|нахожусь|находимся)'),
     re('потерял[аи]? (тропу|тропинку|дорогу)'),
     re('потерял[аи]? связь с (группой|туристом|туристами|мужем|женой|сыном|дочерью|реб(ё|е)нком|другом|подругой)'),
+    // Аудит 23.11: «застряли» и «не найти дорогу» детектор не видел.
+    // «Застряли в аэропорту» — дело брони, не беда: нужно место в поле.
+    re('не (можем|могу|может|могут) найти (дорогу|тропу|тропинку|путь|лагерь|группу)'),
+    re('не (можем|могу|может|могут) выбраться'),
+    re(`застрял[аи]?${PHRASE}(машин|джип|вездеход|снегоход|снегу|грязи|болоте|реке|сугроб|перевал|склон|вулкан|троп|брод|переправ|скал|ущель|лесу|горах|тундр)[а-яё]*`),
     // en / zh
+    re("(we('re| are)|i('m| am)) (stuck|stranded|trapped)"),
+    re('被困|困住了|车陷'),
     re("(we('re| are)|i('m| am)|we got|i got|got|getting) lost"),
     re('lost (our|my) way'),
     re("(don'?t|do not) know where (we are|i am)"),
@@ -66,7 +75,8 @@ const CATEGORY_PATTERNS: Record<EmergencyCategory, RegExp[]> = {
     re(`不知道${ZP}{0,4}(我们|我)${ZP}{0,2}在哪`),
   ],
   injury: [
-    re('(травм|травмирован|перелом|вывих|кровотеч|обморожен|обморозил)[а-яё]*'),
+    // «перелом погоды» — прогноз, не травма (ложное срабатывание до 23.11).
+    re('(травм|травмирован|перелом(?! (погоды|в погоде|сезона))|вывих|кровотеч|обморожен|обморозил)[а-яё]*'),
     re('сломал[аи]? (ногу|руку|ребро|лодыжку)'),
     // Проверка качества 24.10: страдательное «сломана нога», падение с высоты
     // и из лодки, тонущий и приступ — детектор молчал, и в привязанном чате
@@ -85,6 +95,14 @@ const CATEGORY_PATTERNS: Record<EmergencyCategory, RegExp[]> = {
     re('(идёт|течёт|хлещет) кровь'),
     re('без сознания'),
     re('подвернул[аи]? ногу'),
+    // Аудит 23.11: потеря сознания, обморок, «не могу идти», отравление.
+    re('(потерял[аи]?|теряет|теряю) сознание'),
+    re('(упал[аи]?|падает) в обморок|в обмороке'),
+    // «не могу идти в поход в субботу» и «не могу встать рано» — планы.
+    re(`не (могу|может|можем|могут) идти(?! (в|во|на|с|со|к|по|за|завтра|сегодня|послезавтра|туда)${E})`),
+    re(`не (могу|может|можем|могут) (встать|двигаться|пошевелиться)(?! (рано|так рано|раньше|утром|в \\d))`),
+    re('отравил(ся|ась|ись)'),
+    re('анафила[а-яё]*'),
     // Проверка 25.10: авария и пострадавшие — детектор молчал на «есть
     // пострадавшие», «машина перевернулась», «попали в ДТП». Пострадавшие и
     // раненые — с числом или «есть»: «как помочь пострадавшему» — вопрос.
@@ -101,16 +119,21 @@ const CATEGORY_PATTERNS: Record<EmergencyCategory, RegExp[]> = {
     re('(получил[аи]?|сильный) ожог'),
     // en / zh
     re('injured|unconscious|not breathing'),
+    re('(fainted|passed out|collapsed)'),
     re('broken (leg|arm|ankle|rib)'),
     re("(can'?t|cannot) breathe"),
     re('bleeding (badly|heavily|a lot)'),
     re(`fell${PHRASE}(can'?t|cannot) (get up|move)`),
-    re('受伤|骨折|流血不止|大出血|昏迷|失去意识|呼吸困难|不能呼吸|烫伤|烧伤'),
+    re('受伤|骨折|流血不止|大出血|昏迷|失去意识|呼吸困难|不能呼吸|烫伤|烧伤|晕倒|昏倒|中毒'),
     re(`摔${ZP}{0,6}(起不来|动不了)`),
   ],
   bear: [
     re(`медвед[^.!?\\n]*?(рядом|близко|напал|атаку|преследу|вышел (на|к)|идёт (к|на|за)|окружил|не уходит)`),
     re(`(рядом|близко|напал|атаковал|преследует)${PHRASE}медвед[а-яё]*`),
+    // Аудит 23.11: медведь у палатки. Единственное число и своё место —
+    // «медведи ходят вокруг озера летом?» остаётся вопросом.
+    re(`медведь${PHRASE}(ходит|бродит|кружит) (вокруг|возле|около|у) (нас|палатк|лагер|машин|дома|домик|костра)[а-яё]*`),
+    re(`медведь${PHRASE}(зал(е|ё)з|забрался|лезет|ломится|рв(ё|е)т)`),
     // en / zh — только нападение и преследование: «熊会靠近营地吗?» — вопрос
     re(`bear${PHRASE}(attack(ed|ing|s)?|chas(ed|ing)|charg(ed|ing)|won'?t leave)`),
     re(`(attacked|chased|charged) by a bear`),
@@ -162,12 +185,37 @@ const CATEGORY_PATTERNS: Record<EmergencyCategory, RegExp[]> = {
     re('(?<!не )замерза(ю|ем|ет|ют)'),
     re('мы зам(е|ё)рзли'),
     re('переохлаждение'),
+    // Аудит 23.11: «весь мокрый… меня трясёт» — озноб после воды или холода.
+    re(`(мокр|промок|холодн|зам(е|ё)рз)[а-яё]*${PHRASE}(тряс(ё|е)т|знобит|дрож(у|ит|им|ат))`),
     re(`застигла${PHRASE}(пурга|метель|буря|непогода)`),
     re(`(пурга|метель|буря)${PHRASE}(застигла|накрыла|не можем идти)`),
     // en / zh
     re('hypotherm(ia|ic)'),
     re("(we('re| are)|i('m| am)) freezing"),
     re('失温|冻伤|冻僵|快冻死'),
+  ],
+  disaster: [
+    // Аудит 23.11. Новость и вопрос («идёт извержение Шивелуча — отменят ли
+    // тур?», «бывают ли землетрясения?») — не беда: нужен признак, что
+    // это происходит с человеком сейчас.
+    // «Меня трясёт» — это озноб (см. freezing), а не землетрясение: трясти
+    // должно землю или дом, либо рядом названо само землетрясение.
+    re('(землю|земля|вс(ё|е) вокруг|дом|здание|гостиницу|пол|стены|кровать) (сильно |очень |опять )?тряс(ё|е)т(ся)?'),
+    re(`тряс(ё|е)т${PHRASE}землетрясение`),
+    re(`землетрясение${PHRASE}тряс(ё|е)т`),
+    re(`(сейчас|только что|началось|начинается|ид(е|ё)т)${PHRASE}землетрясение`),
+    re(`землетрясение${PHRASE}(что (нам |мне )?делать|куда (идти|бежать|уходить))`),
+    re(`цунами${PHRASE}(что (нам |мне )?делать|куда (идти|бежать|уходить)|ид(е|ё)т|надвигается|сирена)`),
+    re(`(объявили|объявлена|сирена|тревог[аиу])${PHRASE}цунами`),
+    re('(вода|море|океан) (резко |быстро )?(уходит|отступает|отошл[ао]|уш(ла|ло|ёл|ел)) от берега'),
+    re('(ид(е|ё)т|сыпется|сыплется|падает|летит) пепел'),
+    re(`(на нас|нас|лагерь|палатку)${PHRASE}(накрыло|засыпает|засыпало|сыпл?ется|падает)${PHRASE}пеп(ел|лом)`),
+    re(`извержение${PHRASE}(рядом с нами|мы рядом|что (нам |мне )?делать|куда (идти|бежать|уходить))`),
+    // en / zh
+    re('(ground|earth|everything|building|hotel|tent) is shaking'),
+    re(`(earthquake|tsunami)${PHRASE}(what (do|should) (we|i) do|right now|is coming)`),
+    re('tsunami (siren|warning|alarm)(?! (system|map|zone|risk))'),
+    re('地震了|正在地震|发生地震了|海啸来了|海啸警报|火山灰(落|飘|下)'),
   ],
   distress: [
     re('спасите'),
@@ -184,7 +232,9 @@ const CATEGORY_PATTERNS: Record<EmergencyCategory, RegExp[]> = {
     re('нужна (срочная|экстренная) помощь'),
     re('вызовите (спасателей|мчс|скорую|вертол(е|ё)т)'),
     // Голый крик о помощи — всё сообщение, а не «помогите выбрать тур».
-    /^\s*(?:помогите|help|нужна помощь)(?:[\s,!.]+(?:пожалуйста|срочно|нам|мне|нас))*[\s!.]*$/i,
+    /^\s*(?:please[\s,]+)?(?:помогите|help|нужна помощь)(?:[\s,!.]+(?:пожалуйста|срочно|нам|мне|нас|me|us|please|now|urgently))*[\s!.]*$/i,
+    // «I need help with booking» — дело, не беда (как у русского правила).
+    re('(i|we) need help(?! (with|to|on|in|for|choosing|booking|finding|planning))'),
     // en / zh
     re('help us|need (urgent|emergency) help'),
     re('call (rescue|rescuers|an ambulance|112)'),
@@ -215,6 +265,8 @@ const CATEGORY_ADVICE: Record<EmergencyCategory, string> = {
   avalanche: 'Не выходите на лавиноопасный склон повторно. Если кого-то засыпало — запомните точку исчезновения и начинайте поиск оттуда.',
   group_missing: 'Сообщите МЧС маршрут, контрольное время и число людей в группе. Не начинайте самостоятельный поиск в темноте.',
   freezing: 'Ищите укрытие от ветра, утеплитесь всем что есть, двигайте конечностями. Не садитесь на снег и камни без изоляции.',
+  // Те же слова, что в пуше о землетрясении и цунами (lib/services/safety/push-copy.ts).
+  disaster: 'У берега после сильных толчков немедленно уходите вверх — не ниже 30 м над водой, сигнала не ждите. К вулкану не приближайтесь.',
   distress: 'Сообщите спасателям ваши координаты или заметные ориентиры и число людей рядом с вами.',
 };
 
@@ -226,6 +278,7 @@ const CATEGORY_ADVICE_EN: Record<EmergencyCategory, string> = {
   avalanche: 'Do not go back onto the avalanche-prone slope. If someone is buried, remember the point where they disappeared and start searching from there.',
   group_missing: 'Tell the rescue service (EMERCOM) the route, the agreed return time and the number of people in the group. Do not start searching on your own in the dark.',
   freezing: 'Find shelter from the wind, put on everything warm you have, keep moving your arms and legs. Do not sit on snow or stones without insulation.',
+  disaster: 'If you are near the shore after strong shaking, go uphill at once — at least 30 m above the water; do not wait for a signal. Do not approach the volcano.',
   distress: 'Tell the rescuers your coordinates or visible landmarks and the number of people with you.',
 };
 
@@ -237,6 +290,7 @@ const CATEGORY_ADVICE_ZH: Record<EmergencyCategory, string> = {
   avalanche: '不要再次进入有雪崩危险的山坡。如有人被埋，记住其消失的位置，从那里开始搜寻。',
   group_missing: '向救援部门（俄罗斯紧急情况部）报告路线、约定的返回时间和队伍人数。不要在黑暗中自行搜寻。',
   freezing: '寻找避风处，穿上所有能保暖的衣物，活动四肢。不要在没有隔垫的情况下坐在雪地或石头上。',
+  disaster: '如在海边遇到强烈地震，请立即往高处走——至少高出水面 30 米，不要等待警报。不要靠近火山。',
   distress: '告诉救援人员您的坐标或明显的地标，以及您身边的人数。',
 };
 
@@ -267,8 +321,9 @@ const ADVICE_BY_LANG: Record<SosLang, Record<EmergencyCategory, string>> = {
 
 /** Ищет признаки чрезвычайной ситуации в тексте пользователя. */
 export function detectEmergency(text: string): EmergencyDetection {
-  // Порог 3 — голое «SOS» (3 символа) обязано проходить
-  if (!text || text.length < 3) return { detected: false, categories: [] };
+  // Порог 2 — голое «SOS» (3 знака) и «救命» (2 знака) обязаны проходить.
+  // До 23.11 порог был 3, и китайское «спасите» отбрасывалось до проверки.
+  if (!text || text.trim().length < 2) return { detected: false, categories: [] };
   const categories: EmergencyCategory[] = [];
   for (const [category, patterns] of Object.entries(CATEGORY_PATTERNS) as [EmergencyCategory, RegExp[]][]) {
     if (patterns.some((re) => re.test(text))) categories.push(category);
