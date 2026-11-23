@@ -14,7 +14,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { runKuzmichFaithfulnessEval, failedCases } from '@/lib/agents/eval/kuzmich-faithfulness';
+import { runKuzmichFaithfulnessEval, failedCases, noAnswerOutcome } from '@/lib/agents/eval/kuzmich-faithfulness';
+import { isDailyLlmBudgetStopped } from '@/lib/ai/daily-spend-gate';
 import { fixtureQuestions, commercialFailures } from '@/lib/agents/eval/kuzmich-faithfulness';
 import { commercialRunStatus } from '@/lib/agents/eval/commercial-checks';
 import { liveCaseForResponse, sampleLiveQuestions } from '@/lib/agents/eval/live-questions';
@@ -36,6 +37,15 @@ import { claimCronWindow } from '@/lib/agents/cron-lease';
  * недели ожидания, и здесь дешевле второе.
  */
 const EVAL_MIN_GAP_HOURS = 20;
+
+/**
+ * Код ответа, когда проверка ничего не измерила (#3494, 23.11): стоп расходов
+ * закрыт до прогона или Кузьмич не ответил ни на один вопрос. Не 200 — шаг
+ * workflow обязан покраснеть: прогон 23.11 не получил ни одного ответа из 98 и
+ * был зелёным. Не 503 — его скрипт повтора принимает за шлюз и зовёт роут
+ * второй раз. Не 500 — это не падение роута.
+ */
+const NOTHING_MEASURED_STATUS = 424;
 
 export const dynamic = 'force-dynamic';
 // Потолок поднят вместе с потолком curl в workflow (замер 11.09): двадцать
@@ -68,6 +78,28 @@ export async function GET(request: NextRequest) {
 
   const force = request.nextUrl.searchParams.get('force') === '1';
   const leaseAgent = source === 'live' ? 'kuzmich-eval-live' : (commercialSet ? 'kuzmich-eval-commercial' : 'kuzmich-eval');
+
+  // Стоп расходов закрыт — Кузьмич не ответит ни туристу, ни проверке.
+  // Проверяется ДО окна расхода: иначе прогон, не потративший ни цента, занял
+  // бы окно на 20 часов, и после открытия стопа мерить было бы нельзя до
+  // следующих суток. `force` стоп не обходит: он обходит окно, а не бюджет.
+  if (await isDailyLlmBudgetStopped()) {
+    void logAgentRun({
+      agent_id: leaseAgent,
+      status: 'partial',
+      started_at: new Date(),
+      duration_ms: 0,
+      items_processed: 0,
+      items_created: 0,
+      metadata: { skip_reason: 'daily_budget_stopped', source },
+    });
+    return NextResponse.json({
+      ok: false,
+      skip_reason: 'daily_budget_stopped',
+      note: 'Закрыт суточный стоп расходов на ИИ: Кузьмич сейчас не отвечает и туристам. Вопросы не задавались, окно расхода не занято — после открытия стопа прогон можно повторить.',
+    }, { status: NOTHING_MEASURED_STATUS });
+  }
+
   if (!force) {
     const lease = await claimCronWindow(`${leaseAgent}-cost-guard`, EVAL_MIN_GAP_HOURS * 60, 'workflow');
     if (lease !== 'claimed') {
@@ -136,9 +168,15 @@ export async function GET(request: NextRequest) {
       : (report.pass_rate >= 0.8 ? null : 'pass_rate_below_threshold');
     // Коммерческий набор судится своими критериями: исход прогона — их, а
     // faithfulness судьи едет рядом в metadata.
-    const outcome: ReturnType<typeof commercialRunStatus> = commercialSet
-      ? commercialRunStatus(report.commercial)
-      : { status, skip_reason };
+    // Ни одного ответа — прогон ничего не измерил, какой бы набор ни шёл.
+    // Стоп расходов — «не смог проверить» (partial): ответы Кузьмича тут ни
+    // при чём. Ошибки цикла — failed: туристу Кузьмич не ответил бы так же.
+    const silent = noAnswerOutcome(report.cases);
+    const outcome: ReturnType<typeof commercialRunStatus> = silent
+      ? { status: silent.skip_reason === 'daily_budget_stopped' ? 'partial' : 'failed', skip_reason: silent.skip_reason }
+      : commercialSet
+        ? commercialRunStatus(report.commercial)
+        : { status, skip_reason };
 
     void logAgentRun({
       agent_id: agentId,
@@ -170,6 +208,19 @@ export async function GET(request: NextRequest) {
     // Живые вопросы — сообщения туристов: в ответ идут числа без текстов
     // (liveCaseForResponse). Вопросы фикстуры написаны нами — они уходят как были.
     const outward = source === 'live' ? { ...report, cases: report.cases.map(liveCaseForResponse) } : report;
+    if (silent) {
+      // Причина — в начале тела: при не-200 скрипт повтора печатает в лог
+      // Actions первые 300 знаков ответа.
+      return NextResponse.json({
+        ok: false,
+        skip_reason: silent.skip_reason,
+        note: silent.text,
+        timestamp: new Date().toISOString(),
+        source,
+        set: commercialSet ? 'commercial' : 'base',
+        ...outward,
+      }, { status: NOTHING_MEASURED_STATUS });
+    }
     return NextResponse.json({ ok: true, timestamp: new Date().toISOString(), source, set: commercialSet ? 'commercial' : 'base', ...outward });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
