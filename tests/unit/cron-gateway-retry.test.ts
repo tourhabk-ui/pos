@@ -14,6 +14,7 @@ import {
   shouldRetryGateway,
   gatewayFailureNote,
   runGatewayRetry,
+  curlArgs,
 } from '../../scripts/cron-gateway-retry.mjs';
 
 const SCOUT = 'https://vedarai.ru/api/cron/scout-digest';
@@ -91,6 +92,18 @@ describe('шлюзовой отказ', () => {
     expect(code).toBe(1);
     expect(n).toBe(3);
     expect(pauses).toEqual([20, 40]);
+  });
+});
+
+describe('вызов на прод', () => {
+  it('POST дайджеста уходит телом файла, а не строкой в аргументах', () => {
+    const args = curlArgs({
+      url: SCOUT, out: '/tmp/out.json', maxTime: 900, method: 'POST', data: '/tmp/digest-body.json', secret: 's',
+    });
+    expect(args[args.indexOf('-X') + 1]).toBe('POST');
+    expect(args).toContain(SCOUT);
+    expect(args[args.indexOf('--data-binary') + 1]).toBe('@/tmp/digest-body.json');
+    expect(args[args.indexOf('--max-time') + 1]).toBe('900');
   });
 });
 

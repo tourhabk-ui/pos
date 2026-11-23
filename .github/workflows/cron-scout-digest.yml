@@ -146,11 +146,11 @@ jobs:
           # не роут и не RSS. Скрипт называет адрес в ::error::. 401/429/500
           # роута не повторяет.
           node scripts/cron-gateway-retry.mjs \
+            --max-time 900 \
             --url "https://vedarai.ru/api/cron/scout-digest" \
             -o /tmp/out.json \
             --method POST \
             --data /tmp/digest-body.json \
-            --max-time 900 \
             --attempts 3 \
             --pause 20,40
           cat /tmp/out.json 2>/dev/null || true

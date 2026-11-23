@@ -64,10 +64,15 @@ function parseArgs(argv) {
   return out;
 }
 
-function curlOnce({ url, out, maxTime, method, data, secret }) {
+export function curlArgs({ url, out, maxTime, method, data, secret }) {
   const args = ['-sS', '-o', out, '-w', '%{http_code}', '--max-time', String(maxTime), '-X', method, url,
     '-H', `Authorization: Bearer ${secret}`];
   if (data) args.push('-H', 'Content-Type: application/json', '--data-binary', `@${data}`);
+  return args;
+}
+
+function curlOnce({ url, out, maxTime, method, data, secret }) {
+  const args = curlArgs({ url, out, maxTime, method, data, secret });
   const started = Date.now();
   const res = spawnSync('curl', args, { encoding: 'utf8' });
   const elapsedSec = Math.max(0, Math.round((Date.now() - started) / 1000));
