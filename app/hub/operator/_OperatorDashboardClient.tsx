@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useContext, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { OperatorMetricsGrid } from '@/components/operator/Dashboard/OperatorMetricsGrid';
 import { RecentBookingsTable } from '@/components/operator/Dashboard/RecentBookingsTable';
@@ -10,10 +10,9 @@ import { LoadingSpinner, EmptyState } from '@/components/admin/shared';
 import { MchsRegistrationPanel } from '@/components/operator/Dashboard/MchsRegistrationPanel';
 import { OperatorEarningsCard } from '@/components/operator/OperatorEarningsCard';
 import { OperatorDashboardData } from '@/types/operator';
-import { platformAcceptsPayments } from '@/lib/payments/accepting';
-import { OperatorCabinetFacts } from '@/components/operator/OperatorCabinetGate';
+import { PartnerReadinessCard } from '@/components/hub/PartnerReadinessCard';
 import { AlertTriangle, BarChart3, Mountain, Calendar, Users, RefreshCw,
-  CheckCircle2, Circle, ArrowRight, Plus,
+  Plus,
   Wallet, TrendingUp, CalendarDays, CalendarClock, Trophy, ClipboardList,
   type LucideIcon } from 'lucide-react';
 
@@ -28,110 +27,11 @@ function SectionLabel({ icon: Icon, children }: { icon: LucideIcon; children: Re
   );
 }
 
-// ─── First-steps checklist for new operators ─────────────────────────────────
-
-function FirstStepsPanel({
-  hasTours,
-  onboardingDone,
-  viewer,
-}: {
-  hasTours: boolean;
-  onboardingDone: boolean;
-  viewer: 'owner' | 'manager' | null;
-}) {
-  const steps = [
-    {
-      done: onboardingDone,
-      label: 'Заполнить профиль компании',
-      desc: viewer === 'manager'
-        ? 'Это делает владелец компании'
-        : 'Название, описание, контакты',
-      href: '/hub/operator/onboarding',
-      action: viewer === 'manager' ? 'Кто заполняет' : 'Заполнить',
-    },
-    {
-      done: hasTours,
-      label: 'Создать первый тур',
-      desc: 'Название, цена, фото, маршрут',
-      href: '/hub/operator/tours/new',
-      action: 'Создать тур',
-    },
-    {
-      done: false,
-      label: 'Добавить даты проведения',
-      desc: 'В разделе «Туры» → редактировать → Расписание',
-      href: '/hub/operator/tours',
-      action: 'К турам',
-    },
-    // Реквизиты для выплат нужны, только пока платформа принимает оплату
-    // (решение владельца 05.10: сейчас не принимает — lib/payments/accepting).
-    ...(platformAcceptsPayments() ? [{
-      done: false,
-      label: 'Указать реквизиты для выплат',
-      desc: 'СБП или расчётный счёт',
-      href: '/hub/operator/finance',
-      action: 'Настроить',
-    }] : []),
-  ];
-
-  const doneCount = steps.filter(s => s.done).length;
-  const pct = Math.round((doneCount / steps.length) * 100);
-
-  return (
-    <div className="ds-card p-5 mb-5">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-            Первые шаги
-          </h2>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-            {doneCount} из {steps.length} выполнено
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-24 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-hover)' }}>
-            <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: 'var(--success)' }} />
-          </div>
-          <span className="text-xs font-medium" style={{ color: 'var(--success)' }}>{pct}%</span>
-        </div>
-      </div>
-      <div className="space-y-2">
-        {steps.map((s, i) => (
-          <div key={i} className="flex items-center gap-3 p-3 rounded-lg border transition-colors"
-            style={{ borderColor: s.done ? 'var(--success)/20' : 'var(--border)', background: s.done ? 'var(--success)/5' : 'transparent' }}>
-            {s.done
-              ? <CheckCircle2 className="w-4 h-4 shrink-0" style={{ color: 'var(--success)' }} />
-              : <Circle className="w-4 h-4 shrink-0" style={{ color: 'var(--text-muted)' }} />
-            }
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium" style={{ color: s.done ? 'var(--text-muted)' : 'var(--text-primary)', textDecoration: s.done ? 'line-through' : 'none' }}>
-                {s.label}
-              </p>
-              {!s.done && <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{s.desc}</p>}
-            </div>
-            {!s.done && (
-              <Link href={s.href} className="flex items-center gap-1 text-xs font-medium shrink-0 hover:underline"
-                style={{ color: 'var(--accent)' }}>
-                {s.action} <ArrowRight className="w-3 h-3" />
-              </Link>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export default function OperatorDashboardClient() {
   const [data, setData] = useState<OperatorDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [period, setPeriod] = useState('30');
-  // Владельца с черновиком сюда не пускают. Менеджера пускают — и шаг профиля
-  // берётся из того же ответа, что и ворота, а не отмечается выполненным заранее.
-  const facts = useContext(OperatorCabinetFacts);
-  const onboardingDone = facts?.onboardingCompleted === true;
-  const viewer = facts?.viewer ?? null;
 
   const fetchDashboardData = useCallback(async () => {
     try {
@@ -176,6 +76,10 @@ export default function OperatorDashboardClient() {
         </div>
       </div>
 
+      {/* Готовность к заявкам — один модуль на все кабинеты (lib/partners/readiness).
+          Прежняя панель «Первые шаги» судила по своим признакам и канала не знала. */}
+      <PartnerReadinessCard />
+
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <LoadingSpinner size="lg" message="Загрузка данных..." />
@@ -188,20 +92,13 @@ export default function OperatorDashboardClient() {
           action={{ label: 'Повторить', onClick: fetchDashboardData }}
         />
       ) : !data ? (
-        <>
-          <FirstStepsPanel hasTours={false} onboardingDone={onboardingDone} viewer={viewer} />
-          <EmptyState
-            icon={<BarChart3 className="w-10 h-10 text-[var(--text-muted)]" />}
-            title="Нет данных"
-            description="Данные не найдены"
-          />
-        </>
+        <EmptyState
+          icon={<BarChart3 className="w-10 h-10 text-[var(--text-muted)]" />}
+          title="Нет данных"
+          description="Данные не найдены"
+        />
       ) : (
         <div className="space-y-5">
-          {/* Show first-steps if no tours yet */}
-          {data.topTours.length === 0 && (
-            <FirstStepsPanel hasTours={false} onboardingDone={onboardingDone} viewer={viewer} />
-          )}
           <OperatorMetricsGrid metrics={data.metrics} />
           <MchsRegistrationPanel />
 

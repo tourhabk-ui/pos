@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, CalendarDays, Car, Check, ClipboardList, Inbox, X } from 'lucide-react';
+import { PartnerReadinessCard } from '@/components/hub/PartnerReadinessCard';
 
 interface CabinetCar {
   offerId: string; title: string; pricePerDay: number; priceIsFrom: boolean; deposit: number | null; active: boolean;
@@ -89,6 +90,8 @@ export default function RentalClient() {
       <p className="text-sm text-[var(--text-secondary)] mb-5">
         Машины без водителя из вашего прайса, заявки на прокат и календарь занятости. То же самое есть в MAX — кнопками бота.
       </p>
+
+      <div className="mb-5"><PartnerReadinessCard /></div>
 
       {flash && (
         <p role={flash.kind === 'err' ? 'alert' : 'status'} className={`text-sm mb-4 ${flash.kind === 'ok' ? 'text-[var(--success)]' : flash.kind === 'warn' ? 'text-[var(--warning)]' : 'text-[var(--danger)]'}`}>
