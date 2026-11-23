@@ -16,3 +16,26 @@ export function fishMetaDescription(
     `Сезон: ${species.season}. ${species.shortDesc} Рекорд: ${species.recordKg}. Место: ${species.habitat}.`,
   );
 }
+
+/**
+ * Точечные сниппеты видов под запросы Google (Search Console 18–20.11).
+ * Без « | Ведар»; вместе title ≤ 60, description ≤ 160.
+ */
+export interface FishSearchMeta {
+  title: string;
+  description: string;
+}
+
+export const FISH_SEARCH_META: Readonly<Record<string, FishSearchMeta>> = {
+  // /fish/forel — 16 показов в топ-10, 0 кликов. Шаблон ставил латинские
+  // имена в title и начинал описание с «Сезон:», обрезая суть.
+  forel: {
+    title: 'Форель на Камчатке — микижа, сезон май — сентябрь',
+    description:
+      'На Камчатке форелью чаще всего называют микижу — радужную форель. Живёт в холодных ручьях и горных озёрах. Сезон — май — сентябрь. Рекорд в природе — до 6,5 кг.',
+  },
+};
+
+export function fishSearchMeta(id: string | null | undefined): FishSearchMeta | null {
+  return id ? FISH_SEARCH_META[id] ?? null : null;
+}

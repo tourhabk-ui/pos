@@ -15,7 +15,7 @@ import DescriptionWithFishLinks from '@/components/shared/DescriptionWithFishLin
 import { FishGuide } from '@/components/fish/FishGuide';
 import { FishAbout } from '@/components/fish/FishAbout';
 import { DEFAULT_OG_IMAGE, defaultOgImages } from '@/lib/seo/og-image';
-import { fishMetaDescription } from '@/lib/seo/fish-description';
+import { fishMetaDescription, fishSearchMeta } from '@/lib/seo/fish-description';
 import { jsonLdHtml } from '@/lib/seo/json-ld-html';
 
 // Рендер на запросе. Прежде generateStaticParams + revalidate = 3600: двенадцать
@@ -37,9 +37,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const species = FISH_BY_ID[id];
   if (!species) return { title: 'Вид не найден' };
 
-  const title = `${species.name} на Камчатке — ${species.nameLatin}`;
-  // Сезон — первым и в пределах выдачи (аудит vedarai.ru 01.10).
-  const desc = fishMetaDescription(species);
+  const search = fishSearchMeta(id);
+  const title = search?.title ?? `${species.name} на Камчатке — ${species.nameLatin}`;
+  // Сезон — первым и в пределах выдачи (аудит vedarai.ru 01.10), если нет
+  // точечного сниппета под запрос Search Console.
+  const desc = search?.description ?? fishMetaDescription(species);
 
   return {
     title,

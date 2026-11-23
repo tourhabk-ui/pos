@@ -19,6 +19,7 @@ import { webPageModifiedJsonLd } from '@/lib/seo/record-modified';
 import { routeAggregateOffer } from '@/lib/seo/route-offers';
 import { stripTags } from '@/lib/html/text';
 import { routeDescription } from '@/lib/seo/place-meta';
+import { routeSearchMeta } from '@/lib/seo/route-search-meta';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { shownPhotoSql } from '@/lib/images/origin';
 import { brandedTitle, fitTitleRequired, ROUTE_TITLE_TAILS } from '@/lib/seo/title-fit';
@@ -244,16 +245,18 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   // Канонический URL — всегда по slug (если он есть), даже если пришли по UUID
   const canonicalId = route.slug ?? id;
 
+  // Точечный сниппет под запрос Search Console сильнее автохвоста.
+  const search = routeSearchMeta(route.slug) ?? routeSearchMeta(canonicalId) ?? routeSearchMeta(id);
   // Хвост обязателен: маршрут к источнику часто носит имя самого места, и без
   // хвоста заголовки страницы маршрута и места совпадали (аудит 01.10).
   // С 21.11 первым пробуется хвост с фактами записи (Сыщик: «{name}: маршрут
   // 14 км, набор…»); не влез или фактов нет — прежние хвосты.
   const factsTail = routeTitleFactsTail(route);
-  const title = fitTitleRequired(route.title, factsTail ? [factsTail, ...ROUTE_TITLE_TAILS] : ROUTE_TITLE_TAILS);
+  const title = search?.title ?? fitTitleRequired(route.title, factsTail ? [factsTail, ...ROUTE_TITLE_TAILS] : ROUTE_TITLE_TAILS);
   // Сниппет: сначала факты (км, набор, время, сложность, сезон, МЧС), потом
   // описание — пока помещается (lib/seo/place-meta, срез 02.10). Для места,
   // открытого по адресу маршрута, фактов маршрута нет — остаётся описание.
-  const desc = routeDescription({
+  const desc = search?.description ?? (routeDescription({
     title: route.title,
     zone: route.zone,
     distanceKm: route.distanceKm,
@@ -267,7 +270,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     description: route.description,
     parkName: route.parkName,
     elevationMaxM: route.elevationMaxM,
-  }) || `Туристический маршрут на Камчатке: ${route.title}. Категория: ${route.category}.`;
+  }) || `Туристический маршрут на Камчатке: ${route.title}. Категория: ${route.category}.`);
 
   // SEO keywords: города + типы активностей + регион
   const baseKeywords = [
