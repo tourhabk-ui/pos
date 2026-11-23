@@ -264,3 +264,26 @@ export function tourCabinetPath(partnerCategory: string | null): string {
 export function tourFieldsWords(fields: readonly ModeratedTourColumn[]): string {
   return fields.map((f) => TOUR_FIELD_LABELS[f].toLowerCase()).join(', ');
 }
+
+// ─── Метка проверки в списке туров ────────────────────────────────────────────
+
+/**
+ * Что с проверкой тура — одной меткой рядом с «видит ли турист». `unknown` —
+ * правки прочитать не удалось: это не «проверки нет» (§4.0).
+ */
+export type TourReviewMark = 'pending_publish' | 'pending_edit' | 'rejected' | 'unknown';
+
+export const TOUR_REVIEW_LABELS: Readonly<Record<TourReviewMark, string>> = {
+  pending_publish: 'На проверке',
+  pending_edit: 'Правка на проверке',
+  rejected: 'Возвращён на доработку',
+  unknown: 'Проверка: не прочитано',
+};
+
+export function tourReviewMark(
+  edit: { pending: { wantsPublish: boolean } | null; rejected: unknown | null } | null | undefined,
+): Exclude<TourReviewMark, 'unknown'> | null {
+  if (edit?.pending) return edit.pending.wantsPublish ? 'pending_publish' : 'pending_edit';
+  if (edit?.rejected) return 'rejected';
+  return null;
+}

@@ -23,7 +23,8 @@ import { join } from 'node:path';
 import { NextRequest } from 'next/server';
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn(), back: vi.fn(), replace: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), back: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => '/hub/operator/tours',
   useParams: () => ({ id: '51' }),
 }));
 vi.mock('@/components/auth/Protected', () => ({ Protected: ({ children }: { children: React.ReactNode }) => children }));
@@ -48,7 +49,7 @@ vi.mock('@/lib/notifications/pd-alert', () => ({ sendPdAlert: h.send }));
 
 import {
   MODERATED_TOUR_COLUMNS, contentDiff, pendingNotice, sameTourValue, splitTourInput,
-  tourCabinetPath, tourEditChanges, tourModerationState,
+  tourCabinetPath, tourEditChanges, tourModerationState, tourReviewMark,
 } from '@/lib/tours/moderation';
 import { TOUR_PATCH_COLUMNS } from '@/lib/tours/tour-write';
 import { TourEditQueue, type TourEditCard } from '@/components/admin/TourEditQueue';
@@ -59,6 +60,7 @@ import { afterSaveWords } from '@/lib/guides/tour-edit/screens';
 import { editDecisionText, notifyPartnerEditDecision } from '@/lib/notifications/partner-edit-notify';
 import ModerationClient from '@/app/hub/admin/moderation/_ModerationClient';
 import EditTourClient from '@/app/hub/operator/tours/[id]/_EditTourClient';
+import ToursManagementClient from '@/app/hub/operator/tours/_ToursManagementClient';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -419,6 +421,50 @@ describe('редактор тура оператора', () => {
     fireEvent.click(screen.getAllByText('Сохранить')[0]);
     await waitFor(() => expect(patches).toHaveLength(1));
     expect(patches[0].is_published).toBe(true);
+  });
+});
+
+describe('список туров оператора: метка проверки', () => {
+  const row = (id: string, title: string, review: string | null, published: boolean) => ({
+    id, title, is_active: true, is_published: published, on_storefront: published, review,
+    activity_type: 'trekking', location_name: 'Авачинский перевал', base_price: '5000',
+    max_participants: 10, duration_hours: 8, difficulty: 'medium',
+    tour_image: null, photos: null, rating: null, review_count: 0,
+    total_bookings: '0', total_revenue: '0', created_at: '2026-10-20T00:00:00Z',
+    available_slots: null, next_available_date: null,
+  });
+
+  it('метка из правки: ждёт публикации, ждёт правка, возвращён; правок нет — метки нет', () => {
+    expect(tourReviewMark({ pending: { wantsPublish: true }, rejected: null })).toBe('pending_publish');
+    expect(tourReviewMark({ pending: { wantsPublish: false }, rejected: null })).toBe('pending_edit');
+    expect(tourReviewMark({ pending: null, rejected: { reason: 'x' } })).toBe('rejected');
+    expect(tourReviewMark({ pending: null, rejected: null })).toBeNull();
+    expect(tourReviewMark(undefined)).toBeNull();
+  });
+
+  it('в списке метка стоит рядом с «видит ли турист»; «не прочитано» — не «проверки нет»', async () => {
+    const tours = [
+      row('1', 'Новый тур', 'pending_publish', false),
+      row('2', 'Тур с правкой', 'pending_edit', true),
+      row('3', 'Возвращённый тур', 'rejected', false),
+      row('4', 'Спокойный тур', null, true),
+      row('5', 'Тур без ответа базы', 'unknown', true),
+    ];
+    globalThis.fetch = vi.fn(() => Promise.resolve(new Response(JSON.stringify({
+      success: true, data: tours, pagination: { total: tours.length },
+    }), { status: 200 }))) as unknown as typeof fetch;
+    render(<ToursManagementClient />);
+    const card = async (name: string) => within(await screen.findByRole('article', { name }));
+    expect((await card('Новый тур')).getByText('На проверке')).toBeTruthy();
+    expect((await card('Новый тур')).getByText('Черновик — туристы не видят')).toBeTruthy();
+    expect((await card('Тур с правкой')).getByText('Правка на проверке')).toBeTruthy();
+    expect((await card('Тур с правкой')).getByText('На витрине')).toBeTruthy();
+    expect((await card('Возвращённый тур')).getByText('Возвращён на доработку')).toBeTruthy();
+    expect((await card('Тур без ответа базы')).getByText('Проверка: не прочитано')).toBeTruthy();
+    const calm = await card('Спокойный тур');
+    for (const label of ['На проверке', 'Правка на проверке', 'Возвращён на доработку', 'Проверка: не прочитано']) {
+      expect(calm.queryByText(label), label).toBeNull();
+    }
   });
 });
 

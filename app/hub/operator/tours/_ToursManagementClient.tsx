@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { storefrontState } from '@/lib/tours/public-visibility';
 import { StorefrontBadge } from '@/components/operator/StorefrontBadge';
+import { TOUR_REVIEW_LABELS, type TourReviewMark } from '@/lib/tours/moderation';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,6 +28,8 @@ interface Tour {
   is_published: boolean;
   /** Ответ шлюза каталога (publicTourSql) — видит ли тур турист (#2642). */
   on_storefront: boolean;
+  /** Проверка администратором: ждёт, возвращён или «не прочитано»; нет метки — проверки нет. */
+  review?: TourReviewMark | null;
   tour_image: string | null;
   photos: string[] | null;
   rating: string | null;
@@ -324,7 +327,17 @@ export default function ToursManagementClient() {
                       </div>
                     </div>
 
-                    <StorefrontBadge state={state} />
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      {tour.review && (
+                        <span className={`ds-badge shrink-0 ${tour.review === 'rejected'
+                          ? 'bg-[var(--danger)]/10 text-[var(--danger)]'
+                          : 'bg-[var(--warning)]/10 text-[var(--warning)]'}`}
+                        >
+                          {TOUR_REVIEW_LABELS[tour.review]}
+                        </span>
+                      )}
+                      <StorefrontBadge state={state} />
+                    </div>
                   </div>
 
                   {/* Stats row */}

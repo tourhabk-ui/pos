@@ -633,6 +633,24 @@ withPg('модерация правок тура', () => {
       expect(await code(`INSERT INTO operator_tour_edits (tour_id, partner_id, wants_publish) VALUES ($1::bigint, $2::uuid, TRUE)`, [tour, OP])).toBe('23505');
     });
 
+    it('список туров кабинета несёт метку проверки у каждого тура', async () => {
+      const waitingPublish = await addTour(OP, 'Список: ждёт публикации');
+      await change(waitingPublish, OP, { is_published: true });
+      const waitingEdit = await addTour(OP, 'Список: ждёт правка', { published: true });
+      await change(waitingEdit, OP, { base_price: 777 });
+      const calm = await addTour(OP, 'Список: спокойный', { published: true });
+      const { GET } = await import('@/app/api/hub/operator/tours/route');
+      const res = await GET(new NextRequest('http://localhost/api/hub/operator/tours?limit=100&offset=0'));
+      const body = await res.json() as { success: boolean; data: Array<{ id: string | number; review: string | null; base_price: string }> };
+      expect(res.status).toBe(200);
+      const byId = new Map(body.data.map((t) => [String(t.id), t]));
+      expect(byId.get(waitingPublish)?.review).toBe('pending_publish');
+      expect(byId.get(waitingEdit)?.review).toBe('pending_edit');
+      expect(byId.get(calm)?.review).toBeNull();
+      // Список показывает витрину: цена — прежняя, пока правку не одобрили.
+      expect(Number(byId.get(waitingEdit)?.base_price)).toBe(10000);
+    });
+
     it('чек-лист готовности называет, сколько туров и правок ждёт проверки', async () => {
       const { readPartnerReadiness } = await import('@/lib/partners/readiness-store');
       const mine = await readPartnerReadiness({ partnerId: OP, category: 'operator', viewer: 'owner' });
