@@ -132,9 +132,25 @@ function assignedOrListed(before: string): boolean {
   return /(?:\bSET|,)\s*(?:\$\{[^}]*\})?\s*$/i.test(before);
 }
 
+/**
+ * Запись, равнозначная для базы, приводится к одной (четвёртая находка ревью
+ * #3780): кавычки вокруг имён (`"p".is_public`) и лишние скобки вокруг самого
+ * флага (`COALESCE((p.is_public), FALSE)`, `((is_public))`). Скобки вызова
+ * функции — `bool_or(p.is_public)` — не трогаются.
+ */
+function normalizeSql(text: string): string {
+  let t = text.replace(/"([a-z_][a-z0-9_]*)"/gi, '$1');
+  const redundant = new RegExp(String.raw`(?<![a-z0-9_])\(\s*(${FLAG})\s*\)`, 'gi');
+  for (let prev = ''; prev !== t;) {
+    prev = t;
+    t = t.replace(redundant, ' $1 ');
+  }
+  return t;
+}
+
 /** Позиции флага, стоящего в условии «опубликовано», набранном руками. */
 function rawPublicHits(src: string): Set<number> {
-  const text = code(src);
+  const text = normalizeSql(code(src));
   const hits = new Set<number>();
   const flagPos = (m: RegExpMatchArray) => (m.index ?? 0) + m[0].toLowerCase().indexOf('is_public');
 
@@ -198,6 +214,13 @@ describe('условие по флагу витрины: какие написа
     ['WHERE p.is_public::int = 1'],
     ['HAVING bool_or(p.is_public)'],
     ['COUNT(*) FILTER (WHERE p.is_public)'],
+    // четвёртая находка ревью #3780: лишние скобки и кавычки вокруг имён
+    ['WHERE COALESCE((p.is_public), FALSE)'],
+    ['AND COALESCE((p.is_public), FALSE) = TRUE'],
+    ['WHERE ((p.is_public))'],
+    ['WHERE ((p.is_public)) = TRUE'],
+    ['AND "p".is_public'],
+    ['WHERE "p"."is_public" = TRUE'],
   ])('ловит: %s', (sql) => {
     expect(rawPublicCount(`const q = \`SELECT 1 FROM partners p ${sql}\`;`)).toBeGreaterThanOrEqual(1);
   });
@@ -218,6 +241,8 @@ describe('условие по флагу витрины: какие написа
     ['WHERE p.is_public IS DISTINCT FROM TRUE'],
     ['WHERE NOT p.is_public'],
     ['WHERE NOT (p.is_public)'],
+    ['WHERE NOT ((p.is_public))'],
+    ['WHERE (p.is_public) = FALSE'],
     ['WHERE FALSE = p.is_public'],
     ['WHERE p.is_public IS NULL'],
   ])('не считает условием витрины: %s', (sql) => {
@@ -267,22 +292,102 @@ const KNOWN_RAW: Record<string, { n: number; why: string }> = {
  * условие (`publicPartnerSql`, у гидов — `publicGuideWhere`). Число вызовов не
  * убывает: убрал отбор — убери запись и объясни в PR, чем он заменён.
  */
-const STOREFRONT_READERS: Record<string, { n: number; what: string }> = {
-  'app/api/partners/route.ts': { n: 1, what: 'публичный список партнёров /api/partners' },
+/** Границы шаблонных строк в коде, включая вложенные во вставки `${…}`. */
+function templateSpans(text: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  const stack: Array<{ kind: 'tpl'; start: number } | { kind: 'expr'; depth: number }> = [];
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    const top = stack[stack.length - 1];
+    if (top && top.kind === 'tpl') {
+      if (ch === '\\') { i += 2; continue; }
+      if (ch === '`') { spans.push([top.start, i]); stack.pop(); i += 1; continue; }
+      if (ch === '$' && text[i + 1] === '{') { stack.push({ kind: 'expr', depth: 0 }); i += 2; continue; }
+      i += 1;
+      continue;
+    }
+    if (ch === '`') { stack.push({ kind: 'tpl', start: i }); i += 1; continue; }
+    if (ch === "'" || ch === '"') {
+      i += 1;
+      while (i < text.length && text[i] !== ch && text[i] !== '\n') { if (text[i] === '\\') i += 1; i += 1; }
+      i += 1;
+      continue;
+    }
+    if (top && top.kind === 'expr') {
+      if (ch === '{') top.depth += 1;
+      else if (ch === '}') { if (top.depth === 0) stack.pop(); else top.depth -= 1; }
+    }
+    i += 1;
+  }
+  return spans;
+}
+
+/** Условие витрины партнёра в запросе: само условие, условие гида или сборка условий списка компаний. */
+const PARTNER_GATE = /\b(?:publicPartnerSql|publicGuideWhere|listedPartner)\(/g;
+/** Шлюз туров и обёртка представления: отсекают тестовый профиль у чтений «тур и его оператор». */
+const TOUR_GATE = /\b(?:publicTourSql|routeMarketplaceSql)\(|\$\{LIVE\}/g;
+
+/**
+ * Чтения `partners` в файле и несёт ли каждое условие витрины в своём запросе.
+ * Запрос — самая внешняя шаблонная строка вокруг чтения (условие могло стоять
+ * в соседней вставке); у обычной строки — её строка кода.
+ *
+ * Условий в запросе должно хватать на каждое чтение. `FROM partners` — чтение
+ * самих карточек: ему нужно условие партнёра. `JOIN partners` — оператор к
+ * туру: годится и шлюз туров. Подзапрос к `partners` внутри запроса, где
+ * условие стоит у другого чтения, остаётся чтением без условия.
+ */
+function partnerReads(src: string): Array<{ line: number; gated: boolean }> {
+  const text = code(src);
+  const spans = templateSpans(text);
+  const byQuery = new Map<string, { query: string; from: number[]; join: number[] }>();
+  for (const m of text.matchAll(/\b(?:FROM|JOIN)\s+partners\b/gi)) {
+    const at = m.index ?? 0;
+    const around = spans.filter(([a, b]) => a <= at && at <= b).sort((x, y) => (y[1] - y[0]) - (x[1] - x[0]))[0];
+    const lineStart = text.lastIndexOf('\n', at) + 1;
+    const lineEnd = text.indexOf('\n', at);
+    const [from, to] = around ? [around[0], around[1] + 1] : [lineStart, lineEnd < 0 ? text.length : lineEnd];
+    const key = `${from}:${to}`;
+    const entry = byQuery.get(key) ?? { query: text.slice(from, to), from: [], join: [] };
+    const line = text.slice(0, at).split('\n').length;
+    (/^FROM/i.test(m[0]) ? entry.from : entry.join).push(line);
+    byQuery.set(key, entry);
+  }
+  const out: Array<{ line: number; gated: boolean }> = [];
+  for (const { query, from, join } of byQuery.values()) {
+    const partnerGates = (query.match(PARTNER_GATE) ?? []).length;
+    const tourGates = (query.match(TOUR_GATE) ?? []).length;
+    from.forEach((line, i) => out.push({ line, gated: i < partnerGates }));
+    const forJoins = tourGates + Math.max(0, partnerGates - from.length);
+    join.forEach((line, i) => out.push({ line, gated: i < forJoins }));
+  }
+  return out.sort((a, b) => a.line - b.line);
+}
+
+/**
+ * `ungated` — чтения `partners` в файле, у которых в ТОМ ЖЕ запросе нет
+ * условия витрины, и почему это так: условие приходит переменной либо
+ * запрос — не витрина. Число записано точно: новый запрос к `partners` без
+ * условия в самом запросе — красный, пока автор не поставит условие или не
+ * назовёт причину здесь.
+ */
+const STOREFRONT_READERS: Record<string, { n: number; what: string; ungated?: { n: number; why: string } }> = {
+  'app/api/partners/route.ts': { n: 1, what: 'публичный список партнёров /api/partners', ungated: { n: 2, why: 'список и счёт берут условие из whereConditions — первым в нём стоит publicPartnerSql' } },
   'app/operators/[slug]/page.tsx': { n: 1, what: 'страница компании и короткий адрес' },
   'app/api/operators/[slug]/route.ts': { n: 1, what: 'карточка компании по слагу' },
-  'lib/operators/list-query.ts': { n: 1, what: 'список /operators, /api/operators, ссылки в Telegram' },
+  'lib/operators/list-query.ts': { n: 1, what: 'список /operators, /api/operators, ссылки в Telegram', ungated: { n: 4, why: 'выдача, счёт и ссылки берут условие из where — его собирает listedPartner, где стоит publicPartnerSql' } },
   'lib/seo/partner-sitemap.ts': { n: 1, what: 'sitemap страниц компаний и гидов' },
   'lib/seo/sitemap-entries.ts': { n: 3, what: 'sitemap перевозчиков, прокатчиков и счёт гидов' },
   'lib/guides/visibility.ts': { n: 1, what: 'реестр гидов /guides и профиль /guides/[id]' },
   'lib/transfers/charter.ts': { n: 2, what: 'список перевозчиков и страница /transfers/[slug]' },
-  'lib/transfers/carrier-reviews.ts': { n: 1, what: 'отзывы перевозчика' },
+  'lib/transfers/carrier-reviews.ts': { n: 1, what: 'отзывы перевозчика', ungated: { n: 3, why: 'не витрина: выдача ссылки на отзыв по заявке и список отзывов для администратора' } },
   'lib/rental/rental.ts': { n: 2, what: 'список прокатчиков и страница /car-rental/[slug]' },
   'app/llms.txt/route.ts': { n: 1, what: 'llms.txt — перевозчики' },
-  'app/api/tours-feed/route.ts': { n: 1, what: 'фид туров для площадок' },
+  'app/api/tours-feed/route.ts': { n: 1, what: 'фид туров для площадок', ungated: { n: 1, why: 'условие стоит в массиве conditions: publicTourSql и publicPartnerSql' } },
   'app/api/planner/partners/route.ts': { n: 1, what: 'планер — операторы под интересы' },
   'lib/planner/data.ts': { n: 3, what: 'планер — туры операторов' },
-  'lib/planner/day-options-query.ts': { n: 1, what: 'планер — варианты дня' },
+  'lib/planner/day-options-query.ts': { n: 1, what: 'планер — варианты дня', ungated: { n: 1, why: 'SELECT — общая константа; условие дописывается в том же запросе ниже' } },
   'lib/partner-sites/load.ts': { n: 1, what: 'сайт партнёра' },
   'lib/octo/service.ts': { n: 2, what: 'OCTO — поставщики для площадок' },
   'lib/notifications/telegram-channel.ts': { n: 1, what: 'пост о компании в канал' },
@@ -334,6 +439,46 @@ describe('читатели витрины партнёров зовут усло
     // Определение условия в его собственном файле вызовом не считается.
     const own = file === 'lib/guides/visibility.ts' ? 1 : 0;
     expect(calls - own, `${file} — ${what}: отбор без условия витрины`).toBeGreaterThanOrEqual(n);
+  });
+
+  /**
+   * Встречная проверка уровня запроса (четвёртая находка ревью #3780): мало,
+   * что файл зовёт условие где-то — каждый запрос к `partners` должен нести
+   * его сам. Условием считается и шлюз туров: он отсекает тестовый профиль у
+   * чтений «тур + его оператор».
+   */
+  it.each(Object.entries(STOREFRONT_READERS))('%s: каждый запрос к partners несёт условие', (file, { ungated }) => {
+    const reads = partnerReads(readFileSync(join(ROOT, file), 'utf-8'));
+    const without = reads.filter((r) => !r.gated);
+    expect(
+      without.length,
+      `${file}: запрос к partners без условия витрины в самом запросе — строки ${without.map((r) => r.line).join(', ')} `
+      + '(номера — по коду без комментариев). Поставьте publicPartnerSql в запрос или назовите причину в ungated.',
+    ).toBe(ungated?.n ?? 0);
+  });
+
+  it('разбор запросов видит чтения: у читателей они есть', () => {
+    const total = Object.keys(STOREFRONT_READERS)
+      .reduce((n, file) => n + partnerReads(readFileSync(join(ROOT, file), 'utf-8')).length, 0);
+    expect(total).toBeGreaterThanOrEqual(30);
+  });
+
+  it('разбор запросов: условие в соседней вставке того же запроса засчитывается, в чужом запросе — нет', () => {
+    const gatedSrc = "const a = `SELECT 1 FROM partners p WHERE ${publicPartnerSql('p')} AND ${flag ? `p.slug = $1` : 'TRUE'}`;";
+    expect(partnerReads(gatedSrc).map((r) => r.gated)).toEqual([true]);
+    const twoQueries = "const a = `SELECT 1 FROM partners p WHERE ${publicPartnerSql('p')}`;\n"
+      + "const b = `SELECT 2 FROM partners p WHERE p.slug = $1`;";
+    expect(partnerReads(twoQueries).map((r) => r.gated)).toEqual([true, false]);
+    const plainString = "const c = 'SELECT contact FROM partners WHERE id = $1';";
+    expect(partnerReads(plainString).map((r) => r.gated)).toEqual([false]);
+    // Подзапрос к partners внутри запроса с одним условием: второе чтение — без условия.
+    const subquery = "const d = `SELECT 1 FROM partners p WHERE ${publicPartnerSql('p')} AND p.id IN (SELECT q.id FROM partners q)`;";
+    expect(partnerReads(subquery).map((r) => r.gated)).toEqual([true, false]);
+    // Шлюз туров годится оператору при туре, но не чтению самих карточек.
+    const tourJoin = "const e = `SELECT 1 FROM operator_tours ot JOIN partners p ON p.id = ot.operator_id WHERE ${publicTourSql('ot')}`;";
+    expect(partnerReads(tourJoin).map((r) => r.gated)).toEqual([true]);
+    const cardsByTourGate = "const f = `SELECT 1 FROM partners p WHERE EXISTS (SELECT 1 FROM operator_tours ot WHERE ${publicTourSql('ot')})`;";
+    expect(partnerReads(cardsByTourGate).map((r) => r.gated)).toEqual([false]);
   });
 
   it('читатель не числится и витриной, и исключением', () => {
