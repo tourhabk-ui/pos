@@ -14,7 +14,7 @@
  * Код unassigned событием не бывает.
  */
 import { ACC_META, type AccColor } from '@/lib/services/safety/kvert-vona';
-import type { SeismicEvent } from '@/lib/services/safety/seismic-parser';
+import { volcanoesNamedIn, type SeismicEvent } from '@/lib/services/safety/seismic-parser';
 
 const COLOR: ReadonlySet<string> = new Set(['green', 'yellow', 'orange', 'red', 'unassigned']);
 
@@ -31,6 +31,30 @@ export function aviationColorChanged(prev: AccColor | null, next: AccColor): boo
   if (prev === next) return false;
   if (prev === null && next === 'green') return false;
   return true;
+}
+
+/**
+ * Зоны края для вулкана — из той же карты «вулкан → зона», по которой
+ * размечаются сводки КБГС и МЧС (`volcanoesNamedIn`).
+ *
+ * До 23.11 событие писалось с пустыми зонами. Следствий было два, и оба
+ * неверны: зона самого вулкана тревогу не получала (оценка зон и обстановка
+ * по выезду отбирают по зоне), а проверка дат считала её «предупреждением с
+ * неустановленным местом» и ставила «не проверено» каждому туру края на
+ * пять суток — из-за кода у вулкана в четырёхстах километрах.
+ *
+ * Вулкан, которого в карте нет, остаётся без зоны: выдумывать её нельзя.
+ * Такое событие названо в итоге синка (`alerts_unzoned`).
+ */
+export function kvertVolcanoZones(volcanoName: string): string[] {
+  const zones = new Set<string>();
+  for (const v of volcanoesNamedIn(volcanoName)) for (const z of v.zones) zones.add(z);
+  return [...zones];
+}
+
+/** Общее начало `external_id` у событий одного вулкана. */
+export function kvertAlertIdPrefix(slug: string): string {
+  return `kvert-acc/${slug}/`;
 }
 
 const SEVERITY: Record<Exclude<AccColor, 'unassigned'>, 0 | 1 | 2 | 3> = {
@@ -71,14 +95,14 @@ export function buildKvertColorAlert(opts: {
   const elevated = opts.next === 'orange' || opts.next === 'red';
 
   return {
-    source_id: `kvert-acc/${opts.slug}/${opts.next}/${day}`,
+    source_id: `${kvertAlertIdPrefix(opts.slug)}${opts.next}/${day}`,
     source_url: opts.sourceUrl || 'http://kvert.febras.net/van/index.php?type=3&lend=en',
     published_at: publishedAt,
     alert_type: elevated ? 'ash_cloud' : 'info',
     severity: SEVERITY[opts.next],
     title,
     description: lines.join(' '),
-    affected_zones: [],
+    affected_zones: kvertVolcanoZones(opts.volcanoName),
     volcano_name: opts.volcanoName,
     volcano_scope: 'named',
     ash_height_m: opts.ashHeightM ?? undefined,

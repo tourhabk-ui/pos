@@ -666,4 +666,44 @@ withPg('дедуп external_alerts на настоящем PostgreSQL', () => {
       await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 'mig1467/%'`);
     });
   });
+  /**
+   * KVERT: смена кода гасит прежнее событие того же вулкана (23.11). Без этого
+   * после «красный → зелёный» строка «красный код» жила в ленте ещё до пяти
+   * суток. Сравнение — по началу external_id, а не LIKE: подчёркивание в имени
+   * вулкана для LIKE подстановочный знак.
+   */
+  describe('KVERT: прежнее событие о коде вулкана гасится', () => {
+    it('гасит только события этого вулкана и не трогает новое', async () => {
+      const { retractPreviousColorAlerts } = await import('@/lib/agents/kvert-sync');
+      const live = async () => (await pool.query<{ external_id: string }>(
+        `SELECT external_id FROM external_alerts
+          WHERE external_id LIKE 'kvert-acc/%' AND expires_at > (NOW() AT TIME ZONE 'UTC')
+          ORDER BY external_id`,
+      )).rows.map((r) => r.external_id);
+      await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 'kvert-acc/%'`);
+
+      const ev = (source_id: string, over: Partial<SeismicEvent> = {}) => sampleEvent({
+        source_id, source_url: 'http://kvert.febras.net/van/', alert_type: 'ash_cloud', severity: 2,
+        title: `KVERT ${source_id}`, description: `код ${source_id}`, affected_zones: ['northern'], expires_hours: 120, ...over,
+      });
+      await parser.saveEvent(ev('kvert-acc/malyi_semyachik/orange/2026-11-20'));
+      // Соседи: другой вулкан и имя, отличающееся там, где у первого подчёркивание.
+      await parser.saveEvent(ev('kvert-acc/sheveluch/orange/2026-11-20'));
+      await parser.saveEvent(ev('kvert-acc/malyiXsemyachik/orange/2026-11-20'));
+      const green = 'kvert-acc/malyi_semyachik/green/2026-11-23';
+      await parser.saveEvent(ev(green, { alert_type: 'info', severity: 0, expires_hours: 72 }));
+      expect(await live()).toHaveLength(4);
+
+      const retracted = await retractPreviousColorAlerts('malyi_semyachik', green);
+      expect(retracted).toBe(1);
+      expect(await live()).toEqual([
+        'kvert-acc/malyiXsemyachik/orange/2026-11-20',
+        green,
+        'kvert-acc/sheveluch/orange/2026-11-20',
+      ].sort());
+      // Повтор ничего не меняет.
+      expect(await retractPreviousColorAlerts('malyi_semyachik', green)).toBe(0);
+      await pool.query(`DELETE FROM external_alerts WHERE external_id LIKE 'kvert-acc/%'`);
+    });
+  });
 });

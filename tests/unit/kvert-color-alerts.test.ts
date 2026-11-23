@@ -3,7 +3,10 @@ import {
   aviationColorChanged,
   buildKvertColorAlert,
   isAccColor,
+  kvertVolcanoZones,
 } from '@/lib/services/safety/kvert-color-alerts';
+import { alertPlaceKnown, unplacedAlertsOn } from '@/lib/trips/date-check';
+import type { OfficialAlert } from '@/lib/agents/evo/rescue-judge';
 
 describe('isAccColor', () => {
   it('принимает коды KVERT и отвергает пустое и чужое', () => {
@@ -63,5 +66,47 @@ describe('buildKvertColorAlert', () => {
   it('первый зелёный и отсутствие смены — null', () => {
     expect(buildKvertColorAlert({ ...base, prev: null, next: 'green' })).toBeNull();
     expect(buildKvertColorAlert({ ...base, prev: 'yellow', next: 'yellow' })).toBeNull();
+  });
+});
+
+/**
+ * Аудит 23.11: событие о смене кода писалось с пустыми зонами. Зона самого
+ * вулкана тревогу не получала, а проверка дат считала её «предупреждением с
+ * неустановленным местом» и ставила «не проверено» каждому туру края на пять
+ * суток — из-за кода у вулкана в четырёхстах километрах.
+ */
+describe('событие о коде KVERT несёт зону вулкана', () => {
+  const base = {
+    slug: 'sheveluch', sourceUrl: null, observedAt: new Date(), summary: null, ashHeightM: null,
+    prev: 'yellow' as const, next: 'orange' as const,
+  };
+
+  it('зона — из общей карты «вулкан → зона»', () => {
+    expect(kvertVolcanoZones('Шивелуч')).toEqual(['northern']);
+    expect(kvertVolcanoZones('Ключевской')).toEqual(['northern']);
+    expect(kvertVolcanoZones('Карымский')).toEqual(['eastern']);
+    expect(kvertVolcanoZones('Авачинский')).toEqual(['avachinsky']);
+    expect(kvertVolcanoZones('Жупановский').sort()).toEqual(['avachinsky', 'eastern']);
+    // Северные Курилы — своя метка, ни с одной зоной края не совпадает.
+    expect(kvertVolcanoZones('Эбеко')).toEqual(['kuril_north']);
+  });
+
+  it('вулкана нет в карте — зоны нет, она не выдумывается', () => {
+    expect(kvertVolcanoZones('Кизимен')).toEqual([]);
+    expect(buildKvertColorAlert({ ...base, volcanoName: 'Кизимен' })!.affected_zones).toEqual([]);
+  });
+
+  it('оранжевый код Шивелуча для проверки дат — тревога с известным местом, а не «место не установлено»', () => {
+    const ev = buildKvertColorAlert({ ...base, volcanoName: 'Шивелуч' })!;
+    expect(ev.affected_zones).toEqual(['northern']);
+    const asOfficial: OfficialAlert = {
+      id: 1, alert_type: ev.alert_type, severity: ev.severity, title: ev.title, description: ev.description,
+      affected_zones: ev.affected_zones, expires_at: new Date(Date.now() + 86_400_000).toISOString(), source_url: ev.source_url,
+    };
+    expect(alertPlaceKnown(asOfficial)).toBe(true);
+    const today = new Date().toISOString().slice(0, 10);
+    expect(unplacedAlertsOn([asOfficial], today)).toEqual([]);
+    // То же событие без зон (как писалось до 23.11) — «место не установлено».
+    expect(alertPlaceKnown({ ...asOfficial, affected_zones: [] })).toBe(false);
   });
 });

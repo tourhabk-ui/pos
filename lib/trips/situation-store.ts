@@ -17,6 +17,7 @@ import { pool } from '@/lib/db-pool';
 import { fetchForecastDays, type ForecastResult } from '@/lib/planner/intelligence';
 import { judgeForecastDay, matchOfficialAlerts, type OfficialAlert } from '@/lib/agents/evo/rescue-judge';
 import { ZONE_NAMES, zoneName } from '@/lib/safety/zone-names';
+import { ZONE_IDS } from '@/lib/planner/constants';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { TOUR_SITE_COLUMNS_SQL, TOUR_SITE_JOINS_SQL } from '@/lib/trips/tour-site-sql';
 import {
@@ -164,6 +165,14 @@ export function liveSources(): SituationSources {
 /** Оценивается четыре зоны модели опасности; прочие метки (охват по координатам) — нет. */
 export const isAssessedZone = (z: string | null): z is string => z !== null && Object.prototype.hasOwnProperty.call(ZONE_NAMES, z);
 
+/**
+ * Зоны, которые оценивает агент опасности (`ZONES` в danger-analyst-agency).
+ * Сам модуль агентства сюда не импортируется — он тянет модель; равенство
+ * списков держит tests/unit/trip-situation.test.ts.
+ */
+export const DANGER_ASSESSED_ZONES: readonly string[] = ZONE_IDS;
+export const isDangerAssessedZone = (z: string): boolean => DANGER_ASSESSED_ZONES.includes(z);
+
 /** Обстановка одного выезда по источникам прогона. */
 export async function situationFor(tour: DepartingTour, src: SituationSources): Promise<Situation> {
   let weather = null;
@@ -185,7 +194,14 @@ export async function situationFor(tour: DepartingTour, src: SituationSources): 
     officials = [...new Map(m.matches.map((x) => [x.alert.id, x.alert])).values()];
     unassessed = m.unassessed.length > 0;
   }
-  const zoneDanger = isAssessedZone(tour.zone) ? await src.zone(tour.zone) : null;
+  // Зона, которую агент опасности оценивает, без строки оценки — это «не
+  // знаем», а не «спокойно» (23.11). Южную зону агент не оценивает вовсе: для
+  // неё отсутствие строки — норма, как и раньше.
+  let zoneDanger: Awaited<ReturnType<SituationSources['zone']>> | 'absent' = null;
+  if (isAssessedZone(tour.zone)) {
+    const z = await src.zone(tour.zone);
+    zoneDanger = z === null && isDangerAssessedZone(tour.zone) ? 'absent' : z;
+  }
   return judgeSituation({ weather, officials, officialsUnassessed: unassessed, zoneDanger });
 }
 
