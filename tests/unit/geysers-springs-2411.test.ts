@@ -59,6 +59,7 @@ describe('хаб /articles/goryachie-istochniki: Налычево и Карым�
     expect(sql).toMatch(/\/park\/nalychevo/);
     expect(sql).toMatch(/https:\/\/idilesom\.com\/kam\/places\/1519/);
     expect(sql).toMatch(/NOT LIKE '%Что такое Карымшинские источники\?%'/);
+    expect((sql.match(/replace\(/g) || []).length).toBe(4);
     // В новом разделе и FAQ нет цен — старую фразу с 12 000 ₽ как раз убираем.
     const added = sql.split('$new_sec$')[1]?.split('$new_sec$')[0] ?? '';
     const faq = sql.split('$new_faq$')[1]?.split('$new_faq$')[0] ?? '';

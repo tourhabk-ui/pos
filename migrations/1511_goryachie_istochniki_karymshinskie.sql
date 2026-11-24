@@ -5,7 +5,7 @@
 -- Created: 2026-11-24
 
 UPDATE articles
-   SET body = replace(replace(replace(body,
+   SET body = replace(replace(replace(replace(body,
                 $old_sec$Карымшинские источники — дикие; оператор возит к ним на вездеходе по бездорожью долины реки Карымшиной, тур стоит от 12 000 ₽ [5][11].
 
 ## Что такое Зеленовские озерки?$old_sec$,
