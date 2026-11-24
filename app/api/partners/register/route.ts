@@ -15,12 +15,14 @@ import { query } from '@/lib/database';
 import { hashPassword, passwordSchema } from '@/lib/auth/password';
 import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
 import { initialPartnerRating } from '@/lib/partners/categories';
-import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { OWNER_DECISIONS } from '@/lib/legal/offer';
 
 // Валидация входных данных
 const registerSchema = z.object({
   // Тип бизнеса
-  businessType: z.enum(['individual', 'ip', 'ooo', 'other']),
+  // Самозанятый — сторона оферты (слово владельца 24.11); у него ИНН из 12
+  // цифр и нет ОГРН — схема ниже это уже пропускала.
+  businessType: z.enum(['individual', 'self_employed', 'ip', 'ooo', 'other']),
 
   // Юридические данные
   companyName: z.string().min(2, 'Наименование должно быть минимум 2 символа'),
@@ -57,10 +59,10 @@ const registerSchema = z.object({
   agreePersonalData: z.literal(true, { message: 'Необходимо согласие на обработку персональных данных' }),
   agreeUserAgreement: z.literal(true, { message: 'Необходимо согласие с пользовательским соглашением' }),
   agreeOffer: z.literal(true, { message: 'Необходимо согласие с офертой' }),
-  // Пока платформа платежи не принимает (05.10), комиссии нет — и согласия на неё не требуем.
-  agreeCommission: platformAcceptsPayments()
-    ? z.literal(true, { message: 'Необходимо согласие с условиями комиссии 10%' })
-    : z.boolean().optional(),
+  // Слово владельца 24.11: «До апреля 2027 комиссии нет». Согласия с комиссией
+  // не требуем и ставку не называем: ставки, с которой можно согласиться, нет.
+  // Поле принимается ради прежних клиентов формы и ни на что не влияет.
+  agreeCommission: z.boolean().optional(),
   agreeNotifications: z.boolean().optional(),
 
   // Пароль
@@ -175,7 +177,11 @@ export async function POST(request: NextRequest) {
       personalData: { agreed: true, timestamp: now, ip },
       userAgreement: { agreed: true, timestamp: now },
       offer: { agreed: true, timestamp: now },
-      commission: { agreed: true, rate: 10, timestamp: now },
+      // Раньше сюда всегда, что бы ни прислала форма, писалось «согласен, ставка
+      // десять процентов»: запись о согласии, которого никто не давал, со
+      // ставкой, которой нет в оферте. Теперь записано условие, действующее
+      // на день регистрации.
+      commission: { terms: OWNER_DECISIONS.noCommission, timestamp: now },
       notifications: { agreed: data.agreeNotifications || false, timestamp: now },
     };
 

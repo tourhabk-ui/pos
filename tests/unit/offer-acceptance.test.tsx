@@ -40,7 +40,7 @@ import JoinClient from '@/app/operators/join/_JoinClient';
 import OfferPage from '@/app/legal/offer/page';
 import { OfferAcceptCheckbox } from '@/components/legal/OfferAcceptCheckbox';
 import {
-  LEGAL_PENDING, OFFER_EDITION, OFFER_REQUIRED_TEXT, OFFER_ROLES, OFFER_URL, OFFER_VERSION,
+  LEGAL_PENDING, OFFER_EDITION, OFFER_REQUIRED_TEXT, OFFER_ROLES, OFFER_URL, OFFER_VERSION, OWNER_DECISIONS,
   isOfferRole, offerRequiredFor,
 } from '@/lib/legal/offer';
 import { REQUEST_RECEIVING_CATEGORIES } from '@/lib/partners/categories';
@@ -106,6 +106,23 @@ describe('версия оферты привязана к её тексту', ()
       expect(text).not.toMatch(/\d/);
       expect(text).not.toMatch(/комисси|тариф|бесплатн|выплат|налог|чек|НПД/i);
     }
+    // Самозанятые из «нерешённого» ушли: вопрос решён владельцем 24.11.
+    expect(Object.keys(LEGAL_PENDING)).toEqual(['dataAgreement']);
+  });
+
+  it('решения владельца 24.11 сказаны его словами: ставки, налогов и новых сроков сверх них нет', () => {
+    expect(OWNER_DECISIONS.noCommission).toBe('До апреля 2027 года комиссии нет.');
+    // О самозанятых — решение и то, что в тексте оферты оно ещё не записано.
+    expect(OWNER_DECISIONS.selfEmployed).toContain('стороной оферты может быть и самозанятый');
+    expect(OWNER_DECISIONS.selfEmployed).toContain('В тексте оферты это пока не записано');
+    for (const text of Object.values(OWNER_DECISIONS)) {
+      expect(text).not.toMatch(/%|процент|ставк|тариф|выплат|налог|чек|НПД|ждёт решения/i);
+    }
+    // Экран не говорит о самозанятых больше, чем текст оферты по ссылке рядом:
+    // пока редакция называет Партнёром юрлицо или ИП, пометка это называет.
+    const offer = readFileSync(join(process.cwd(), 'app/legal/offer/page.tsx'), 'utf8');
+    const namesSelfEmployed = /самозанят/i.test(offer);
+    expect(namesSelfEmployed, 'оферта заговорила о самозанятых — пометку «в тексте оферты пока не записано» пора снять').toBe(false);
   });
 });
 

@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
+import { OWNER_DECISIONS } from '@/lib/legal/offer';
 import { SUPPORT } from '@/lib/help/content';
 import {
   Package, Calendar, DollarSign, BarChart3, Globe, Bell,
@@ -104,6 +105,7 @@ export default function OperatorHelpClient() {
         'Выплата после разблокировки — 3 рабочих дня',
       ] : [
         'Ведар сейчас платежи не принимает и комиссию не берёт',
+        OWNER_DECISIONS.noCommission,
         'Турист платит вам напрямую — реквизиты сообщаете ему вы',
       ],
     },

@@ -45,8 +45,8 @@ const Schema = z.object({
   phone:       z.string().min(10, 'Укажите телефон').max(32),
   email:       z.string().email('Неверный формат email'),
   description: z.string().max(2000).optional().default(''),
-  /** Физлицо / ИП / ООО — влияет только на то, что видит администратор. */
-  businessType: z.enum(['individual', 'ip', 'ooo', 'other']).default('individual'),
+  /** Физлицо / самозанятый / ИП / ООО — влияет только на то, что видит администратор. */
+  businessType: z.enum(['individual', 'self_employed', 'ip', 'ooo', 'other']).default('individual'),
 });
 
 const PASSWORD_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';

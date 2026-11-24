@@ -20,7 +20,7 @@ import {
   type CardFacts, type ContentFacts, type ItemKey, type PartnerReadiness, type ReadinessCategory, type ReadinessFacts,
 } from '@/lib/partners/readiness';
 import { REQUEST_RECEIVING_CATEGORIES } from '@/lib/partners/categories';
-import { LEGAL_PENDING, OFFER_VERSION } from '@/lib/legal/offer';
+import { LEGAL_PENDING, OFFER_VERSION, OWNER_DECISIONS } from '@/lib/legal/offer';
 import { PartnerReadinessCard } from '@/components/hub/PartnerReadinessCard';
 
 vi.mock('next/navigation', () => ({
@@ -279,12 +279,19 @@ describe('правило готовности', () => {
       for (const r of everything()) expect(item(r, 'offer')?.required).toBe(false);
     });
 
-    it('самозанятые и соглашение по данным — только пометка ожидания, без условий', () => {
-      // Гиду (роль, где самозанятые встречаются чаще) сказано прямо, что вопрос не решён.
+    it('самозанятым названо решение владельца; соглашение по данным — только пометка ожидания, без условий', () => {
+      // Гиду (роль, где самозанятые встречаются чаще) сказано решение владельца 24.11 —
+      // и то, что в тексте оферты оно ещё не записано. «Ждёт решения» больше не говорится.
       for (const offer of [null, OFFER_OK, OFFER_OLD] as const) {
-        expect(item(buildReadiness(facts('guide', { offer })), 'offer')?.detail).toContain(LEGAL_PENDING.selfEmployed);
+        const detail = item(buildReadiness(facts('guide', { offer })), 'offer')?.detail ?? '';
+        expect(detail).toContain(OWNER_DECISIONS.selfEmployed);
+        expect(detail).not.toContain('ждёт решения');
         expect(item(buildReadiness(facts('operator', { offer })), 'offer')?.detail).not.toContain('самозанят');
       }
+      expect(OWNER_DECISIONS.selfEmployed).toBe(
+        'По решению владельца платформы стороной оферты может быть и самозанятый. В тексте оферты это пока не записано: она называет Партнёром юридическое лицо или ИП.',
+      );
+      expect(Object.keys(LEGAL_PENDING)).toEqual(['dataAgreement']);
       for (const r of everything()) {
         const dpa = item(r, 'data_agreement');
         expect(dpa).toEqual({
@@ -301,10 +308,10 @@ describe('правило готовности', () => {
     it('ни в одном исходе нет обещаний: выплат, сроков, тарифов, комиссии', () => {
       const banned = /выплат|комисси|бесплатн|тариф|месяц|рубл|₽|процент|%|гарант|договор|самозанят/i;
       for (const r of everything()) {
-        // Самозанятые названы в одном месте — в пометке «ждёт решения» (тест выше);
+        // Самозанятые названы в одном месте — в пометке о решении владельца (тест выше);
         // сверх неё этого слова в чек-листе быть не должно.
         const text = [r.headline, ...r.items.flatMap((i) => [i.title, i.detail])].join(' ')
-          .split(LEGAL_PENDING.selfEmployed).join('');
+          .split(OWNER_DECISIONS.selfEmployed).join('');
         expect(text).not.toMatch(banned);
       }
     });
