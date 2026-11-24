@@ -20,7 +20,7 @@ import { metaDescription } from '@/lib/seo/meta-description';
 import { isArticleIndexable, NOINDEX_FOLLOW } from '@/lib/articles/noindex';
 import { BreadcrumbJsonLd, JsonLd } from '@/components/seo/JsonLd';
 import { RecordModified } from '@/components/seo/RecordModified';
-import { webPageModifiedJsonLd } from '@/lib/seo/record-modified';
+import { formatRecordDate, recordDateIso, webPageModifiedJsonLd } from '@/lib/seo/record-modified';
 import { brandedTitle } from '@/lib/seo/title-fit';
 import { parseArticleMarkdown, faqFromBlocks } from '@/lib/articles/markdown';
 import { articleJsonLd } from '@/lib/articles/article-jsonld';
@@ -137,6 +137,12 @@ export default async function ArticlePage({ params }: Props) {
           <h1 className="ds-h1 mb-6" style={{ fontFamily: 'var(--font-playfair)' }}>
             {article.title}
           </h1>
+          {article.slug === 'goryachie-istochniki' && formatRecordDate(article.rewrittenAt) && (
+            <p className="text-xs text-[var(--text-muted)] mb-4" data-record-modified="">
+              Редакция Vedar · факты проверены{' '}
+              <time dateTime={recordDateIso(article.rewrittenAt) ?? undefined}>{formatRecordDate(article.rewrittenAt)}</time>
+            </p>
+          )}
 
           {blocks ? (
             <ArticleMarkdown blocks={blocks} />
