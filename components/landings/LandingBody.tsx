@@ -63,7 +63,7 @@ export function LandingBody({ blocks, ids, callouts, figures, afterLead, beforeS
         if (!leadDone && isLeadBlock(b)) {
           leadDone = true;
           out.push(
-            <div key={k} className="landing-lead" aria-label="Краткий ответ" data-landing-lead="">
+            <div key={k} className="landing-lead" aria-label="Краткий ответ" data-landing-lead="" data-lead-answer="">
               <p className="text-[var(--text-primary)] leading-relaxed">{ri(b.c, k)}</p>
             </div>,
           );

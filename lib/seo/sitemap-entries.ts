@@ -96,12 +96,11 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // sitemap её не было. Собирается на каждый запрос (force-dynamic), поэтому
     // дата — сегодняшняя.
     { url: `${BASE}/svodka`,               lastModified: new Date(),  changeFrequency: 'daily',   priority: 0.85 },
-    // Экстренная помощь (23.11): /sos и статический /emergency в карте сайта.
-    // Дорога с телефона: /sos — кнопка SOS в шапке; /emergency — пункт
-    // «Экстренные номера» в реестре /menu (не офлайн-фолбэк кнопки SOS).
-    // /sos/relay — приём QR, noindex, в sitemap не идёт.
+    // Экстренная помощь: в карте сайта только /sos (канон). Статический
+    // /emergency — офлайн-шлюз без React, noindex, из sitemap убран (аудит 24.11).
+    // Страница жива: кнопка SOS в офлайне и пункт «Экстренные номера» в /menu
+    // ведут сюда. /sos/relay — приём QR, noindex, в sitemap не идёт.
     { url: `${BASE}/sos`,                  lastModified: new Date('2026-11-23'), changeFrequency: 'monthly', priority: 0.8 },
-    { url: `${BASE}/emergency`,            lastModified: new Date('2026-11-23'), changeFrequency: 'monthly', priority: 0.8 },
     // Погода (08.10): страница края и страницы мест — из одного списка
     // lib/weather/places, sitemap не разъезжается с роутом.
     { url: `${BASE}/weather`,              lastModified: new Date(),  changeFrequency: 'hourly',  priority: 0.85 },

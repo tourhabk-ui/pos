@@ -592,6 +592,39 @@ withPg('модерация правок тура', () => {
       expect(admin.body.data.difficulty).toBe('easy');
     });
 
+    it('главное место из формы: на проверку; форма показывает выбранное место именем; скрытое место — 400', async () => {
+      await pool.query(
+        `INSERT INTO places (id, ark_id, name, slug, lat, lng, is_visible, location_type) VALUES
+           ('form-place-a', gen_random_uuid(), 'Озеро Курильское', 'form-place-a', 51.45, 157.1, TRUE, 'lake'),
+           ('form-place-off', gen_random_uuid(), 'Скрытое озеро', 'form-place-off', 51.5, 157.2, FALSE, 'lake')`,
+      );
+      const tour = await addTour(OP, 'Форма: главное место', { published: true, price: 10000 });
+      const hidden = await saveForm(tour, { main_place_id: 'form-place-off' });
+      expect(hidden.status).toBe(400);
+      expect(hidden.body.error).toContain('Главное место не найдено в справочнике мест или скрыто');
+      expect(await waitingPatch(tour)).toBeNull();
+
+      const saved = await saveForm(tour, { main_place_id: 'form-place-a' });
+      expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+      expect(saved.body.pending.fields).toEqual(['main_place_id']);
+      expect(saved.body.pending.notice).toBe('Правка отправлена на проверку (главное место). На витрине пока прежняя версия.');
+      // На витрине связи ещё нет: карточка места этот тур не показывает.
+      expect((await pool.query(`SELECT main_place_id FROM operator_tours WHERE id = $1::bigint`, [tour])).rows[0].main_place_id).toBeNull();
+
+      const opened = await openForm(tour);
+      expect(opened.body.data.main_place_id).toBe('form-place-a');
+      expect(opened.body.data.main_place_name).toBe('Озеро Курильское');
+      expect(opened.body.data.moderation.pending.changes.map((c: { label: string; before: string; after: string }) => [c.label, c.before, c.after]))
+        .toEqual([['Главное место', 'не записано', 'Озеро Курильское']]);
+      // Форма шлёт место обратно при каждом сохранении — правка цела.
+      expect((await saveForm(tour, { main_place_id: 'form-place-a', max_participants: 7 })).status).toBe(200);
+      expect(await waitingPatch(tour)).toEqual({ main_place_id: 'form-place-a' });
+      // Администратору форма отдаёт версию с сайта.
+      const admin = await asAdmin(() => openForm(tour));
+      expect(admin.body.data.main_place_id).toBeNull();
+      expect(admin.body.data.main_place_name).toBeNull();
+    });
+
     it('владелец: содержание — на проверку и ответ это называет; число мест и скрытие — сразу', async () => {
       const tour = await addTour(OP, 'Форма: сохранение', { published: true, price: 10000 });
       const r = await saveForm(tour, { base_price: 13000, max_participants: 5, is_active: false });
@@ -789,6 +822,62 @@ withPg('модерация правок тура', () => {
       expect(pings.tours).toEqual([tour]);
       // Повторное решение не применяется.
       expect((await adminPost(card.id, { action: 'approve', seen: card.seen })).status).toBe(409);
+    });
+
+    /**
+     * Главное место — связь «тур → место»: по ней карточка места показывает
+     * тур. Слово владельца 23.11 — место идёт через проверку. Проверка «место
+     * живое» и запись источника связи — в базе, мок их не судит.
+     */
+    it('главное место: правка на проверку с именем в диффе; одобрение пишет связь и источник; скрытое место не принять и не одобрить', async () => {
+      const place = async (id: string, name: string, visible = true) => pool.query(
+        `INSERT INTO places (id, ark_id, name, slug, lat, lng, is_visible, location_type)
+         VALUES ($1::text, gen_random_uuid(), $2, $1::text, 52.5, 158.0, $3, 'volcano')`, [id, name, visible]);
+      await place('mod-place-a', 'Вулкан Горелый');
+      await place('mod-place-b', 'Вулкан Мутновский');
+      await place('mod-place-hidden', 'Скрытое место', false);
+      const linkOf = async (id: string) => (await pool.query<{ main_place_id: string | null; main_place_source: string | null }>(
+        `SELECT main_place_id, main_place_source FROM operator_tours WHERE id = $1::bigint`, [id],
+      )).rows[0];
+      const tour = await addTour(OP, 'Дверь админа: главное место', { published: true, price: 10000 });
+
+      // Скрытое и несуществующее место владелец на проверку не отправит.
+      for (const bad of ['mod-place-hidden', 'нет-такого-места']) {
+        await expect(change(tour, OP, { main_place_id: bad })).rejects.toThrow('Главное место не найдено в справочнике мест или скрыто');
+      }
+      expect(await pendingCount(tour)).toBe(0);
+
+      const staged = await change(tour, OP, { main_place_id: 'mod-place-a' });
+      expect(staged.outcome === 'pending' && staged.pending.fields).toEqual(['main_place_id']);
+      expect(await linkOf(tour)).toEqual({ main_place_id: null, main_place_source: null });
+      const card = (await adminGet()).data.edits.find((e) => e.tourId === tour)!;
+      expect(card.changes.map((c) => [c.field, c.before, c.after])).toEqual([['main_place_id', 'не записано', 'Вулкан Горелый']]);
+      // Полная карточка («что выйдет на сайт») тоже называет место именем, а не адресом записи.
+      expect(card.content.find((line) => line.field === 'main_place_id')?.text).toBe('Вулкан Горелый');
+      const ok = await adminPost(card.id, { action: 'approve', seen: card.seen });
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      expect(await linkOf(tour)).toEqual({ main_place_id: 'mod-place-a', main_place_source: 'operator' });
+
+      // То же место из формы — не правка; другое — на проверку.
+      expect((await change(tour, OP, { main_place_id: 'mod-place-a' })).outcome).toBe('unchanged');
+      await change(tour, OP, { main_place_id: 'mod-place-b' });
+      const next = (await adminGet()).data.edits.find((e) => e.tourId === tour)!;
+      expect(next.changes.map((c) => [c.before, c.after])).toEqual([['Вулкан Горелый', 'Вулкан Мутновский']]);
+      // Пока правка ждала, место скрыли: одобрить нельзя, связь прежняя; вернуть — можно.
+      await pool.query(`UPDATE places SET is_visible = FALSE WHERE id = 'mod-place-b'`);
+      const gone = await adminPost(next.id, { action: 'approve', seen: next.seen });
+      expect(gone.status).toBe(409);
+      expect(gone.body.code).toBe('place_gone');
+      expect(await linkOf(tour)).toEqual({ main_place_id: 'mod-place-a', main_place_source: 'operator' });
+      expect(await pendingCount(tour)).toBe(1);
+      expect((await adminPost(next.id, { action: 'reject', reason: 'Место скрыто — выберите другое.' })).status).toBe(200);
+
+      // Снять место — тоже правка: после одобрения связи и источника нет.
+      await change(tour, OP, { main_place_id: null });
+      const cleared = (await adminGet()).data.edits.find((e) => e.tourId === tour)!;
+      expect(cleared.changes.map((c) => [c.before, c.after])).toEqual([['Вулкан Горелый', 'не записано']]);
+      expect((await adminPost(cleared.id, { action: 'approve', seen: cleared.seen })).status).toBe(200);
+      expect(await linkOf(tour)).toEqual({ main_place_id: null, main_place_source: null });
     });
 
     it('черновик с адресом, который не снимок, одобрить нельзя — только вернуть (перепроверка 23.11)', async () => {

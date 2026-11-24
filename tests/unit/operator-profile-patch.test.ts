@@ -54,6 +54,7 @@ vi.mock('@/lib/operators/team-access', async () => {
 
 import { GET, PATCH } from '@/app/api/hub/operator/profile/route';
 import { mergeClearable, isCleared } from '@/lib/operator/profile-patch';
+import { RESUBMIT_RACE_TEXT, RESUBMITTED_TEXT, resubmitRefusal } from '@/lib/operator/profile-status';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf-8');
 
@@ -71,16 +72,34 @@ function updateCall(): [string, unknown[]] {
   return call as [string, unknown[]];
 }
 
+/** Что стоит в карточке до запроса и что вернёт запись — для сцен повторной подачи. */
+const card = { status: 'none' as string | null, after: 'pending' as string | null, journalFails: false };
+
 beforeEach(() => {
   queryMock.mockReset();
   reachMock.mockReset();
   partnerIdMock.mockReset();
   partnerIdMock.mockResolvedValue('partner-op');
+  seatMock.mockReturnValue('owner');
+  card.status = 'none';
+  card.after = 'pending';
+  card.journalFails = false;
   queryMock.mockImplementation((sql: string) => {
-    if (sql.includes('SELECT contacts, location FROM partners')) {
+    if (sql.includes('SELECT contacts, location, profile_status FROM partners')) {
       return Promise.resolve({
-        rows: [{ contacts: { phone: '+7 900', telegram: '@old', website: 'https://a.ru' }, location: { city: 'ПК', address: 'ул. 1' } }],
+        rows: [{
+          contacts: { phone: '+7 900', telegram: '@old', website: 'https://a.ru' }, location: { city: 'ПК', address: 'ул. 1' },
+          profile_status: card.status,
+        }],
       });
+    }
+    if (sql.startsWith('UPDATE partners')) {
+      return Promise.resolve({ rows: sql.includes('RETURNING profile_status') ? [{ profile_status: card.after }] : [] });
+    }
+    if (sql.includes('UPDATE operator_applications')) {
+      return card.journalFails
+        ? Promise.reject(Object.assign(new Error('журнал недоступен'), { code: '57014' }))
+        : Promise.resolve({ rows: [], rowCount: 1 });
     }
     return Promise.resolve({ rows: [{ id: 'partner-op', company_name: 'Оператор' }] });
   });
@@ -185,6 +204,114 @@ describe('завершение онбординга подаёт заявку (�
     const [sql] = updateCall();
     expect(sql).not.toMatch(/profile_status/);
     expect(sql).not.toMatch(/applied_at/);
+  });
+
+  it('повторное завершение настройки отклонённую заявку в очередь не возвращает', async () => {
+    // Вернуть её может только явная подача: иначе любое сохранение формы настройки
+    // молча ставило бы отклонённого обратно в очередь.
+    card.status = 'rejected';
+    await PATCH(patchReq({ complete_onboarding: true }));
+    const [sql] = updateCall();
+    expect(sql).not.toMatch(/profile_status = 'rejected'/);
+    expect(queryMock.mock.calls.some(([q]) => String(q).includes('operator_applications'))).toBe(false);
+  });
+});
+
+/**
+ * Слово владельца 23.11: «отклонённый оператор видит причину отказа и может
+ * подать заявку снова, как у гида». Дверь — та же, что правит профиль:
+ * владелец кабинета, флаг `submit_for_review`.
+ */
+describe('повторная подача после отказа (слово владельца 23.11)', () => {
+  const journalCalls = () => queryMock.mock.calls.filter(([sql]) => String(sql).includes('UPDATE operator_applications'));
+  const partnerUpdates = () => queryMock.mock.calls.filter(([sql]) => String(sql).startsWith('UPDATE partners'));
+
+  it('отклонённая заявка уходит на проверку: статус и время подачи — только из «отклонена», журнал снова ждёт', async () => {
+    card.status = 'rejected';
+    const res = await PATCH(patchReq({ submit_for_review: true }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, message: RESUBMITTED_TEXT, profile_status: 'pending' });
+    const [sql, params] = updateCall();
+    expect(sql).toMatch(/profile_status = CASE WHEN profile_status = 'rejected' THEN 'pending' ELSE profile_status END/);
+    expect(sql).toMatch(/applied_at = CASE WHEN profile_status = 'rejected' THEN NOW\(\) ELSE applied_at END/);
+    expect(sql).toMatch(/RETURNING profile_status$/);
+    // Причина прошлого отказа остаётся до следующего решения, как у гида.
+    expect(sql).not.toMatch(/profile_review_comment/);
+    expect(params.at(-1)).toBe('partner-op');
+    expect(journalCalls()).toHaveLength(1);
+    expect(journalCalls()[0][0]).toMatch(/SET status = 'pending' WHERE partner_id = \$1 AND status = 'rejected'/);
+    expect(journalCalls()[0][1]).toEqual(['partner-op']);
+  });
+
+  it.each([
+    ['pending', 'Заявка уже на проверке — дождитесь решения администратора'],
+    ['approved', 'Профиль уже одобрен — подавать заявку снова не нужно'],
+    ['none', 'Заявка ещё не подана — завершите настройку профиля, и она уйдёт на проверку'],
+    ['что-то новое', 'Статус заявки определить не удалось — попробуйте позже'],
+    [null, 'Статус заявки определить не удалось — попробуйте позже'],
+  ])('статус «%s»: подавать нечего — 409 словами, ни записи, ни журнала', async (status, words) => {
+    card.status = status;
+    const res = await PATCH(patchReq({ submit_for_review: true, phone: '+7 999' }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ success: false, error: words });
+    expect(partnerUpdates()).toHaveLength(0);
+    expect(journalCalls()).toHaveLength(0);
+  });
+
+  it('заявку решили между чтением и записью — 409, а не «отправлено»; журнал не тронут', async () => {
+    card.status = 'rejected';
+    card.after = 'approved';
+    const res = await PATCH(patchReq({ submit_for_review: true }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ success: false, error: RESUBMIT_RACE_TEXT });
+    expect(journalCalls()).toHaveLength(0);
+  });
+
+  it('журнал не обновился — заявка всё равно в очереди, отказ журнала в логе без данных', async () => {
+    card.status = 'rejected';
+    card.journalFails = true;
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const res = await PATCH(patchReq({ submit_for_review: true }));
+    expect(res.status).toBe(200);
+    expect(errors).toHaveBeenCalledWith('[hub/operator/profile] журнал заявок не обновлён, SQLSTATE', '57014');
+    errors.mockRestore();
+  });
+
+  it('вместе с правкой профиля: поля сохранены той же записью, что ставит заявку в очередь', async () => {
+    card.status = 'rejected';
+    const res = await PATCH(patchReq({ submit_for_review: true, description: 'Новое описание компании.' }));
+    expect(res.status).toBe(200);
+    const [sql, params] = updateCall();
+    expect(sql).toMatch(/description = \$\d+/);
+    expect(params).toContain('Новое описание компании.');
+    expect(partnerUpdates()).toHaveLength(1);
+  });
+
+  it('флаг — только настоящее true: строка и число — ошибка запроса; false — обычное сохранение', async () => {
+    card.status = 'rejected';
+    for (const flag of ['true', 1, {}]) {
+      const res = await PATCH(patchReq({ submit_for_review: flag }));
+      expect(res.status, JSON.stringify(flag)).toBe(422);
+    }
+    expect(partnerUpdates()).toHaveLength(0);
+    const plain = await PATCH(patchReq({ submit_for_review: false, phone: '1' }));
+    expect(await plain.json()).toEqual({ success: true, message: 'Профиль сохранён' });
+    expect(updateCall()[0]).not.toMatch(/profile_status/);
+    expect(journalCalls()).toHaveLength(0);
+  });
+
+  it('менеджер компании заявку не подаёт: дверь — владельца кабинета', async () => {
+    card.status = 'rejected';
+    seatMock.mockReturnValue('manager');
+    const res = await PATCH(patchReq({ submit_for_review: true }));
+    expect(res.status).toBe(403);
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('слова правила: подать можно только из «отклонена»; срок и исход не обещаны', () => {
+    expect(resubmitRefusal('rejected')).toBeNull();
+    for (const s of ['pending', 'approved', 'none', '', undefined, null, 42]) expect(resubmitRefusal(s), String(s)).not.toBeNull();
+    expect(RESUBMITTED_TEXT).not.toMatch(/\d|сутк|час|дн[яей]|одобр/i);
   });
 });
 

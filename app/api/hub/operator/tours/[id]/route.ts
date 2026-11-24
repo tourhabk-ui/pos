@@ -28,6 +28,7 @@ import { MainPlaceRejected } from '@/lib/tours/main-place';
 import { PHOTO_ADDRESS_TEXT, photoAddressesOf, rejectedPhotoAddresses } from '@/lib/tours/photo-address';
 import { saveTourChange } from '@/lib/tours/tour-change';
 import { loadOwnTourEdits } from '@/lib/tours/moderation-store';
+import { loadPlaceNames } from '@/lib/tours/moderation-read';
 import { tourModerationState } from '@/lib/tours/moderation';
 import { editorClips, photoCreditsOf, writePhotoCredits } from '@/lib/tours/editor-media';
 import { transaction } from '@/lib/database';
@@ -90,6 +91,16 @@ export async function GET(
     // подмешивается, иначе «Сохранить» записало бы правку владельца в живую
     // строку в обход очереди и без решения по ней.
     const shown = (isAdmin ? tour : { ...tour, ...(edit.pending?.patch ?? {}) }) as typeof tour;
+    // Главное место из правки на проверке форма показывает именем: имя в
+    // строке тура — от места с витрины, а не от выбранного владельцем.
+    const waitingPlace = isAdmin ? undefined : (edit.pending?.patch as Record<string, unknown> | undefined)?.main_place_id;
+    if (waitingPlace !== undefined) {
+      const names = typeof waitingPlace === 'string' ? await loadPlaceNames([waitingPlace]) : new Map<string, string>();
+      // Не прочиталось — показываем адрес записи, а не имя прежнего места.
+      (shown as Record<string, unknown>).main_place_name = typeof waitingPlace === 'string'
+        ? (names?.get(waitingPlace) ?? waitingPlace)
+        : null;
+    }
 
     // Клипы — с адресами для превью в форме, подписи — только строки (08.11,
     // те же правила, что у формы гида: lib/tours/editor-media).

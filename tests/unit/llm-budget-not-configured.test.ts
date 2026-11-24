@@ -102,7 +102,8 @@ describe('GET /api/cron/llm-budget-check без порога', () => {
     process.env.AI_DAILY_BUDGET_USD = '2';
     const body = await (await call()).json() as Body;
     expect(body.status).toBe('alert_sent');
-    expect(notifyBudgetAlert).toHaveBeenCalledWith(3.25, 2);
+    // Третье число — расход раннера GitHub (в лимит не входит, 23.11); строки раннера в моке нет.
+    expect(notifyBudgetAlert).toHaveBeenCalledWith(3.25, 2, 0);
   });
 });
 

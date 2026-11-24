@@ -12,9 +12,10 @@
 import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db-pool';
 import {
-  MODERATED_TOUR_COLUMNS, isModeratedTourColumn, tourEditChanges,
+  MODERATED_TOUR_COLUMNS, isModeratedTourColumn, mainPlaceIdsOf, tourEditChanges,
   type ModeratedTourColumn, type TourContentPatch, type TourEditChange,
 } from '@/lib/tours/moderation';
+import { cleanProposedBy, proposedByWords } from '@/lib/tours/automaton';
 
 type Db = Pick<PoolClient, 'query'>;
 
@@ -36,6 +37,28 @@ export function fieldsOf(patch: TourContentPatch): ModeratedTourColumn[] {
   return MODERATED_TOUR_COLUMNS.filter((f) => f in patch);
 }
 
+/**
+ * Имена мест по адресам записей — чтобы дифф главного места говорил «Вулкан
+ * Горелый», а не адрес записи. `null` — прочитать не удалось: дифф так и
+ * скажет, а не выдаст место за ненайденное (§4.0). Места, которого в
+ * справочнике нет, в ответе нет — это видно по отсутствию имени.
+ */
+export async function loadPlaceNames(ids: readonly string[], db: Db = pool): Promise<Map<string, string> | null> {
+  const out = new Map<string, string>();
+  if (ids.length === 0) return out;
+  try {
+    const { rows } = await db.query<{ id: string; name: string }>(
+      `SELECT id::text AS id, name FROM places WHERE id::text = ANY($1::text[])`,
+      [[...ids]],
+    );
+    for (const row of rows) out.set(row.id, row.name);
+    return out;
+  } catch (err) {
+    console.error('[tour-edit] имена мест не прочитаны, SQLSTATE', sqlState(err));
+    return null;
+  }
+}
+
 // ─── Что видит владелец ───────────────────────────────────────────────────────
 
 export interface OwnTourEdit {
@@ -48,6 +71,7 @@ export interface OwnTourEdit {
 interface OwnEditRow {
   tour_id: string;
   patch: unknown;
+  proposed_by: unknown;
   wants_publish: boolean;
   moderation_status: string;
   moderation_reason: string | null;
@@ -75,14 +99,35 @@ export async function loadOwnTourEdits(
   if (tourIds.length === 0) return out;
   try {
     const { rows } = await db.query<OwnEditRow>(
+      // Отклонённое предложение автомата владельцу не показывается как «ваша
+      // правка возвращена»: он её не присылал, и на его туре ничего не
+      // изменилось. Такая строка — та, где каждое поле помечено автоматом и
+      // публикации не просили; из выборки она исключена, чтобы не заслонить
+      // более раннюю возвращённую правку самого владельца.
       `SELECT DISTINCT ON (e.tour_id)
-              e.tour_id::text AS tour_id, e.patch, e.wants_publish, e.moderation_status,
+              e.tour_id::text AS tour_id, e.patch, e.proposed_by, e.wants_publish, e.moderation_status,
               e.moderation_reason, e.moderated_at, e.updated_at
          FROM operator_tour_edits e
         WHERE e.tour_id = ANY($1::bigint[])
+          AND NOT (
+            e.moderation_status = 'rejected'
+            AND e.wants_publish = FALSE
+            AND e.patch <> '{}'::jsonb
+            AND NOT EXISTS (
+              SELECT 1 FROM jsonb_object_keys(e.patch) AS k WHERE NOT (e.proposed_by ? k)
+            )
+          )
         ORDER BY e.tour_id, e.created_at DESC`,
       [tourIds.map(String)],
     );
+    // Имена мест нужны, только если какая-то правка на проверке меняет главное место.
+    const placeEdits = rows
+      .filter((row) => row.moderation_status === 'pending')
+      .map((row) => ({ patch: cleanPatch(row.patch), live: live.get(row.tour_id) ?? {} }))
+      .filter((e) => 'main_place_id' in e.patch);
+    const placeNames = placeEdits.length > 0
+      ? await loadPlaceNames(mainPlaceIdsOf(...placeEdits.flatMap((e) => [e.patch, e.live])), db)
+      : undefined;
     for (const row of rows) {
       const patch = cleanPatch(row.patch);
       if (row.moderation_status === 'pending') {
@@ -90,7 +135,9 @@ export async function loadOwnTourEdits(
           pending: {
             patch,
             wantsPublish: row.wants_publish === true,
-            changes: tourEditChanges(live.get(row.tour_id) ?? {}, patch),
+            changes: tourEditChanges(live.get(row.tour_id) ?? {}, patch, {
+              placeNames, proposedBy: proposedByWords(cleanProposedBy(row.proposed_by)),
+            }),
             since: iso(row.updated_at) ?? '',
           },
           rejected: null,

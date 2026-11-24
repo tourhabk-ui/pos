@@ -686,7 +686,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
               {tourHeadingTail(tour.operator_name) && (
                 <>
                   <span className="sr-only"> — </span>
-                  <span data-h1-operator="" className="block mt-2" style={{ fontSize: '0.42em', fontWeight: 500, letterSpacing: 0, opacity: 0.85 }}>
+                  <span data-h1-operator="" className="block mt-2" style={{ fontSize: 'max(12px, 0.42em)', fontWeight: 500, letterSpacing: 0, opacity: 0.85 }}>
                     {tourHeadingTail(tour.operator_name)}
                   </span>
                 </>

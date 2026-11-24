@@ -20,11 +20,13 @@ import { draftMayApply } from '@/lib/moderation/gate';
 import { writeTourPatch, type TourPatchInput } from '@/lib/tours/tour-write';
 import {
   MODERATED_TOUR_COLUMNS, TOUR_FIELD_LABELS, TOUR_PHOTO_FIELDS,
-  canonicalJson, effectiveContent, tourEditChanges, tourValueText,
-  type ModeratedTourColumn, type PendingTourEdit, type TourContentLine, type TourContentPatch,
+  canonicalJson, effectiveContent, mainPlaceIdsOf, tourEditChanges, tourValueText,
+  type ModeratedTourColumn, type PendingTourEdit, type TourContentLine, type TourContentPatch, type TourValueContext,
 } from '@/lib/tours/moderation';
-import { cleanPatch, fieldsOf, isoTime as iso } from '@/lib/tours/moderation-read';
+import { MainPlaceRejected } from '@/lib/tours/main-place';
+import { cleanPatch, fieldsOf, isoTime as iso, loadPlaceNames } from '@/lib/tours/moderation-read';
 import { photoAddressesOf, rejectedPhotoAddresses } from '@/lib/tours/photo-address';
+import { cleanProposedBy, proposedByWords, splitByAuthor } from '@/lib/tours/automaton';
 import { LIVE_CONTENT_COLUMNS } from '@/lib/tours/moderation-store';
 
 function sqlState(err: unknown): string {
@@ -46,6 +48,7 @@ interface PendingListRow extends LiveRow {
   e_tour_id: string;
   e_partner_id: string;
   e_patch: unknown;
+  e_proposed_by: unknown;
   e_wants_publish: boolean;
   e_updated_at: Date | string;
   partner_name: string;
@@ -57,11 +60,11 @@ function photosOf(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((p): p is string => typeof p === 'string' && p.trim().length > 0) : [];
 }
 
-function contentLines(content: Record<ModeratedTourColumn, unknown>): TourContentLine[] {
+function contentLines(content: Record<ModeratedTourColumn, unknown>, ctx: TourValueContext): TourContentLine[] {
   return MODERATED_TOUR_COLUMNS.map((field) => ({
     field,
     label: TOUR_FIELD_LABELS[field],
-    text: tourValueText(field, content[field]),
+    text: tourValueText(field, content[field], ctx),
     ...(TOUR_PHOTO_FIELDS.includes(field) ? { photos: photosOf(content[field]) } : {}),
   }));
 }
@@ -70,7 +73,8 @@ export async function listPendingTourEdits(): Promise<{ outcome: 'ok'; edits: Pe
   try {
     const { rows } = await pool.query<PendingListRow>(
       `SELECT e.id::text AS e_id, e.tour_id::text AS e_tour_id, e.partner_id::text AS e_partner_id,
-              e.patch AS e_patch, e.wants_publish AS e_wants_publish, e.updated_at AS e_updated_at,
+              e.patch AS e_patch, e.proposed_by AS e_proposed_by,
+              e.wants_publish AS e_wants_publish, e.updated_at AS e_updated_at,
               p.name AS partner_name, p.category AS partner_category,
               ot.is_published, ${LIVE_CONTENT_COLUMNS}
          FROM operator_tour_edits e
@@ -80,6 +84,10 @@ export async function listPendingTourEdits(): Promise<{ outcome: 'ok'; edits: Pe
         ORDER BY e.created_at ASC
         LIMIT 200`,
     );
+    // Главное место в карточке — именем: одно чтение на всю очередь. Не
+    // прочиталось — карточки говорят «название не прочитано», очередь цела.
+    const placeNames = await loadPlaceNames(mainPlaceIdsOf(...rows.flatMap((row) => [row, cleanPatch(row.e_patch)])));
+    const ctx: TourValueContext = { placeNames };
     const edits = rows.map((row): PendingTourEdit => {
       const patch = cleanPatch(row.e_patch);
       const wantsPublish = row.e_wants_publish === true && row.is_published !== true;
@@ -92,8 +100,10 @@ export async function listPendingTourEdits(): Promise<{ outcome: 'ok'; edits: Pe
         partnerName: row.partner_name,
         partnerCategory: row.partner_category,
         kind: wantsPublish ? 'publish' : 'edit',
-        changes: tourEditChanges(row, patch),
-        content: contentLines(content),
+        // Чьё предложение — в строке диффа: поле автомата администратор
+        // одобряет, зная, что владелец его не присылал.
+        changes: tourEditChanges(row, patch, { ...ctx, proposedBy: proposedByWords(cleanProposedBy(row.e_proposed_by)) }),
+        content: contentLines(content, ctx),
         seen: seenToken(row, patch, wantsPublish),
         since: iso(row.e_updated_at) ?? '',
       };
@@ -118,6 +128,8 @@ export type DecideTourEdit =
       published: boolean;
       /** Правка просила первую публикацию (у отказа — «тур не опубликован»). */
       askedPublish: boolean;
+      /** Поля, предложенные автоматом платформы: владелец их не присылал. */
+      automatonFields: ModeratedTourColumn[];
       /** Категория карточки владельца — в какой кабинет вести из сообщения. */
       partnerCategory: string | null;
     }
@@ -125,6 +137,8 @@ export type DecideTourEdit =
   | { outcome: 'changed' }
   /** В правке новый адрес снимка, который не снимок: одобрить нельзя, только вернуть. */
   | { outcome: 'bad_photo' }
+  /** Главное место из правки скрыто или слито, пока правка ждала: одобрить нельзя. */
+  | { outcome: 'place_gone' }
   | { outcome: 'not_found' }
   | { outcome: 'db_error' };
 
@@ -133,19 +147,20 @@ interface LockedEdit {
   tour_id: string;
   partner_id: string;
   patch: unknown;
+  proposed_by: unknown;
   wants_publish: boolean;
   moderation_status: string;
   partner_category: string | null;
 }
 
 const LOCK_EDIT_SQL = `SELECT e.id::text AS id, e.tour_id::text AS tour_id, e.partner_id::text AS partner_id,
-          e.patch, e.wants_publish, e.moderation_status,
+          e.patch, e.proposed_by, e.wants_publish, e.moderation_status,
           (SELECT p.category FROM partners p WHERE p.id = e.partner_id) AS partner_category
      FROM operator_tour_edits e
     WHERE e.id = $1::uuid
     FOR UPDATE OF e`;
 
-const LOCK_TOUR_SQL = `SELECT ot.title, ot.is_published, ot.main_place_id, ${LIVE_CONTENT_COLUMNS}
+const LOCK_TOUR_SQL = `SELECT ot.is_published, ${LIVE_CONTENT_COLUMNS}
      FROM operator_tours ot
     WHERE ot.id = $1::bigint AND ot.deleted_at IS NULL
     FOR UPDATE`;
@@ -207,6 +222,7 @@ export async function decideTourEdit(opts: {
     const base = {
       partnerId: edit.partner_id, tourId: edit.tour_id, fields,
       askedPublish: wantsPublish, partnerCategory: edit.partner_category,
+      automatonFields: splitByAuthor(fields, cleanProposedBy(edit.proposed_by)).automaton,
     };
 
     if (opts.action === 'reject') {
@@ -250,6 +266,9 @@ export async function decideTourEdit(opts: {
     return { outcome: 'approved', ...base, title, published: wantsPublish };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => undefined);
+    // Место, выбранное владельцем, к одобрению скрыли или слили в другое:
+    // это не сбой базы, а правка, которую уже нельзя применить.
+    if (err instanceof MainPlaceRejected) return { outcome: 'place_gone' };
     console.error('[tour-edit] решение по правке не записано, SQLSTATE', sqlState(err));
     return { outcome: 'db_error' };
   } finally {

@@ -27,11 +27,15 @@ describe('на экранах SOS нет баннера согласия и ст
     expect(src).toMatch(/isSosSurface\(pathname\)\) return null/);
   });
 
-  it('/sos/relay закрыт от индекса, у /sos и /emergency есть каноникал', () => {
+  it('/sos/relay закрыт от индекса; /emergency каноничен на /sos и закрыт от индекса', () => {
     const relay = read('app/sos/relay/layout.tsx');
     expect(relay).toMatch(/index:\s*false/);
     expect(read('app/sos/layout.tsx')).toMatch(/canonical:\s*'\/sos'/);
-    expect(read('public/emergency.html')).toContain('rel="canonical" href="https://vedarai.ru/emergency"');
+    const emergency = read('public/emergency.html');
+    expect(emergency).toContain('rel="canonical" href="https://vedarai.ru/sos"');
+    expect(emergency).toContain('name="robots" content="noindex, follow"');
+    expect(emergency).not.toContain('rel="canonical" href="https://vedarai.ru/emergency"');
+    expect(read('app/emergency/route.ts')).toMatch(/X-Robots-Tag': 'noindex, follow'/);
   });
 
   it('/sos рядом с кнопкой отправки объясняет, куда уйдут данные, без чекбокса', () => {

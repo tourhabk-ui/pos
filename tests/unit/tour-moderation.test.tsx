@@ -57,9 +57,10 @@ vi.mock('@/lib/notifications/pd-alert', () => ({ sendPdAlert: h.send }));
 
 import {
   MODERATED_TOUR_COLUMNS, contentDiff, pendingNotice, sameTourValue, splitTourInput,
-  tourCabinetPath, tourDayKey, tourEditChanges, tourModerationState, tourReviewMark,
+  mainPlaceIdsOf, tourCabinetPath, tourDayKey, tourEditChanges, tourModerationState, tourReviewMark,
 } from '@/lib/tours/moderation';
 import { LIVE_CONTENT_COLUMNS } from '@/lib/tours/moderation-store';
+import { loadPlaceNames } from '@/lib/tours/moderation-read';
 import { TOUR_PATCH_COLUMNS } from '@/lib/tours/tour-write';
 import { TourEditQueue, type TourEditCard } from '@/components/admin/TourEditQueue';
 import { TourModerationStatus, type TourModerationView } from '@/components/tours/TourModerationStatus';
@@ -110,7 +111,9 @@ describe('правило: что идёт через проверку, а что
   });
 
   it('каждое поле с проверкой — настоящая колонка записи тура', () => {
-    const known = new Set<string>(TOUR_PATCH_COLUMNS as readonly string[]);
+    // Главное место пишется своей веткой записи тура (перемена, источник, «место живое»),
+    // а не общим списком колонок: что одобрение его применяет, судит pg-тест.
+    const known = new Set<string>([...(TOUR_PATCH_COLUMNS as readonly string[]), 'main_place_id']);
     for (const col of MODERATED_TOUR_COLUMNS) expect(known.has(col), col).toBe(true);
     // Названные планом поля — в списке: тексты, цена и единица, снимки, состав, условия отмены, точка сбора.
     for (const col of ['title', 'description', 'program', 'base_price', 'price_unit', 'photos', 'tour_image',
@@ -182,6 +185,56 @@ describe('правило: что идёт через проверку, а что
     expect(tourDayKey('июнь')).toBeNull();
     expect(tourDayKey(20270601)).toBeNull();
     expect(tourDayKey(null)).toBeNull();
+  });
+
+  it('главное место — через проверку; в диффе оно названо именем, а не адресом записи', () => {
+    expect(splitTourInput({ main_place_id: 'place-a', is_active: true })).toEqual({
+      content: { main_place_id: 'place-a' }, immediate: { is_active: true }, wantsPublish: false,
+    });
+    expect(MODERATED_TOUR_COLUMNS as readonly string[]).toContain('main_place_id');
+    // Форма шлёт место при каждом сохранении: то же место — не правка, снятое — правка.
+    expect(contentDiff({ main_place_id: 'place-a' }, { main_place_id: 'place-a' })).toEqual({});
+    expect(contentDiff({ main_place_id: null }, { main_place_id: null })).toEqual({});
+    expect(contentDiff({ main_place_id: 'place-a' }, { main_place_id: null })).toEqual({ main_place_id: null });
+
+    const names = new Map([['place-a', 'Вулкан Горелый'], ['place-b', 'Вулкан Мутновский']]);
+    const named = tourEditChanges({ main_place_id: 'place-a' }, { main_place_id: 'place-b' }, { placeNames: names });
+    expect(named.map((c) => [c.label, c.before, c.after])).toEqual([['Главное место', 'Вулкан Горелый', 'Вулкан Мутновский']]);
+    // Место сняли — «не записано»; места в справочнике нет — так и сказано, с адресом записи.
+    expect(tourEditChanges({ main_place_id: 'place-a' }, { main_place_id: null }, { placeNames: names })[0].after).toBe('не записано');
+    expect(tourEditChanges({ main_place_id: null }, { main_place_id: 'place-x' }, { placeNames: names })[0].after)
+      .toBe('место не найдено в справочнике (place-x)');
+    // Имена не прочитались — это не «места нет».
+    for (const ctx of [{ placeNames: null }, {}, undefined]) {
+      expect(tourEditChanges({ main_place_id: null }, { main_place_id: 'place-a' }, ctx)[0].after)
+        .toBe('место place-a (название не прочитано)');
+    }
+  });
+
+  it('адреса мест для чтения имён: из строк и правок, без пустых и повторов', () => {
+    expect(mainPlaceIdsOf({ main_place_id: 'a' }, { main_place_id: 'b' }, { main_place_id: 'a' }, { main_place_id: null }, {}, null, undefined, { main_place_id: ' ' }, { main_place_id: 7 }))
+      .toEqual(['a', 'b']);
+    expect(mainPlaceIdsOf()).toEqual([]);
+  });
+
+  it('имена мест: сбой чтения — «не прочитано» (null), а не «мест нет»; без адресов база не спрашивается', async () => {
+    const asked: unknown[][] = [];
+    const answers = { query: async (_sql: string, params: unknown[]) => { asked.push(params); return { rows: [{ id: 'place-a', name: 'Вулкан Горелый' }] }; } };
+    expect(await loadPlaceNames([], answers as never)).toEqual(new Map());
+    expect(asked).toHaveLength(0);
+    expect(await loadPlaceNames(['place-a', 'place-x'], answers as never)).toEqual(new Map([['place-a', 'Вулкан Горелый']]));
+    expect(asked).toEqual([[['place-a', 'place-x']]]);
+
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const broken = { query: async () => { throw Object.assign(new Error('нет связи'), { code: '08006' }); } };
+    const names = await loadPlaceNames(['place-a'], broken as never);
+    expect(names).toBeNull();
+    // Отказ не глушится: имя проверки и SQLSTATE — в лог.
+    expect(errors).toHaveBeenCalledWith('[tour-edit] имена мест не прочитаны, SQLSTATE', '08006');
+    errors.mockRestore();
+    // И дифф говорит об этом словами, а не выдаёт место за ненайденное.
+    expect(tourEditChanges({ main_place_id: null }, { main_place_id: 'place-a' }, { placeNames: names })[0].after)
+      .toBe('место place-a (название не прочитано)');
   });
 
   it('день календаря не съезжает на сутки в поясе Камчатки (UTC+12)', () => {
@@ -764,7 +817,7 @@ describe('сообщение владельцу о решении', () => {
 describe('дверь решения: POST /api/admin/moderation/tour-edits/[id]', () => {
   const ID = 'e1000000-0000-4000-8000-000000000001';
   const SEEN = 'a'.repeat(64);
-  const done = { partnerId: 'p1', tourId: '51', title: 'Вулкан Горелый', fields: ['base_price'], partnerCategory: 'guide' };
+  const done = { partnerId: 'p1', tourId: '51', title: 'Вулкан Горелый', fields: ['base_price'], partnerCategory: 'guide', automatonFields: [] as string[] };
 
   async function post(body: unknown, id = ID) {
     vi.doMock('@/lib/notifications/partner-edit-notify', () => ({ notifyPartnerEditDecisionQuietly: h.notify }));
@@ -797,7 +850,39 @@ describe('дверь решения: POST /api/admin/moderation/tour-edits/[id]'
     expect(h.notify).toHaveBeenCalledWith({
       partnerId: 'p1', subject: 'tour', label: 'Вулкан Горелый', outcome: 'approved', reason: null,
       firstPublication: false, fieldsWords: 'цена', cabinetPath: '/hub/guide/own',
+      // Правку прислал владелец: про платформу в сообщении ничего.
+      platformFieldsWords: undefined, platformOnly: false,
     });
+  });
+
+  it('правку предложил автомат: одобрение сообщается владельцу как предложение платформы, отказ — не сообщается вовсе', async () => {
+    const auto = { ...done, fields: ['description'], automatonFields: ['description'] };
+    h.decide.mockResolvedValue({ outcome: 'approved', ...auto, published: false, askedPublish: false });
+    expect((await post({ action: 'approve', seen: SEEN })).body.message).toBe('«Вулкан Горелый»: правка на сайте');
+    expect(h.notify).toHaveBeenLastCalledWith(expect.objectContaining({
+      outcome: 'approved', fieldsWords: 'описание', platformFieldsWords: 'описание', platformOnly: true,
+    }));
+    h.notify.mockClear();
+    h.decide.mockResolvedValue({ outcome: 'rejected', ...auto, published: false, askedPublish: false });
+    const no = await post({ action: 'reject', reason: 'Текст повторяет программу' });
+    expect(no.status).toBe(200);
+    expect(no.body.message).toBe('«Вулкан Горелый»: предложение автомата отклонено, на сайте прежняя версия');
+    // Владелец правку не присылал, на его туре ничего не изменилось.
+    expect(h.notify).not.toHaveBeenCalled();
+
+    // В правке есть и поле владельца — отказ ему сообщается, с припиской о платформе.
+    const mixed = { ...done, fields: ['description', 'base_price'], automatonFields: ['description'] };
+    h.decide.mockResolvedValue({ outcome: 'rejected', ...mixed, published: false, askedPublish: false });
+    expect((await post({ action: 'reject', reason: 'Цена не сходится' })).body.message)
+      .toBe('«Вулкан Горелый»: правка отклонена, на сайте прежняя версия');
+    expect(h.notify).toHaveBeenLastCalledWith(expect.objectContaining({
+      outcome: 'rejected', fieldsWords: 'описание, цена', platformFieldsWords: 'описание', platformOnly: false,
+    }));
+    // Автомат дописал поле к туру, который владелец отправил на публикацию: решение — о туре, владельцу сообщается.
+    h.notify.mockClear();
+    h.decide.mockResolvedValue({ outcome: 'rejected', ...auto, published: false, askedPublish: true });
+    await post({ action: 'reject', reason: 'Нет программы дня' });
+    expect(h.notify).toHaveBeenLastCalledWith(expect.objectContaining({ firstPublication: true, platformOnly: false }));
   });
 
   it('новый тур одобрен — «опубликован»; отклонён — «не опубликован», поисковикам ничего', async () => {
@@ -813,6 +898,12 @@ describe('дверь решения: POST /api/admin/moderation/tour-edits/[id]'
   });
 
   it('правка изменилась, решение уже есть, правки нет, база не ответила — свой код, без сообщения и пинга', async () => {
+    // Место из правки скрыли или слили, пока она ждала: администратору сказано, что делать.
+    h.decide.mockResolvedValue({ outcome: 'place_gone' });
+    const gone = await post({ action: 'approve', seen: SEEN });
+    expect(gone.status).toBe(409);
+    expect(gone.body.code).toBe('place_gone');
+    expect(gone.body.error).toBe('Главное место из правки скрыто или слито в другое, пока правка ждала. Тур не изменён — верните правку владельцу с причиной.');
     for (const [outcome, status] of [['changed', 409], ['bad_photo', 409], ['already', 409], ['not_found', 404], ['db_error', 503]] as const) {
       h.decide.mockResolvedValue({ outcome });
       const r = await post({ action: 'approve', seen: SEEN });
@@ -918,7 +1009,17 @@ describe('запреты', () => {
     const users = SOURCES.filter((f) => /from '@\/lib\/tours\/(moderation-store|moderation-read|tour-change)'/.test(read(f)));
     const outside = users.filter((f) => !OWNER_DOOR.test(f)
       && !['lib/tours/moderation-store.ts', 'lib/tours/moderation-review.ts', 'lib/tours/tour-change.ts'].includes(f));
-    expect(outside).toEqual([]);
+    // Вне кабинетов дверь подключают только автоматы платформы — и только
+    // своим входом: дверью человека автомат прошёл бы без пометки «кто
+    // предложил», а с пустой карточкой тура — как администратор, мимо очереди.
+    const automata = outside.filter((f) => /proposeTourChange/.test(read(f)));
+    expect(automata).toEqual(['lib/tours/describe-door.ts']);
+    for (const f of automata) {
+      const src = read(f);
+      expect(src, `${f}: автомат зовёт дверь человека`).not.toMatch(/saveTourChange|stageTourEdit|writeTourPatch/);
+      expect(src, `${f}: автомат не читает тур под замком`).toMatch(/readTourForAutomaton/);
+    }
+    expect(outside.filter((f) => !automata.includes(f))).toEqual([]);
     // Решение — только у дверей администратора: владелец свою правку не одобряет.
     const deciders = SOURCES.filter((f) => /from '@\/lib\/tours\/moderation-review'/.test(read(f))).sort();
     expect(deciders).toEqual([

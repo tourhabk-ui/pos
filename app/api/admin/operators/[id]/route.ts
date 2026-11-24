@@ -10,6 +10,7 @@ import { query } from '@/lib/database';
 import { z } from 'zod';
 import { emailService } from '@/lib/notifications/email-service';
 import { storefrontChannelGate, NO_CHANNEL_TEXT, CHANNEL_UNKNOWN_TEXT } from '@/lib/partners/storefront-gate';
+import { rejectionEmailHtml } from '@/lib/operator/rejection-email';
 
 export const dynamic = 'force-dynamic';
 
@@ -177,12 +178,10 @@ export async function PATCH(
     emailService.sendEmail({
       to: partner.email,
       subject: 'Статус заявки — TourHub',
-      html: `<p>Здравствуйте, <b>${partner.contact_name}</b>!</p>
-             <p>К сожалению, ${isAgent ? 'профиль агента' : isGuide ? 'профиль гида' : 'заявка компании'} <b>${partner.company_name}</b> не прошла проверку.</p>
-             ${isGuide ? '<p>Исправьте профиль в кабинете гида и отправьте его на проверку снова.</p>' : ''}
-             ${isAgent ? '<p>Исправьте профиль в кабинете агента (раздел «Профиль») и отправьте его на проверку снова.</p>' : ''}
-             ${comment ? `<p><b>Комментарий:</b> ${comment}</p>` : ''}
-             <p>По вопросам: <a href="mailto:info@vedarai.ru">info@vedarai.ru</a></p>`,
+      html: rejectionEmailHtml({
+        contactName: partner.contact_name, companyName: partner.company_name,
+        category: partner.category, comment: comment ?? null,
+      }),
     }).catch(logSendFailure('email'));
 
     return NextResponse.json({ success: true, message: 'Заявка отклонена' });

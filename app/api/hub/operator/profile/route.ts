@@ -10,6 +10,7 @@ import { ensurePartnerForRole } from '@/lib/auth/partner-profile';
 import { query } from '@/lib/database';
 import { reachForPartner, requestsChannelStatus } from '@/lib/partners/reach';
 import { isCleared, mergeClearable } from '@/lib/operator/profile-patch';
+import { RESUBMIT_RACE_TEXT, RESUBMITTED_TEXT, resubmitRefusal } from '@/lib/operator/profile-status';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -148,6 +149,9 @@ const PatchSchema = z.object({
     city:    clearable(100),
   }).optional(),
   complete_onboarding: z.boolean().optional(),
+  // Повторная подача после отказа (слово владельца 23.11: «отклонённый
+  // оператор видит причину отказа и может подать заявку снова, как у гида»).
+  submit_for_review:   z.boolean().optional(),
   // Поля `telegram_chat_id` здесь нет намеренно (ревью 23.11). Оно стояло в
   // схеме и писалось как есть: оператор мог вписать любой id — выдуманный
   // или чужой, — а шлюз «канал до витрины» (lib/partners/storefront-gate) и
@@ -177,12 +181,19 @@ export async function PATCH(request: NextRequest) {
     description, short_description,
     website, phone, telegram,
     services, features, location,
-    complete_onboarding,
+    complete_onboarding, submit_for_review,
   } = parsed.data;
 
   const existingRes = await query(
-    `SELECT contacts, location FROM partners WHERE id = $1`, [partnerId]
+    `SELECT contacts, location, profile_status FROM partners WHERE id = $1`, [partnerId]
   );
+  // Подать снова можно только отклонённую заявку. Остальным состояниям
+  // отвечаем словами, а не молчаливым «сохранено»: до 23.11 повторное
+  // завершение настройки возвращало 200, а заявка оставалась отклонённой.
+  if (submit_for_review === true) {
+    const refusal = resubmitRefusal(existingRes.rows[0]?.profile_status);
+    if (refusal) return NextResponse.json({ success: false, error: refusal }, { status: 409 });
+  }
   const currentContacts = (existingRes.rows[0]?.contacts as Record<string, unknown> | null) ?? {};
   const currentLocation = (existingRes.rows[0]?.location as Record<string, unknown> | null) ?? {};
   const newContacts = mergeClearable(currentContacts, { phone, telegram, website });
@@ -213,13 +224,38 @@ export async function PATCH(request: NextRequest) {
     setClauses.push(`applied_at = CASE WHEN profile_status = 'none' THEN NOW() ELSE applied_at END`);
     setClauses.push(`profile_status = CASE WHEN profile_status = 'none' THEN 'pending' ELSE profile_status END`);
   }
+  if (submit_for_review === true) {
+    // Только из «отклонена» — и в самом UPDATE тоже: администратор мог
+    // решить заявку между чтением и записью. Причина прошлого отказа
+    // остаётся в карточке до следующего решения, как у гида.
+    setClauses.push(`applied_at = CASE WHEN profile_status = 'rejected' THEN NOW() ELSE applied_at END`);
+    setClauses.push(`profile_status = CASE WHEN profile_status = 'rejected' THEN 'pending' ELSE profile_status END`);
+  }
   p('contacts', JSON.stringify(newContacts));
 
   params.push(partnerId);
-  await query(
-    `UPDATE partners SET ${setClauses.join(', ')} WHERE id = $${params.length}`,
+  // Итоговый статус нужен только повторной подаче: по нему видно, ушла ли заявка.
+  const returning = submit_for_review === true ? ' RETURNING profile_status' : '';
+  const written = await query<{ profile_status: string }>(
+    `UPDATE partners SET ${setClauses.join(', ')} WHERE id = $${params.length}${returning}`,
     params
   );
+
+  if (submit_for_review === true) {
+    // Заявка ушла в очередь, только если статус стал «на проверке».
+    if (written.rows[0]?.profile_status !== 'pending') {
+      return NextResponse.json({ success: false, error: RESUBMIT_RACE_TEXT }, { status: 409 });
+    }
+    // Журнал заявок (052) считает очередь в сводке администратора: заявка
+    // снова ждёт. Отказ журнала заявку не отменяет — она уже в очереди.
+    await query(
+      `UPDATE operator_applications SET status = 'pending' WHERE partner_id = $1 AND status = 'rejected'`,
+      [partnerId],
+    ).catch((err: unknown) => {
+      console.error('[hub/operator/profile] журнал заявок не обновлён, SQLSTATE', (err as { code?: string })?.code ?? 'нет');
+    });
+    return NextResponse.json({ success: true, message: RESUBMITTED_TEXT, profile_status: 'pending' });
+  }
 
   return NextResponse.json({ success: true, message: 'Профиль сохранён' });
 }
