@@ -20,14 +20,22 @@
  *
  * Администратор (ownerId = null) пишет напрямую: он и есть проверка.
  *
+ * Автомат платформы (`source`) идёт этой же дверью и по тому же правилу
+ * (слово владельца 23.11: «своих обходных путей у них нет»). Его поля в
+ * черновике помечены его именем, поле владельца на проверке он не
+ * перебивает, публикацию не просит. Тур для автомата читает
+ * `readTourForAutomaton` — под тем же замком.
+ *
  * Транзакцию даёт вызывающий. Пинг IndexNow — после COMMIT и только когда
  * что-то записано в живую строку.
  */
 import type { PoolClient } from 'pg';
 import { assertLiveMainPlace } from '@/lib/tours/main-place';
 import { writeTourPatch, type TourPatchInput, type TourWriteResult } from '@/lib/tours/tour-write';
-import { contentDiff, pendingNotice, splitTourInput, type ModeratedTourColumn } from '@/lib/tours/moderation';
+import { contentDiff, effectiveContent, pendingNotice, splitTourInput, type ModeratedTourColumn } from '@/lib/tours/moderation';
 import { LIVE_CONTENT_COLUMNS, lockPendingTourEdit, stageTourEdit } from '@/lib/tours/moderation-store';
+import { cleanPatch, fieldsOf } from '@/lib/tours/moderation-read';
+import { cleanProposedBy, splitByAuthor, type TourAutomaton } from '@/lib/tours/automaton';
 
 export interface PendingSummary {
   editId: string;
@@ -36,6 +44,8 @@ export interface PendingSummary {
   wantsPublish: boolean;
   /** Что сказать владельцу. */
   notice: string;
+  /** Поля автомата, которые не легли: владелец уже отправил их на проверку. */
+  keptOwner: ModeratedTourColumn[];
 }
 
 export type TourChange =
@@ -54,6 +64,13 @@ export type TourChange =
   /** В запросе нет ни одного поля тура. */
   | { outcome: 'empty' };
 
+/**
+ * Исход правки автомата. Сверх исходов человека — один: автомат не записал
+ * ничего, потому что все его поля владелец уже отправил на проверку.
+ * Черновик при этом не тронут.
+ */
+export type AutomatonTourChange = TourChange | { outcome: 'kept_owner'; fields: ModeratedTourColumn[] };
+
 interface LiveRow extends Record<string, unknown> {
   is_published: boolean | null;
   operator_id: string;
@@ -64,19 +81,46 @@ const LOCK_OWN_SQL = `SELECT ot.operator_id::text AS operator_id, ot.is_publishe
     WHERE ot.id = $1::bigint AND ot.deleted_at IS NULL AND ot.operator_id = $2::uuid
     FOR UPDATE`;
 
-export async function saveTourChange(
+interface ChangeOpts {
+  tourId: bigint | string;
+  /** `partners.id` владельца тура; null — администратор. */
+  ownerId: string | null;
+  /** Кто сохраняет (users.id) — в черновик; у чата может не быть. */
+  userId: string | null;
+  input: TourPatchInput;
+  /** Строка тура до правки (для главного места). */
+  current: Record<string, unknown>;
+}
+
+/** Правка человека: владелец тура или администратор. */
+export async function saveTourChange(client: Pick<PoolClient, 'query'>, opts: ChangeOpts): Promise<TourChange> {
+  const change = await changeTour(client, opts, null);
+  // У человека такого исхода нет: «поле владельца» — он сам.
+  return change.outcome === 'kept_owner' ? { outcome: 'unchanged' } : change;
+}
+
+/**
+ * Правка автомата платформы — та же дверь и то же правило, что у владельца.
+ * Тур автомат читает через `readTourForAutomaton` в этой же транзакции и
+ * передаёт сюда: карточка тура берётся из прочитанного, а не из параметра
+ * вызывающего.
+ */
+export async function proposeTourChange(
   client: Pick<PoolClient, 'query'>,
-  opts: {
-    tourId: bigint | string;
-    /** `partners.id` владельца тура; null — администратор. */
-    ownerId: string | null;
-    /** Кто сохраняет (users.id) — в черновик; у чата может не быть. */
-    userId: string | null;
-    input: TourPatchInput;
-    /** Строка тура до правки (для главного места). */
-    current: Record<string, unknown>;
-  },
-): Promise<TourChange> {
+  opts: { tourId: bigint | string; source: TourAutomaton; input: TourPatchInput; tour: AutomatonTourView },
+): Promise<AutomatonTourChange> {
+  return changeTour(
+    client,
+    { tourId: opts.tourId, ownerId: opts.tour.operatorId, userId: null, input: opts.input, current: opts.tour.live },
+    opts.source,
+  );
+}
+
+async function changeTour(
+  client: Pick<PoolClient, 'query'>,
+  opts: ChangeOpts,
+  source: TourAutomaton | null,
+): Promise<AutomatonTourChange> {
   const { tourId, ownerId, input, current } = opts;
 
   if (ownerId === null) {
@@ -92,7 +136,8 @@ export async function saveTourChange(
   const { content, immediate, wantsPublish } = splitTourInput(input as Record<string, unknown>);
   const published = live.is_published === true;
   const pendingBefore = await lockPendingTourEdit(client, tourId);
-  const asksPublish = wantsPublish && !published;
+  // Публикацию просит только человек: автомат тур на витрину не выводит.
+  const asksPublish = wantsPublish && !published && source === null;
 
   // Не на витрине и проверки не ждёт: содержание пишется прямо в строку.
   const direct = !published && pendingBefore === null;
@@ -108,7 +153,7 @@ export async function saveTourChange(
   // Что ещё нужно проверить: содержание опубликованного или замершего тура
   // и сама просьба о публикации.
   const toStage = direct ? {} : content;
-  const written: TourChange = row
+  const written: AutomatonTourChange = row
     ? { outcome: 'written', row, pending: null }
     // Содержание прислано, но оно равно витрине — «без изменений»; не прислано
     // ничего, что можно записать, — «нечего сохранять», как было у роута.
@@ -139,8 +184,10 @@ export async function saveTourChange(
     content: toStage,
     wantsPublish: asksPublish,
     pending: pendingBefore,
+    source,
   });
   if (staged.outcome === 'none') return written;
+  if (staged.outcome === 'kept') return row ? written : { outcome: 'kept_owner', fields: staged.keptOwner };
   return {
     outcome: 'pending',
     row,
@@ -149,6 +196,49 @@ export async function saveTourChange(
       fields: staged.fields,
       wantsPublish: staged.wantsPublish,
       notice: pendingNotice(staged.fields, staged.wantsPublish, published),
+      keptOwner: staged.keptOwner,
     },
+  };
+}
+
+// ─── Тур глазами автомата ─────────────────────────────────────────────────────
+
+export interface AutomatonTourView {
+  /** Карточка тура (`partners.id`): с ней автомат идёт в `saveTourChange`. */
+  operatorId: string;
+  published: boolean;
+  /** Что на витрине сейчас. */
+  live: Record<string, unknown>;
+  /** Витрина плюс правка на проверке: то, что выйдет после одобрения. */
+  effective: Record<ModeratedTourColumn, unknown>;
+  /** Поля, которые владелец уже отправил на проверку: автомат их не трогает. */
+  ownerPending: ModeratedTourColumn[];
+}
+
+const LOCK_ANY_SQL = `SELECT ot.operator_id::text AS operator_id, ot.is_published, ${LIVE_CONTENT_COLUMNS}
+     FROM operator_tours ot
+    WHERE ot.id = $1::bigint AND ot.deleted_at IS NULL
+    FOR UPDATE`;
+
+/**
+ * Тур для автомата: живая строка и черновик под замком, в транзакции
+ * вызывающего. Решать, что предложить, автомат обязан по `effective`: по
+ * одной живой строке он предложил бы то, что владелец уже дописал и отправил
+ * на проверку. `null` — тура нет или он удалён.
+ */
+export async function readTourForAutomaton(
+  client: Pick<PoolClient, 'query'>,
+  tourId: bigint | string,
+): Promise<AutomatonTourView | null> {
+  const live = (await client.query<LiveRow>(LOCK_ANY_SQL, [String(tourId)])).rows[0];
+  if (!live) return null;
+  const pending = await lockPendingTourEdit(client, tourId);
+  const patch = cleanPatch(pending?.patch);
+  return {
+    operatorId: live.operator_id,
+    published: live.is_published === true,
+    live,
+    effective: effectiveContent(live, patch),
+    ownerPending: splitByAuthor(fieldsOf(patch), cleanProposedBy(pending?.proposed_by)).owner,
   };
 }
