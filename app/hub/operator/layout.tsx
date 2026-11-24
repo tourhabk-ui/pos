@@ -3,6 +3,7 @@
 import { ReactNode } from 'react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { PartnerChannelBanner } from '@/components/hub/PartnerChannelBanner';
+import { PartnerOfferBanner } from '@/components/hub/PartnerOfferBanner';
 import { ForcePasswordChangeBanner } from '@/components/operator/ForcePasswordChangeBanner';
 import { MemberChannelBanner } from '@/components/operator/MemberChannelBanner';
 import { OPERATOR_MENU, menuForSeat } from '@/components/operator/operator-menu';
@@ -34,6 +35,9 @@ function OpenCabinet({ children }: { children: ReactNode }) {
           копий уведомлений (2г-4). Пока место не узнано — ни того ни другого:
           менеджеру не мелькнёт чужой баннер со ссылкой, которую ему не дадут. */}
       {seat.state === 'loading' ? null : isManagerSeat(seat) ? <MemberChannelBanner /> : <PartnerChannelBanner />}
+      {/* Просьба принять оферту (24.11): владельцу — с кнопкой, менеджеру —
+          строкой «принять может владелец»; что кому, решает сервер. */}
+      <PartnerOfferBanner />
       {/* Плавающей кнопки чата здесь нет (22.11, #2770, слово владельца «да»):
           на телефоне 390 px она накрывала «Создать тур» в редакторе. Беседы с
           туристами — пункт меню «Сообщения» (/hub/operator/messages). */}

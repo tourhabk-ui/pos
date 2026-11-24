@@ -25,7 +25,7 @@
  * Здесь только правило и слова. База — lib/partners/readiness-store.ts.
  */
 import { REQUEST_RECEIVING_CATEGORIES } from '@/lib/partners/categories';
-import { LEGAL_PENDING, OFFER_EDITION, OFFER_URL, OWNER_DECISIONS } from '@/lib/legal/offer';
+import { LEGAL_PENDING, OFFER_ASK_TAG, OFFER_EDITION, OFFER_URL, OWNER_DECISIONS } from '@/lib/legal/offer';
 
 export type ReadinessCategory = (typeof REQUEST_RECEIVING_CATEGORIES)[number];
 
@@ -48,6 +48,8 @@ export interface ReadinessItem {
   required: boolean;
   /** Действие прямо в чек-листе: принять оферту (владелец кабинета). */
   action?: 'accept_offer';
+  /** Своя подпись вместо «не обязательно» у необязательного пункта; пустая — без подписи. */
+  tag?: string;
 }
 
 export type ReadinessVerdict = 'ready' | 'not_ready' | 'unknown';
@@ -298,6 +300,11 @@ function acceptedOn(iso: string): string {
  * ничего не блокирует: партнёр, заведённый до отметки, заявки получает как
  * получал. Юридического текста здесь нет — только что принято и когда.
  *
+ * С 24.11 (слово владельца: «Партнёры, заведённые до оферты, принимают её
+ * при следующем входе в кабинет, до сезона») пункт не называет себя «не
+ * обязательным»: непринятая оферта — «просим до начала сезона», принятая —
+ * без подписи. Готовность принимать заявки от него по-прежнему не зависит.
+ *
  * Самозанятым пункт называет решение владельца 24.11 («Самозанятые могут
  * быть стороной оферты») и то, что текст оферты пока говорит о юрлицах и ИП.
  * Гид — роль, где это встречается чаще всего.
@@ -309,7 +316,7 @@ function offerItem(f: ReadinessFacts): ReadinessItem {
   if (f.offer?.current) {
     const on = acceptedOn(f.offer.acceptedAt);
     return {
-      ...base, state: 'done',
+      ...base, state: 'done', tag: '',
       detail: `Принята редакция от ${OFFER_EDITION}${on ? `, отметка от ${on}` : ''}.${tail}`,
     };
   }
@@ -318,11 +325,14 @@ function offerItem(f: ReadinessFacts): ReadinessItem {
     : 'Отметки о принятии оферты нет: карточка заведена до того, как отметка появилась.';
   // Принять оферту за компанию может владелец кабинета, не менеджер команды.
   if (f.viewer !== 'owner') {
-    return { ...base, state: 'waiting', detail: `${why} Заявкам это не мешает. Принять оферту может владелец кабинета.${tail}` };
+    return {
+      ...base, state: 'waiting', tag: OFFER_ASK_TAG,
+      detail: `${why} Заявкам это не мешает. Принять оферту может владелец кабинета.${tail}`,
+    };
   }
   return {
-    ...base, state: 'todo', action: 'accept_offer',
-    detail: `${why} Заявкам это не мешает. Прочитайте оферту и примите её здесь.${tail}`,
+    ...base, state: 'todo', action: 'accept_offer', tag: OFFER_ASK_TAG,
+    detail: `${why} Заявкам это не мешает. Прочитайте оферту и примите её здесь — просим сделать это до начала сезона.${tail}`,
   };
 }
 

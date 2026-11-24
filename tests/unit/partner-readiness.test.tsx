@@ -246,20 +246,27 @@ describe('правило готовности', () => {
       const offer = (over: Partial<ReadinessFacts>) => item(buildReadiness(facts('operator', over)), 'offer');
       expect(offer({ offer: OFFER_OK })).toEqual({
         key: 'offer', title: 'Оферта для партнёров', required: false, href: '/legal/offer', state: 'done',
+        // Принятая оферта — без подписи «не обязательно».
+        tag: '',
         // 02:00 UTC — это 14:00 того же дня по Камчатке.
         detail: 'Принята редакция от 5 октября 2026 г., отметка от 23.11.2026.',
       });
-      // Карточка заведена до отметки: акцепта в журнале нет.
+      // Карточка заведена до отметки: акцепта в журнале нет. Слово владельца 24.11 —
+      // «принимают её при следующем входе в кабинет, до сезона»: пункт просит, а не
+      // называет себя необязательным. Даты у «до сезона» нет — её и не называем.
       const none = offer({ offer: null });
-      expect(none).toMatchObject({ state: 'todo', required: false, action: 'accept_offer', href: '/legal/offer' });
+      expect(none).toMatchObject({
+        state: 'todo', required: false, action: 'accept_offer', href: '/legal/offer', tag: 'просим до начала сезона',
+      });
       expect(none?.detail).toBe('Отметки о принятии оферты нет: карточка заведена до того, как отметка появилась. '
-        + 'Заявкам это не мешает. Прочитайте оферту и примите её здесь.');
+        + 'Заявкам это не мешает. Прочитайте оферту и примите её здесь — просим сделать это до начала сезона.');
+      expect(none?.detail).not.toMatch(/\d{4}|январ|феврал|март|апрел|ма[яй]|июн|июл|август|сентябр|октябр|ноябр|декабр/i);
       // Прежняя редакция — тоже шаг, и сказано, какая действует.
       expect(offer({ offer: OFFER_OLD })?.detail).toContain('Вы принимали прежнюю редакцию оферты. Действует редакция от 5 октября 2026 г.');
       expect(offer({ offer: OFFER_OLD })).toMatchObject({ state: 'todo', action: 'accept_offer' });
       // Менеджер команды оферту за компанию не принимает: кнопки нет.
       const manager = offer({ offer: null, viewer: 'manager' });
-      expect(manager).toMatchObject({ state: 'waiting', required: false });
+      expect(manager).toMatchObject({ state: 'waiting', required: false, tag: 'просим до начала сезона' });
       expect(manager?.action).toBeUndefined();
       expect(manager?.detail).toContain('Принять оферту может владелец кабинета.');
       // Журнал не прочитан — «не проверено», а не «не принята».
@@ -357,7 +364,9 @@ describe('карточка готовности', () => {
     expect(within(storefront).getByText('Ждёт не вас')).toBeTruthy();
     expect(within(storefront).queryByRole('link')).toBeNull();
     const offer = rows[4];
-    expect(within(offer).getByText('не обязательно')).toBeTruthy();
+    // Принятая оферта подписи не несёт; необязательное соглашение по данным — несёт.
+    expect(within(offer).queryByTestId('item-tag')).toBeNull();
+    expect(within(rows[5]).getByTestId('item-tag').textContent).toBe('не обязательно');
     expect(within(offer).getByRole('link', { name: /Читать/ }).getAttribute('href')).toBe('/legal/offer');
     // Соглашение по данным — пометка ожидания: ни ссылки, ни кнопки, ни галочки.
     const dpa = rows[5];

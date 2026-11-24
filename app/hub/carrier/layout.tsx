@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, BookUser, ListChecks, BellDot, CarFront } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { PartnerChannelBanner } from '@/components/hub/PartnerChannelBanner';
+import { PartnerOfferBanner } from '@/components/hub/PartnerOfferBanner';
 import { useAuth } from '@/contexts/AuthContext';
 
 // Кабинет перевозчика: парк машин (с 13.10 без поездок и запросов мест —
@@ -43,6 +44,7 @@ export default function CarrierHubLayout({ children }: { children: ReactNode }) 
       requiredRole={['transfer', 'transfer_operator', 'cars', 'admin']}
     >
       <PartnerChannelBanner />
+      <PartnerOfferBanner />
       {rentalOnly && pathname === '/hub/carrier' ? null : children}
     </HubLayout>
   );
