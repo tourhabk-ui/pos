@@ -6,7 +6,13 @@
  */
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import type { Block, Inline } from '@/lib/articles/markdown';
+import { inlineText, type Block, type Inline } from '@/lib/articles/markdown';
+
+function isLeadBlock(b: Block): boolean {
+  if (b.t !== 'p') return false;
+  const first = b.c[0];
+  return first?.t === 'strong' && /^коротко\.?$/i.test(inlineText(first.c));
+}
 
 function renderInline(nodes: Inline[], keyBase: string): ReactNode[] {
   return nodes.map((n, i) => {
@@ -47,7 +53,15 @@ export function ArticleMarkdown({ blocks }: { blocks: Block[] }) {
           case 'h3':
             return <h3 key={k} className="text-lg font-semibold pt-2">{renderInline(b.c, k)}</h3>;
           case 'p':
-            return <p key={k} className="text-[var(--text-primary)] leading-relaxed">{renderInline(b.c, k)}</p>;
+            return (
+              <p
+                key={k}
+                className="text-[var(--text-primary)] leading-relaxed"
+                {...(isLeadBlock(b) ? { 'data-lead-answer': '' } : {})}
+              >
+                {renderInline(b.c, k)}
+              </p>
+            );
           case 'ul':
             return (
               <ul key={k} className="list-disc pl-6 space-y-1 text-[var(--text-primary)] leading-relaxed">
