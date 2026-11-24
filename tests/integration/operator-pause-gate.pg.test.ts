@@ -8,7 +8,10 @@
  *   - тур компании на паузе (slug из OPERATOR_SITE_PAUSE_SLUGS) и
  *     приостановленной (`status = 'suspended'`) не проходит шлюз витрины
  *     `publicTourSql`, но открывается по прямой ссылке (`tourOpenByLinkSql`);
- *   - список компаний /operators таких компаний не ставит, живую — ставит.
+ *   - список компаний /operators таких компаний не ставит, живую — ставит;
+ *   - вид туров маршрута (`routeMarketplaceSql`: «Туры по маршруту» и цена
+ *     маршрута «от») таких туров не отдаёт, а для страницы самой компании
+ *     (`byLink`) отдаёт (24.11: вид держит свою копию флагов и паузы не знал).
  *
  * Запуск: KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл
  * честно пропускается (не прогнан, а не зелёный).
@@ -37,6 +40,7 @@ const PARTNER: Record<Kind, { id: string; name: string }> = {
 withPg('пауза оператора — шлюз витрины и список компаний', () => {
   let pool: import('pg').Pool;
   const tour = {} as Record<Kind, string>;
+  const ROUTE_ID = 'b1200000-0000-4000-8000-0000000000aa';
   const slug = {} as Record<Kind, string>;
 
   beforeAll(async () => {
@@ -57,6 +61,16 @@ withPg('пауза оператора — шлюз витрины и списо�
     slug.paused = pausedSlug;
     slug.suspended = 'pause-test-suspended';
 
+    // Маршрут, к которому привязаны все три тура: вид v_route_marketplace
+    // соединяет тур с маршрутом по agent_route_id.
+    await pool.query(
+      `INSERT INTO _agent_route_knowledge_legacy
+         (id, route_dedupe_key, category, title, search_text, source_hash, is_visible, kind)
+       VALUES ($1, 'pause-test-route', 'hiking', 'Пауза тест маршрут', 'пауза тест маршрут',
+               'pause-test', TRUE, 'route')`,
+      [ROUTE_ID],
+    );
+
     for (const k of KINDS) {
       await pool.query(
         `INSERT INTO partners (id, name, category, contact, slug, is_public, is_verified, status)
@@ -66,10 +80,10 @@ withPg('пауза оператора — шлюз витрины и списо�
       const { rows } = await pool.query<{ id: string }>(
         `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
                                      min_participants, max_participants, duration_hours, difficulty,
-                                     is_active, is_published)
-         VALUES ($1, $2, $3, 'jeep_safari', 1000, 'per_person', 1, 10, 8, 'easy', TRUE, TRUE)
+                                     is_active, is_published, agent_route_id)
+         VALUES ($1, $2, $3, 'jeep_safari', 1000, 'per_person', 1, 10, 8, 'easy', TRUE, TRUE, $4)
          RETURNING id::text`,
-        [PARTNER[k].id, `Пауза тест тур ${k}`, `pause-test-tour-${k}`],
+        [PARTNER[k].id, `Пауза тест тур ${k}`, `pause-test-tour-${k}`, ROUTE_ID],
       );
       tour[k] = rows[0].id;
     }
@@ -107,5 +121,30 @@ withPg('пауза оператора — шлюз витрины и списо�
     expect(slugs).not.toContain(slug.paused);
     expect(slugs).not.toContain(slug.suspended);
     expect(r.items.find((i) => i.slug === slug.live)?.tourFacts?.total).toBe(1);
+  });
+
+  const routeTours = async (byLink: boolean): Promise<string[]> => {
+    const { routeMarketplaceSql } = await import('@/lib/routes/marketplace-view');
+    const { rows } = await pool.query<{ id: string }>(
+      `SELECT v.tour_id::text AS id FROM ${routeMarketplaceSql('v', { byLink })} WHERE v.route_id = $1`,
+      [ROUTE_ID],
+    );
+    return rows.map((r) => r.id).sort();
+  };
+
+  it('туры маршрута и его цена: на общей витрине только живая компания', async () => {
+    expect(await routeTours(false)).toEqual([tour.live]);
+    const { routeTourPriceFromSql } = await import('@/lib/routes/route-tour-price');
+    // Цена маршрута — из того же вида: туры компании на паузе её не дают.
+    await pool.query(`UPDATE operator_tours SET base_price = 500 WHERE id::text = ANY($1::text[])`, [[tour.paused, tour.suspended]]);
+    const { rows } = await pool.query<{ p: string | null }>(
+      `SELECT ${routeTourPriceFromSql('ark')} AS p FROM (SELECT $1::uuid AS id, 'route'::text AS kind) ark`,
+      [ROUTE_ID],
+    );
+    expect(Number(rows[0]?.p)).toBe(1000);
+  });
+
+  it('страница самой компании по ссылке видит её туры на маршруте', async () => {
+    expect(await routeTours(true)).toEqual(KINDS.map((k) => tour[k]).sort());
   });
 });

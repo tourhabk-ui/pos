@@ -18,16 +18,28 @@
  * `app/`, `lib/` и `components/` встречается только в этом файле.
  */
 import { testPartnerIdSql } from '@/lib/partners/test-profile';
+import { partnerOffStorefrontIdSql } from '@/lib/operators/site-pause';
 
 /**
  * Представление как источник строк под псевдонимом `alias`:
  * `FROM ${routeMarketplaceSql('v')} JOIN …`. Колонки — те же, что у
  * представления; туров тестового профиля в нём нет.
+ *
+ * Общая витрина (карточка маршрута, цена маршрута в каталоге) не берёт и
+ * туры компании на паузе, отклонённой или приостановленной
+ * (lib/operators/site-pause, 24.11 — продолжение «Разберись с Местечком»):
+ * шлюз `publicTourSql` их уже не пускал, а представление держит свою копию
+ * флагов и паузы не знало.
+ *
+ * `{ byLink: true }` — для страницы самой компании по её адресу (как
+ * `tourOpenByLinkSql`): её маршруты показываются и на паузе.
  */
-export function routeMarketplaceSql(alias: string): string {
+export function routeMarketplaceSql(alias: string, opts: { byLink?: boolean } = {}): string {
   if (!/^[a-z_][a-z0-9_]*$/i.test(alias)) {
     throw new Error(`routeMarketplaceSql: недопустимый алиас «${alias}»`);
   }
+  const offStorefront = opts.byLink ? '' : `
+              AND NOT ${partnerOffStorefrontIdSql('gated_view.operator_id')}`;
   return `(SELECT gated_view.* FROM v_route_marketplace gated_view
-            WHERE NOT ${testPartnerIdSql('gated_view.operator_id')}) ${alias}`;
+            WHERE NOT ${testPartnerIdSql('gated_view.operator_id')}${offStorefront}) ${alias}`;
 }
