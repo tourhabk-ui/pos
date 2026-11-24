@@ -817,7 +817,7 @@ describe('сообщение владельцу о решении', () => {
 describe('дверь решения: POST /api/admin/moderation/tour-edits/[id]', () => {
   const ID = 'e1000000-0000-4000-8000-000000000001';
   const SEEN = 'a'.repeat(64);
-  const done = { partnerId: 'p1', tourId: '51', title: 'Вулкан Горелый', fields: ['base_price'], partnerCategory: 'guide' };
+  const done = { partnerId: 'p1', tourId: '51', title: 'Вулкан Горелый', fields: ['base_price'], partnerCategory: 'guide', automatonFields: [] as string[] };
 
   async function post(body: unknown, id = ID) {
     vi.doMock('@/lib/notifications/partner-edit-notify', () => ({ notifyPartnerEditDecisionQuietly: h.notify }));
@@ -850,7 +850,39 @@ describe('дверь решения: POST /api/admin/moderation/tour-edits/[id]'
     expect(h.notify).toHaveBeenCalledWith({
       partnerId: 'p1', subject: 'tour', label: 'Вулкан Горелый', outcome: 'approved', reason: null,
       firstPublication: false, fieldsWords: 'цена', cabinetPath: '/hub/guide/own',
+      // Правку прислал владелец: про платформу в сообщении ничего.
+      platformFieldsWords: undefined, platformOnly: false,
     });
+  });
+
+  it('правку предложил автомат: одобрение сообщается владельцу как предложение платформы, отказ — не сообщается вовсе', async () => {
+    const auto = { ...done, fields: ['description'], automatonFields: ['description'] };
+    h.decide.mockResolvedValue({ outcome: 'approved', ...auto, published: false, askedPublish: false });
+    expect((await post({ action: 'approve', seen: SEEN })).body.message).toBe('«Вулкан Горелый»: правка на сайте');
+    expect(h.notify).toHaveBeenLastCalledWith(expect.objectContaining({
+      outcome: 'approved', fieldsWords: 'описание', platformFieldsWords: 'описание', platformOnly: true,
+    }));
+    h.notify.mockClear();
+    h.decide.mockResolvedValue({ outcome: 'rejected', ...auto, published: false, askedPublish: false });
+    const no = await post({ action: 'reject', reason: 'Текст повторяет программу' });
+    expect(no.status).toBe(200);
+    expect(no.body.message).toBe('«Вулкан Горелый»: предложение автомата отклонено, на сайте прежняя версия');
+    // Владелец правку не присылал, на его туре ничего не изменилось.
+    expect(h.notify).not.toHaveBeenCalled();
+
+    // В правке есть и поле владельца — отказ ему сообщается, с припиской о платформе.
+    const mixed = { ...done, fields: ['description', 'base_price'], automatonFields: ['description'] };
+    h.decide.mockResolvedValue({ outcome: 'rejected', ...mixed, published: false, askedPublish: false });
+    expect((await post({ action: 'reject', reason: 'Цена не сходится' })).body.message)
+      .toBe('«Вулкан Горелый»: правка отклонена, на сайте прежняя версия');
+    expect(h.notify).toHaveBeenLastCalledWith(expect.objectContaining({
+      outcome: 'rejected', fieldsWords: 'описание, цена', platformFieldsWords: 'описание', platformOnly: false,
+    }));
+    // Автомат дописал поле к туру, который владелец отправил на публикацию: решение — о туре, владельцу сообщается.
+    h.notify.mockClear();
+    h.decide.mockResolvedValue({ outcome: 'rejected', ...auto, published: false, askedPublish: true });
+    await post({ action: 'reject', reason: 'Нет программы дня' });
+    expect(h.notify).toHaveBeenLastCalledWith(expect.objectContaining({ firstPublication: true, platformOnly: false }));
   });
 
   it('новый тур одобрен — «опубликован»; отклонён — «не опубликован», поисковикам ничего', async () => {
@@ -977,7 +1009,17 @@ describe('запреты', () => {
     const users = SOURCES.filter((f) => /from '@\/lib\/tours\/(moderation-store|moderation-read|tour-change)'/.test(read(f)));
     const outside = users.filter((f) => !OWNER_DOOR.test(f)
       && !['lib/tours/moderation-store.ts', 'lib/tours/moderation-review.ts', 'lib/tours/tour-change.ts'].includes(f));
-    expect(outside).toEqual([]);
+    // Вне кабинетов дверь подключают только автоматы платформы — и только
+    // своим входом: дверью человека автомат прошёл бы без пометки «кто
+    // предложил», а с пустой карточкой тура — как администратор, мимо очереди.
+    const automata = outside.filter((f) => /proposeTourChange/.test(read(f)));
+    expect(automata).toEqual(['lib/tours/describe-door.ts']);
+    for (const f of automata) {
+      const src = read(f);
+      expect(src, `${f}: автомат зовёт дверь человека`).not.toMatch(/saveTourChange|stageTourEdit|writeTourPatch/);
+      expect(src, `${f}: автомат не читает тур под замком`).toMatch(/readTourForAutomaton/);
+    }
+    expect(outside.filter((f) => !automata.includes(f))).toEqual([]);
     // Решение — только у дверей администратора: владелец свою правку не одобряет.
     const deciders = SOURCES.filter((f) => /from '@\/lib\/tours\/moderation-review'/.test(read(f))).sort();
     expect(deciders).toEqual([

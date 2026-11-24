@@ -39,6 +39,13 @@ export interface EditDecisionNotice {
   fieldsWords?: string;
   /** Только у тура: кабинет зависит от роли владельца (оператор или гид). */
   cabinetPath?: string;
+  /**
+   * Только у тура: поля, которые предложил автомат платформы, словами
+   * («описание»). Владелец их не присылал — сообщение обязано это сказать.
+   */
+  platformFieldsWords?: string;
+  /** Только у тура: вся правка — предложение автомата, полей владельца в ней нет. */
+  platformOnly?: boolean;
 }
 
 const CABINET_PATH: Record<EditSubject, string> = {
@@ -59,14 +66,25 @@ const SUBJECT_WORD: Record<Exclude<EditSubject, 'tour'>, string> = {
 function tourDecisionText(n: EditDecisionNotice): string {
   const title = `«${escapeHtml(n.label)}»`;
   const what = n.fieldsWords ? ` (${escapeHtml(n.fieldsWords)})` : '';
+  // Что из правки владелец не присылал: предложил автомат платформы.
+  const platform = n.platformFieldsWords ? escapeHtml(n.platformFieldsWords) : '';
+  const fromPlatform = platform && !n.platformOnly ? [`Из этого предложила платформа: ${platform}.`] : [];
   if (n.outcome === 'approved') {
-    return n.firstPublication
-      ? ['<b>Тур одобрен</b>', `${title}: проверка пройдена, тур опубликован.`].join('\n')
-      : ['<b>Правка тура одобрена</b>', `${title}: правка на сайте${what}.`].join('\n');
+    if (n.firstPublication) return ['<b>Тур одобрен</b>', `${title}: проверка пройдена, тур опубликован.`, ...fromPlatform].join('\n');
+    // Вся правка — предложение платформы: владелец её не отправлял и узнаёт о ней отсюда.
+    if (n.platformOnly && platform) {
+      return [
+        '<b>Тур изменён по предложению платформы</b>',
+        `${title}: платформа предложила правку (${platform}), администратор её одобрил — она на сайте.`,
+        'Изменить это можно в кабинете на сайте: правка уйдёт на проверку.',
+      ].join('\n');
+    }
+    return ['<b>Правка тура одобрена</b>', `${title}: правка на сайте${what}.`, ...fromPlatform].join('\n');
   }
   return [
     n.firstPublication ? '<b>Тур не опубликован</b>' : '<b>Правка тура отклонена</b>',
     n.firstPublication ? `${title}: на сайт не вышел.` : `${title}: на сайте прежняя версия${what}.`,
+    ...fromPlatform,
     n.reason ? `Причина: ${escapeHtml(n.reason)}` : 'Причина не записана.',
     'Исправить и отправить на проверку ещё раз можно в кабинете на сайте.',
   ].join('\n');

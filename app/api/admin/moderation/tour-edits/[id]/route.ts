@@ -102,23 +102,36 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   if (decided.outcome === 'approved') pingTourChanged(decided.tourId);
 
-  await notifyPartnerEditDecisionQuietly({
-    partnerId: decided.partnerId,
-    subject: 'tour',
-    label: decided.title,
-    outcome: decided.outcome,
-    reason,
-    firstPublication: decided.askedPublish,
-    fieldsWords: tourFieldsWords(decided.fields),
-    cabinetPath: tourCabinetPath(decided.partnerCategory),
-  });
+  // Вся правка — предложение автомата платформы: полей владельца в ней нет.
+  const platformOnly = !decided.askedPublish && decided.fields.length > 0
+    && decided.automatonFields.length === decided.fields.length;
+  // Отклонённое предложение автомата владельцу не сообщается: он его не
+  // присылал, и на его туре ничего не изменилось. Одобренное — сообщается
+  // всегда: его тур изменился.
+  if (!(decided.outcome === 'rejected' && platformOnly)) {
+    await notifyPartnerEditDecisionQuietly({
+      partnerId: decided.partnerId,
+      subject: 'tour',
+      label: decided.title,
+      outcome: decided.outcome,
+      reason,
+      firstPublication: decided.askedPublish,
+      fieldsWords: tourFieldsWords(decided.fields),
+      cabinetPath: tourCabinetPath(decided.partnerCategory),
+      platformFieldsWords: tourFieldsWords(decided.automatonFields) || undefined,
+      platformOnly,
+    });
+  }
 
   const title = `«${decided.title}»`;
+  const rejectedWords = platformOnly
+    ? `${title}: предложение автомата отклонено, на сайте прежняя версия`
+    : `${title}: правка отклонена, на сайте прежняя версия`;
   return NextResponse.json({
     success: true,
     data: { id: parsedParams.data.id, outcome: decided.outcome, tourId: decided.tourId, published: decided.published },
     message: decided.outcome === 'approved'
       ? (decided.published ? `${title}: тур опубликован` : `${title}: правка на сайте`)
-      : (decided.askedPublish ? `${title}: тур не опубликован` : `${title}: правка отклонена, на сайте прежняя версия`),
+      : (decided.askedPublish ? `${title}: тур не опубликован` : rejectedWords),
   });
 }

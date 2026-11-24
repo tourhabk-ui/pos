@@ -227,6 +227,11 @@ export interface TourEditChange {
   /** Адреса снимков — для превью (только у полей-снимков). */
   beforePhotos?: string[];
   afterPhotos?: string[];
+  /**
+   * Поле предложил автомат платформы — чем он занят, словами
+   * (lib/tours/automaton). Нет — поле прислал владелец.
+   */
+  proposedBy?: string;
 }
 
 const EMPTY = 'не записано';
@@ -248,6 +253,8 @@ function photosOf(v: unknown): string[] {
  */
 export interface TourValueContext {
   placeNames?: ReadonlyMap<string, string> | null;
+  /** Кто предложил поле, словами: {колонка: чем занят автомат}. */
+  proposedBy?: Partial<Record<ModeratedTourColumn, string>>;
 }
 
 /** Адреса мест, названные в строках и правках: по ним читаются имена. */
@@ -326,6 +333,8 @@ export function tourEditChanges(live: Record<string, unknown>, patch: TourConten
       before: tourValueText(field, live[field], ctx),
       after: tourValueText(field, patch[field], ctx),
     };
+    const proposedBy = ctx?.proposedBy?.[field];
+    if (proposedBy) change.proposedBy = proposedBy;
     if (TOUR_PHOTO_FIELDS.includes(field)) {
       change.beforePhotos = photosOf(live[field]);
       change.afterPhotos = photosOf(patch[field]);
