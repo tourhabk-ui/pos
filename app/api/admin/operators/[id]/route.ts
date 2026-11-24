@@ -10,6 +10,7 @@ import { query } from '@/lib/database';
 import { z } from 'zod';
 import { emailService } from '@/lib/notifications/email-service';
 import { storefrontChannelGate, NO_CHANNEL_TEXT, CHANNEL_UNKNOWN_TEXT } from '@/lib/partners/storefront-gate';
+import { approvalEmailHtml, approvalEmailSubject } from '@/lib/operator/approval-email';
 import { rejectionEmailHtml } from '@/lib/operator/rejection-email';
 
 export const dynamic = 'force-dynamic';
@@ -116,19 +117,12 @@ export async function PATCH(
     // Email оператору
     emailService.sendEmail({
       to: partner.email,
-      subject: isAgent ? 'Кабинет агента открыт — Ведар'
-        : isGuide ? 'Профиль гида одобрен — Ведар' : 'Ваша заявка одобрена — TourHub',
-      html: isAgent
-        ? `<p>Здравствуйте, <b>${partner.contact_name}</b>!</p>
-             <p>Профиль агента <b>${partner.company_name}</b> проверен и одобрен. Теперь вы можете оформлять брони для клиентов, делиться реферальными ссылками и запрашивать выплату вознаграждения.</p>
-             <p><a href="https://vedarai.ru/hub/agent">Перейти в кабинет агента →</a></p>`
-        : isGuide
-        ? `<p>Здравствуйте, <b>${partner.contact_name}</b>!</p>
-             <p>Профиль гида <b>${partner.company_name}</b> проверен и одобрен. Теперь он виден туристам в реестре гидов.</p>
-             <p><a href="https://vedarai.ru/guides/${partner.id}">Открыть профиль на сайте →</a></p>`
-        : `<p>Здравствуйте, <b>${partner.contact_name}</b>!</p>
-             <p>Заявка компании <b>${partner.company_name}</b> одобрена. Теперь вы можете публиковать туры.</p>
-             <p><a href="https://vedarai.ru/hub/operator">Перейти в кабинет →</a></p>`,
+      subject: approvalEmailSubject(partner.category),
+      // Имя и название компании — текст людей: в письмо только экранированными.
+      html: approvalEmailHtml({
+        contactName: partner.contact_name, companyName: partner.company_name,
+        category: partner.category, partnerId: partner.id,
+      }),
     }).catch(logSendFailure('email'));
 
     // Telegram уведомление оператору если есть chat_id
