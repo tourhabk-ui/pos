@@ -50,7 +50,7 @@ describe('Долина гейзеров: прямой ответ в SSR-лиде
 
 describe('хаб /articles/goryachie-istochniki: Налычево и Карымшинские', () => {
   it('миграция добавляет раздел про Карымшинские, ссылки на Налычево и Паратунку, источник ИдиЛесом; цен в новом тексте нет', () => {
-    const sql = read('migrations/1511_goryachie_istochniki_karymshinskie.sql');
+    const sql = read('migrations/1512_goryachie_istochniki_karymshinskie.sql');
     expect(sql).toMatch(/WHERE slug = 'goryachie-istochniki'/);
     expect(sql).toMatch(/## Что такое Карымшинские источники\?/);
     expect(sql).toMatch(/\/places\/karymshinskie-istochniki/);
@@ -68,7 +68,7 @@ describe('хаб /articles/goryachie-istochniki: Налычево и Карым�
   });
 
   it('сниппет без «сколько стоит», влезает в 60/160', () => {
-    const sql = read('migrations/1511_goryachie_istochniki_karymshinskie.sql');
+    const sql = read('migrations/1512_goryachie_istochniki_karymshinskie.sql');
     const title = sql.match(/meta_title = \$mt\$(.*)\$mt\$/)?.[1] ?? '';
     const desc = sql.match(/meta_description = \$md\$(.*)\$md\$/)?.[1] ?? '';
     expect(title).toBe('Горячие источники Камчатки: где и как добраться');
