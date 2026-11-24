@@ -444,5 +444,23 @@ withPg('правила цены: действует только провере�
       expect(await ruleRow(waiting.id)).toMatchObject({ moderation_status: 'pending' });
       expect(sent.alerts).toHaveLength(0);
     });
+
+    it('тур не на сайте: карточка так и говорит; одобрение без отпечатка не применяется и мимо роута', async () => {
+      const tour = await addTour('Очередь: тур не на сайте', { published: false });
+      const waiting = await addRule(tour, 0.8, { status: 'pending' });
+      expect((await queue()).find((r) => r.id === waiting.id)).toMatchObject({ kind: 'new', tourOnSite: false });
+      const published = await addTour('Очередь: тур на сайте');
+      const other = await addRule(published, 0.8, { status: 'pending' });
+      expect((await queue()).find((r) => r.id === other.id)).toMatchObject({ tourOnSite: true });
+      // Схема роута требует отпечаток; прямой вызов решения без него тоже ничего не одобряет.
+      const { decidePricingRule } = await import('@/lib/tours/pricing-rule-review');
+      expect(await decidePricingRule({ id: waiting.id, action: 'approve', reason: null, moderatedBy: ADMIN, seen: null }))
+        .toEqual({ outcome: 'changed' });
+      expect(await ruleRow(waiting.id)).toMatchObject({ moderation_status: 'pending' });
+      // Отказу отпечаток не нужен: цену он не меняет.
+      const no = await decidePricingRule({ id: waiting.id, action: 'reject', reason: 'Проверка отказа без отпечатка.', moderatedBy: ADMIN, seen: null });
+      expect(no.outcome).toBe('rejected');
+      expect(await ruleRow(waiting.id)).toMatchObject({ moderation_status: 'rejected' });
+    });
   });
 });
