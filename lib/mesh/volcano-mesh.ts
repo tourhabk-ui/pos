@@ -60,10 +60,23 @@ function saveDeviceId(id: string): void {
   }
 }
 
+/**
+ * Позиция для соседей по мешу — с точностью около километра (скан
+ * безопасности 25.11). Сосед в меше — любой, кто открыл карту рядом: ни
+ * группы, ни проверки у меша нет, а точная позиция раз в 10 секунд позволяла
+ * постороннему вести туриста по маршруту. Соседу хватает «кто-то рядом»;
+ * точные координаты уходят только в SOS (sendSOS), там они спасают.
+ */
+export function coarsePosition(p: PeerPosition | undefined): PeerPosition | undefined {
+  if (!p) return p;
+  const round = (v: number) => Math.round(v * 100) / 100;
+  return { lat: round(p.lat), lng: round(p.lng), accuracy: Math.max(p.accuracy, 1000), timestamp: p.timestamp };
+}
+
 type PeerHandler = (peerId: string, peer: MeshPeer) => void;
 type MessageHandler = (msg: MeshMessage) => void;
 
-interface PeerPosition {
+export interface PeerPosition {
   lat: number;
   lng: number;
   accuracy: number;
@@ -74,6 +87,8 @@ export class VolcanoMesh {
   readonly deviceId: string;
   private room = '';
   private sse: EventSource | null = null;
+  /** Ключ текущего потока сигналинга (кадр `session`); без него POST не примут. */
+  private signalToken: string | null = null;
   private pcs = new Map<string, RTCPeerConnection>();
   private channels = new Map<string, RTCDataChannel>();
   private peers = new Map<string, MeshPeer>();
@@ -167,6 +182,7 @@ export class VolcanoMesh {
       this.sse.close();
       this.sse = null;
     }
+    this.signalToken = null;
     if (this.positionInterval) clearInterval(this.positionInterval);
     this.disconnectTimers.forEach((t) => clearTimeout(t));
     this.disconnectTimers.clear();
@@ -188,6 +204,8 @@ export class VolcanoMesh {
       this.sse.close();
       this.sse = null;
     }
+    // У нового потока будет новый ключ; старый сервер уже не примет.
+    this.signalToken = null;
     this.onStatusChange?.('reconnecting');
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -199,7 +217,11 @@ export class VolcanoMesh {
   private async handleSignal(msg: Record<string, unknown>): Promise<void> {
     const type = msg.type as string;
 
-    if (type === 'room-peers') {
+    if (type === 'session') {
+      // Первый кадр потока — до room-peers, поэтому ключ уже есть, когда
+      // уходят первые offer.
+      this.signalToken = typeof msg.token === 'string' ? msg.token : null;
+    } else if (type === 'room-peers') {
       const peers = msg.peers as string[];
       for (const peerId of peers) {
         await this.createOffer(peerId);
@@ -228,7 +250,7 @@ export class VolcanoMesh {
     await fetch('/api/mesh/signal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to, message }),
+      body: JSON.stringify({ token: this.signalToken, to, message }),
     }).catch(() => {});
   }
 
@@ -312,7 +334,7 @@ export class VolcanoMesh {
       this.sendToPeer(peerId, {
         type: 'position' as MeshMessageType,
         from: this.deviceId,
-        payload: this.currentPosition,
+        payload: coarsePosition(this.currentPosition),
         timestamp: Date.now(),
       });
       // SOS, нажатый до установления связи, уходит первым же каналом
@@ -508,7 +530,7 @@ export class VolcanoMesh {
 
   broadcastPosition(): void {
     if (!this.currentPosition) return;
-    this.broadcast({ type: 'position', payload: this.currentPosition, timestamp: Date.now() });
+    this.broadcast({ type: 'position', payload: coarsePosition(this.currentPosition), timestamp: Date.now() });
   }
 
   /**
