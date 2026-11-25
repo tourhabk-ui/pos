@@ -114,9 +114,55 @@ function getPool(): Pool {
   if (!_pool) {
     const cfg = buildPoolConfig();
     _limits = { max: cfg.max, connectionTimeoutMillis: cfg.connectionTimeoutMillis, idleTimeoutMillis: cfg.idleTimeoutMillis };
-    _pool = new Pool(cfg);
+    _pool = new Pool({ ...cfg, keepAlive: true });
+    // Без слушателя 'error' обрыв простаивающего соединения (сеть Timeweb,
+    // рестарт базы) роняет процесс целиком: pg.Pool пробрасывает его как
+    // необработанное событие. Соединение пул и так выбросит сам — нам нужна
+    // только строка в журнале, чтобы обрывы было видно (#3807 и дубли).
+    _pool.on('error', (err) => {
+      console.error('[db-pool] обрыв простаивающего соединения:', err instanceof Error ? err.message.slice(0, 200) : String(err));
+    });
   }
   return _pool;
+}
+
+/**
+ * Соединение не получено: пул ждал свободное дольше connectionTimeoutMillis
+ * («timeout exceeded when trying to connect», #3805–#3820) или новое
+ * соединение не открылось вовремя. Запрос в базу при этом не уходил — значит,
+ * повторить его один раз безопасно и для записи.
+ */
+export function isAcquireTimeout(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return /timeout exceeded when trying to connect|Connection terminated due to connection timeout/i.test(msg);
+}
+
+/** Пауза перед единственным повтором: короткая, чтобы не держать запрос. */
+const ACQUIRE_RETRY_DELAY_MS = 250;
+
+function logAcquireTimeout(op: 'query' | 'connect', retried: boolean) {
+  // Счётчики пула в момент сбоя говорят, что это: все соединения заняты
+  // (total = max, waiting > 0) или база не отвечает (total < max).
+  const s = poolStats();
+  console.error('[db-pool] соединение не получено', {
+    op, retried, total: s.total, idle: s.idle, waiting: s.waiting, max: s.limits.max,
+  });
+}
+
+async function withAcquireRetry<T>(op: 'query' | 'connect', run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    if (!isAcquireTimeout(err)) throw err;
+    logAcquireTimeout(op, false);
+    await new Promise((r) => setTimeout(r, ACQUIRE_RETRY_DELAY_MS));
+    try {
+      return await run();
+    } catch (err2) {
+      if (isAcquireTimeout(err2)) logAcquireTimeout(op, true);
+      throw err2;
+    }
+  }
 }
 
 export interface PoolStats {
@@ -147,8 +193,15 @@ export function poolStats(): PoolStats {
 }
 
 export const pool = {
-  connect: (...args: unknown[]) => getPool().connect(...args as [any]),
-  query: (...args: unknown[]) => getPool().query(...args as [string, unknown[]?]),
+  // Вызов с колбэком (старый стиль pg) идёт как есть: повтор — только для промисов.
+  connect: (...args: unknown[]) =>
+    typeof args[0] === 'function'
+      ? getPool().connect(...args as [any])
+      : withAcquireRetry('connect', () => getPool().connect()),
+  query: (...args: unknown[]) =>
+    args.some((a) => typeof a === 'function')
+      ? getPool().query(...args as [string, unknown[]?])
+      : withAcquireRetry('query', () => getPool().query(...args as [string, unknown[]?])),
   end: () => _pool?.end(),
   on: (...args: unknown[]) => getPool().on(...args as ['error' | 'connect' | 'acquire' | 'remove' | 'release', (...args: unknown[]) => void]),
 } as unknown as Pool;
