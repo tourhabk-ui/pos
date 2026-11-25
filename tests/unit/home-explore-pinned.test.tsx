@@ -1,7 +1,8 @@
 /**
  * Лента «Исследовать» на главной: места владельца первыми (слово владельца
  * 25.11: «давай в Карточки мест на главную добавим еще карточки три брата и
- * маяк»), за ними — восемь мест каталога, как раньше.
+ * маяк», затем «Оставь Мыс Маячный тоже»), за ними — восемь мест каталога,
+ * как раньше.
  *
  * Здесь — вызов самой сборки ленты (`fetchExplore`) с подменённым каталогом
  * и рендер колоды, которую из этой ленты рисует главная. Что отбор по номеру
@@ -32,6 +33,9 @@ const item = (id: string, title: string, locationType: string): Item =>
 
 const TRI_BRATA = item('ark-tri', 'Скалы Три Брата', 'rock');
 const MAYAK = item('ark-mayak', 'Маяк Петропавловский', 'historical');
+const MYS = item('ark-mys', 'Мыс Маячный', 'cape');
+const OWNERS = [TRI_BRATA, MAYAK, MYS];
+const N = OWNERS.length;
 // Каталог: десять мест разных типов, и «Три Брата» среди них — повтора быть не должно.
 const POOL = [
   item('v1', 'Вулкан Горелый', 'volcano'), item('l1', 'Озеро Курильское', 'lake'),
@@ -59,18 +63,19 @@ afterEach(() => {
 });
 
 describe('места владельца в ленте «Исследовать»', () => {
-  it('список — Скалы Три Брата и Маяк Петропавловский по номерам мест, в этом порядке', () => {
+  it('список — Скалы Три Брата, Маяк Петропавловский и Мыс Маячный по номерам мест, в этом порядке', () => {
     expect(EXPLORE_PINNED_PLACES).toEqual([
       { placeId: 'e265d0f0-8187-4d7a-b0e4-fe9be5a2d9e0', name: 'Скалы Три Брата' },
       { placeId: '0aa97c3c-c4d7-496d-a879-7fa065d7f8de', name: 'Маяк Петропавловский' },
+      { placeId: '3268583a-05e0-4f59-8d2c-a87a69be14a6', name: 'Мыс Маячный' },
     ]);
   });
 
   it('первыми — места владельца, за ними восемь мест каталога без повтора', async () => {
-    catalog(async () => ({ items: POOL }), async () => ({ items: [TRI_BRATA, MAYAK] }));
+    catalog(async () => ({ items: POOL }), async () => ({ items: OWNERS }));
     const lenta = await fetchExplore();
-    expect(lenta.map((p) => p.title).slice(0, 2)).toEqual(['Скалы Три Брата', 'Маяк Петропавловский']);
-    expect(lenta).toHaveLength(2 + EXPLORE_LIMIT);
+    expect(lenta.map((p) => p.title).slice(0, N)).toEqual(['Скалы Три Брата', 'Маяк Петропавловский', 'Мыс Маячный']);
+    expect(lenta).toHaveLength(N + EXPLORE_LIMIT);
     expect(lenta.filter((p) => p.title === 'Скалы Три Брата')).toHaveLength(1);
     expect(lenta[0]).toMatchObject({ id: 'ark-tri', typeLabel: expect.any(String), urlSlug: 'ark-tri' });
     expect(err).not.toHaveBeenCalled();
@@ -78,7 +83,7 @@ describe('места владельца в ленте «Исследовать»
   });
 
   it('места владельца спрашиваются у каталога по номерам мест, а не своим запросом', async () => {
-    catalog(async () => ({ items: POOL }), async () => ({ items: [TRI_BRATA, MAYAK] }));
+    catalog(async () => ({ items: POOL }), async () => ({ items: OWNERS }));
     await fetchExplore();
     const pinnedCall = queryCatalog.mock.calls.find((c) => (c[1] as CatalogInternal | undefined)?.placeIds);
     expect(pinnedCall?.[1]).toEqual({ placeIds: EXPLORE_PINNED_PLACES.map((p) => p.placeId) });
@@ -89,13 +94,13 @@ describe('места владельца в ленте «Исследовать»
   });
 
   it('место скрыто или слито — его нет в ленте, а лог называет, кого ждали и кто пришёл', async () => {
-    catalog(async () => ({ items: POOL }), async () => ({ items: [MAYAK] }));
+    catalog(async () => ({ items: POOL }), async () => ({ items: [MAYAK, MYS] }));
     const lenta = await fetchExplore();
-    expect(lenta[0].title).toBe('Маяк Петропавловский');
-    expect(lenta).toHaveLength(1 + EXPLORE_LIMIT);
+    expect(lenta.slice(0, 2).map((p) => p.title)).toEqual(['Маяк Петропавловский', 'Мыс Маячный']);
+    expect(lenta).toHaveLength(2 + EXPLORE_LIMIT);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('не все места владельца'), {
-      expected: ['Скалы Три Брата', 'Маяк Петропавловский'],
-      got: ['Маяк Петропавловский'],
+      expected: ['Скалы Три Брата', 'Маяк Петропавловский', 'Мыс Маячный'],
+      got: ['Маяк Петропавловский', 'Мыс Маячный'],
     });
   });
 
@@ -107,9 +112,9 @@ describe('места владельца в ленте «Исследовать»
   });
 
   it('каталог не прочитался — места владельца всё равно в ленте, отказ в логе', async () => {
-    catalog(() => Promise.reject(Object.assign(new Error('down'), { code: '08006' })), async () => ({ items: [TRI_BRATA, MAYAK] }));
+    catalog(() => Promise.reject(Object.assign(new Error('down'), { code: '08006' })), async () => ({ items: OWNERS }));
     const lenta = await fetchExplore();
-    expect(lenta.map((p) => p.title)).toEqual(['Скалы Три Брата', 'Маяк Петропавловский']);
+    expect(lenta.map((p) => p.title)).toEqual(['Скалы Три Брата', 'Маяк Петропавловский', 'Мыс Маячный']);
     expect(err).toHaveBeenCalledWith(expect.stringContaining('места каталога не прочитаны'), { sqlstate: '08006', message: 'down' });
   });
 
@@ -127,13 +132,15 @@ describe('места владельца в ленте «Исследовать»
     expect(out.map((p) => p.id)).toEqual(['ark-tri', 'v1', 'l1', 'h1']);
   });
 
-  it('колода главной открывается «Тремя Братьями», маяк — следующим краем', async () => {
-    catalog(async () => ({ items: POOL }), async () => ({ items: [TRI_BRATA, MAYAK] }));
+  it('колода главной открывается «Тремя Братьями», маяк и мыс — следующими краями', async () => {
+    catalog(async () => ({ items: POOL }), async () => ({ items: OWNERS }));
     render(<PlaceSwipeDeck places={await fetchExplore()} />);
     const deck = screen.getByRole('group', { name: 'Места: листайте карточки' });
     expect(deck.querySelector('a:not([aria-hidden])')).toHaveAttribute('href', '/places/ark-tri');
-    expect(screen.getByText(`1 из ${2 + EXPLORE_LIMIT}`)).toBeInTheDocument();
+    expect(screen.getByText(`1 из ${N + EXPLORE_LIMIT}`)).toBeInTheDocument();
     const peeks = Array.from(deck.querySelectorAll('[data-deck-peek]')).map((el) => el.textContent);
-    expect(peeks).toEqual(expect.arrayContaining([expect.stringContaining('Маяк Петропавловский')]));
+    expect(peeks).toEqual(expect.arrayContaining([
+      expect.stringContaining('Маяк Петропавловский'), expect.stringContaining('Мыс Маячный'),
+    ]));
   });
 });
