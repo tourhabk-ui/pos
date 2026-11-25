@@ -607,6 +607,35 @@ withPg('поиск маршрута по виду места пути', () => {
       }
     });
   });
+
+  // Лента «Исследовать» на главной (слово владельца 25.11): места владельца
+  // читаются тем же каталогом по `places.id` (lib/home/explore-pinned).
+  describe('места владельца для главной: отбор по номеру места (25.11)', () => {
+    const pinned = (placeIds: string[], params: Record<string, string> = {}) =>
+      queryCatalog(schema.parse({ kind: 'place', limit: '10', sort: 'recommended', ...params }), { placeIds });
+
+    it('только названные места и в названном порядке; скрытое, слитое и несуществующее — нет', async () => {
+      const ids = ['place-lake', 'place-volc-hidden', 'place-volc', 'place-volc-merged', 'place-nope'];
+      const { items, meta } = await pinned(ids);
+      expect(items.map((i) => i.title)).toEqual(['place-lake', 'place-volc']);
+      expect(items.every((i) => i.kind === 'place')).toBe(true);
+      expect(meta.total).toBe(2);
+      const back = await pinned(['place-volc', 'place-lake']);
+      expect(back.items.map((i) => i.title)).toEqual(['place-volc', 'place-lake']);
+    });
+
+    it('маршрут с тем же id VIEW, что у места, местом не становится — и без фильтра вида', async () => {
+      // Без `kind`: отбор по местам сам держит «только места», а не опирается
+      // на то, что вызывающий не забыл вид.
+      const { items } = await queryCatalog(schema.parse({ limit: '10' }), { placeIds: ['place-twin'] });
+      expect(items.map((i) => [i.kind, i.title])).toEqual([['place', 'place-twin']]);
+    });
+
+    it('адресом каталога отбор не задать: публичная схема его отбрасывает', async () => {
+      const all = await queryCatalog(schema.parse({ kind: 'place', limit: '2000', placeIds: 'place-lake' }));
+      expect(all.items.length).toBeGreaterThan(1);
+    });
+  });
 });
 
 /**
