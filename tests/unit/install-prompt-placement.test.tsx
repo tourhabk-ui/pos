@@ -25,6 +25,7 @@ afterEach(() => {
 describe('где приглашение не показывается', () => {
   it.each([
     '/catalog', '/catalog/tours/27', '/marketplace', '/marketplace/tours/27', '/booking-success/5',
+    '/confirm', '/confirm/change',
   ])('%s — путь покупки', p => {
     expect(installPromptHiddenOn(p)).toBe(true);
   });

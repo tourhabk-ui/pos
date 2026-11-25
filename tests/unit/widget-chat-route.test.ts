@@ -184,9 +184,11 @@ describe('туры — только этого партнёра', () => {
     // Параметр партнёра — именно в условии на оператора тура. Сам отбор на
     // настоящей базе — tests/integration/public-tour-gate.pg.test.ts (loadPartnerTours).
     expect(String(toursCall?.[0])).toMatch(/ot\.operator_id(::text)?\s*=\s*\$1\b/);
-    // Шлюз витрины — тот же, что у каталога: снятый с витрины тур не идёт.
-    const { publicTourSql } = await import('@/lib/tours/public-visibility');
-    expect(String(toursCall?.[0])).toContain(publicTourSql('ot'));
+    // Шлюз — флаги каталога без паузы оператора: виджет — витрина самого
+    // партнёра (lib/tours/public-visibility, tourOpenByLinkSql). Черновик и
+    // снятый тур не идут.
+    const { tourOpenByLinkSql } = await import('@/lib/tours/public-visibility');
+    expect(String(toursCall?.[0])).toContain(tourOpenByLinkSql('ot'));
 
     const system = sentToModel()[0].content;
     expect(system).toContain('Курильское озеро (вертолёт)');

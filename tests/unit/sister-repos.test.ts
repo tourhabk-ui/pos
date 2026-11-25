@@ -420,7 +420,7 @@ describe('скрипт сверки — исполнением', () => {
 
 describe('правило названо агенту там, где он его прочтёт', () => {
   it('CLAUDE.md называет каждый соседний репозиторий, реестр и прогон', () => {
-    const doc = read('CLAUDE.md');
+    const doc = read('.claude/skills/vedar-sister-repos/SKILL.md'); // §22 CLAUDE.md
     const section = doc.slice(doc.indexOf('## 22. СОСЕДНИЕ РЕПОЗИТОРИИ'));
     expect(section.length, 'раздела нет').toBeGreaterThan(200);
     for (const s of SISTER_REPOS) expect(section, s.repo).toContain('`' + s.repo + '`');

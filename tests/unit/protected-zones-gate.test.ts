@@ -325,10 +325,49 @@ describe('проход поверх API GitHub', () => {
   });
 });
 
+/**
+ * §7 живёт в двух местах (25.11, слово владельца «Разбей на скиллы»): сжатое
+ * ядро в `CLAUDE.md` и полный текст в скилле `vedar-protected-zones`, который
+ * объявлен источником истины. Сторож судит оба: пункт, добавленный только в
+ * скилл или только в ядро без зоны реестра, — красный (находка ревью
+ * безопасности #3832).
+ */
+const RULES_SKILL_S7 = '.claude/skills/vedar-protected-zones/SKILL.md';
+function section7Of(text: string): { start: number; section: string } {
+  const start = text.indexOf('## 7. НЕ ТРОГАТЬ');
+  const next = text.indexOf('\n## 8.', start);
+  return { start, section: start < 0 ? '' : text.slice(start, next < 0 ? text.length : next) };
+}
+
+/**
+ * Пункты §7, которые зоной согласия не являются, — с причиной. Список
+ * самоустаревающий: пункт ушёл из §7 — запись обязана уйти отсюда.
+ */
+const NOT_A_ZONE: Record<string, string> = {
+  'Ставку комиссии назначает владелец':
+    'правило о данных (partners.commission_current меняет только владелец), не о файлах; держит tests/unit/commission-rate-decided.test.ts',
+  Миграции: 'правило нумерации (только вперёд, max + 1), не зона согласия; держит tests/unit/migration-order.test.ts',
+};
+
+/** Головное слово пункта: `путь`, **жирное**, заголовок ### или слово до тире. */
+const lead = (line: string): string => {
+  const tick = /^- (`[^`]+`)/.exec(line);
+  if (tick) return tick[1];
+  const bold = /^- (\*\*[^*]+\*\*)/.exec(line);
+  if (bold) return bold[1];
+  const h = /^### (.+?)(?:\s*\(|$)/.exec(line);
+  if (h) return h[1].trim();
+  return (/^- (.+?)\s+—/.exec(line)?.[1] ?? line).trim();
+};
+function itemsOf(section: string): string[] {
+  return section.split('\n')
+    .filter((l) => /^- /.test(l) || /^### /.test(l))
+    .map(lead);
+}
+
 describe('реестр зон против репозитория и CLAUDE.md §7', () => {
   const CLAUDE = read('CLAUDE.md');
-  const s7start = CLAUDE.indexOf('## 7. НЕ ТРОГАТЬ');
-  const SECTION7 = CLAUDE.slice(s7start, CLAUDE.indexOf('\n## 8.', s7start));
+  const { start: s7start, section: SECTION7 } = section7Of(CLAUDE);
 
   it('§7 найден и ссылается на реестр, проверку и этот сторож', () => {
     expect(s7start).toBeGreaterThan(0);
@@ -357,29 +396,7 @@ describe('реестр зон против репозитория и CLAUDE.md �
     }
   });
 
-  /**
-   * Пункты §7, которые зоной согласия не являются, — с причиной. Список
-   * самоустаревающий: пункт ушёл из §7 — запись обязана уйти отсюда.
-   */
-  const NOT_A_ZONE: Record<string, string> = {
-    'Ставку комиссии назначает владелец':
-      'правило о данных (partners.commission_current меняет только владелец), не о файлах; держит tests/unit/commission-rate-decided.test.ts',
-    Миграции: 'правило нумерации (только вперёд, max + 1), не зона согласия; держит tests/unit/migration-order.test.ts',
-  };
-
-  /** Головное слово пункта: `путь`, **жирное**, заголовок ### или слово до тире. */
-  const lead = (line: string): string => {
-    const tick = /^- (`[^`]+`)/.exec(line);
-    if (tick) return tick[1];
-    const bold = /^- (\*\*[^*]+\*\*)/.exec(line);
-    if (bold) return bold[1];
-    const h = /^### (.+?)(?:\s*\(|$)/.exec(line);
-    if (h) return h[1].trim();
-    return (/^- (.+?)\s+—/.exec(line)?.[1] ?? line).trim();
-  };
-  const ITEMS = SECTION7.split('\n')
-    .filter((l) => /^- /.test(l) || /^### /.test(l))
-    .map(lead);
+  const ITEMS = itemsOf(SECTION7);
 
   it('каждый пункт §7 — зона реестра либо записан с причиной', () => {
     expect(ITEMS.length).toBeGreaterThan(4);
@@ -423,6 +440,43 @@ describe('реестр зон против репозитория и CLAUDE.md �
   it('третий приёмник оплаты вне app/api/payments — в зоне оплаты', () => {
     expect(SECTION7).toContain('/api/hub/operator/payments/webhook');
     expect(zonesOfFile('app/api/hub/operator/payments/webhook/route.ts').map((z) => z.id)).toEqual(['payments']);
+  });
+});
+
+describe('полный §7 в скилле vedar-protected-zones против реестра зон', () => {
+  const { start, section: SKILL7 } = section7Of(read(RULES_SKILL_S7));
+  const ITEMS = itemsOf(SKILL7);
+  const CORE_ITEMS = itemsOf(section7Of(read('CLAUDE.md')).section);
+
+  it('§7 найден в скилле и называет реестр, проверку и этот сторож', () => {
+    expect(start).toBeGreaterThan(0);
+    for (const p of [
+      'scripts/protected-zones.mjs',
+      '.github/workflows/protected-zones.yml',
+      '.github/workflows/protected-zones-push.yml',
+      'tests/unit/protected-zones-gate.test.ts',
+    ]) {
+      expect(SKILL7, `§7 скилла не называет ${p}`).toContain(p);
+    }
+  });
+
+  it('каждый пункт §7 скилла — зона реестра либо записан с причиной', () => {
+    expect(ITEMS.length).toBeGreaterThan(4);
+    const unclaimed = ITEMS.filter((it) => !PROTECTED_ZONES.some((z) => z.claude.includes(it)) && !(it in NOT_A_ZONE));
+    expect(unclaimed, 'пункт §7 скилла без зоны и без причины').toEqual([]);
+  });
+
+  it('ссылка каждой зоны на §7 стоит и в скилле', () => {
+    for (const z of PROTECTED_ZONES) {
+      const named = [...z.claude.matchAll(/(`[^`]+`|\*\*[^*]+\*\*)/g)].map((m) => m[1]);
+      for (const n of named) expect(SKILL7, `${z.id}: в §7 скилла нет ${n}`).toContain(n);
+    }
+  });
+
+  it('ядро и скилл перечисляют одни и те же пункты §7', () => {
+    // Ядро сжато, но список зон в нём полный: пункт в одном месте без другого —
+    // расхождение, которое читающий ядро не увидит.
+    expect([...new Set(CORE_ITEMS)].sort()).toEqual([...new Set(ITEMS)].sort());
   });
 });
 

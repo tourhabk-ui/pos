@@ -16,7 +16,7 @@ import { z } from 'zod';
 import { pool } from '@/lib/db-pool';
 import { PriceTierMissError } from '@/lib/tours/price-tiers';
 import { honestTourPrice } from '@/lib/tours/honest-price';
-import { publicTourSql } from '@/lib/tours/public-visibility';
+import { tourOpenByLinkSql } from '@/lib/tours/public-visibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,7 +60,7 @@ export async function GET(
   }>(
     `SELECT base_price, title, price_unit, multi_day_count, duration_hours
        FROM operator_tours
-      WHERE id = $1 AND ${publicTourSql('')}`,
+      WHERE id = $1 AND ${tourOpenByLinkSql('')}`,
     [id]
   );
 

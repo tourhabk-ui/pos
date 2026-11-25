@@ -8,7 +8,7 @@ import { OperatorRating } from '@/components/operator/OperatorRating';
 import { query } from '@/lib/database';
 import type { OperatorProfileRow, OperatorPageTourRow } from '@/lib/types/db-rows';
 import { ACTIVE_CONSENT_JSON_SQL, parseActiveConsent } from '@/lib/partners/material-consent';
-import { publicTourSql } from '@/lib/tours/public-visibility';
+import { tourOpenByLinkSql } from '@/lib/tours/public-visibility';
 import { priceUnitLabel } from '@/lib/tours/labels';
 import {
   extractServices, extractFeatures, extractContacts, extractFaq,
@@ -95,8 +95,10 @@ async function getOperatorProfile(slug: string): Promise<OperatorProfileRow | nu
 /**
  * Туры оператора на витрине. До 29.09 страница оператора не показывала его
  * туров вовсе: турист видел описание базы и цены «от», но дойти отсюда до
- * брони было нельзя. Шлюз витрины — общий (`publicTourSql`): черновик и
- * снятый с витрины тур здесь не появляются.
+ * брони было нельзя. Шлюз — прямой ссылки (`tourOpenByLinkSql`): черновик и
+ * снятый с витрины тур здесь не появляются. Компания на паузе (23.11,
+ * lib/operators/site-pause) из списка /operators убрана, но её страница по
+ * ссылке открывается со своими турами: это её витрина, не общая.
  */
 async function getOperatorTours(operatorId: string): Promise<OperatorPageTourRow[]> {
   const result = await query<OperatorPageTourRow>(
@@ -107,7 +109,7 @@ async function getOperatorTours(operatorId: string): Promise<OperatorPageTourRow
             to_char(ot.season_end, 'DD.MM.YYYY') AS season_end,
             ot.photos, ot.tour_image
        FROM operator_tours ot
-      WHERE ot.operator_id::text = $1::text AND ${publicTourSql('ot')}
+      WHERE ot.operator_id::text = $1::text AND ${tourOpenByLinkSql('ot')}
       ORDER BY (ot.pinned_at IS NULL), ot.pinned_at, ot.season_start NULLS LAST, ot.id`,
     [operatorId]
   );

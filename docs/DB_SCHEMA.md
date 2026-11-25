@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-23 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+5): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1510_llm_usage_spent_where.sql`.
+> Снято 2026-11-24 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+5): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1511_operator_tour_edits_proposed_by.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
@@ -8,7 +8,7 @@
 |---|---:|
 | Таблиц | 343 |
 | Представлений (VIEW) | 13 |
-| Колонок | 4391 |
+| Колонок | 4392 |
 | Внешних ключей | 407 |
 | Таблиц без единого FK в обе стороны | 93 |
 
@@ -629,9 +629,9 @@ SOS пишет `sos_events` (`app/api/safety/sos`, §7). Внешние сигн
 
 `id bigint!=` `operator_tour_id bigint!` `tourist_email varchar` `tourist_phone varchar` `tourist_name varchar` `booking_date date!` `participants integer!` `adult_count integer` `child_count integer` `base_total_price numeric` `discount_percent integer=` `discount_reason varchar` `final_price numeric` `currency varchar=` `payment_status varchar!=` `payment_method varchar` `payment_id varchar` `paid_at timestamp` `booking_status varchar!=` `cancellation_reason varchar` `cancelled_at timestamp` `weather_alert_triggered boolean=` `alternative_offered_tour_id bigint` `customer_chose_alternative boolean=` `alternative_booked_date date` `confirmation_sent boolean=` `reminder_sent_24h boolean=` `weather_alert_sent boolean=` `special_requests text` `notes text` `metadata jsonb` `created_at timestamp=` `updated_at timestamp=` `created_via varchar` `deleted_at timestamp` `octo_uuid uuid=` `octo_api_key_id uuid` `hold_expires_at timestamp` `option_id bigint` `availability_id varchar` `tochka_qr_id varchar` `paid_amount numeric` `end_date date` `duration_days integer` `uon_request_id integer` `uon_synced_at timestamptz` `referral_link_id uuid` `user_id uuid` `reseller_reference varchar` `admin_notes text` `review_requested_at timestamptz` `access_token uuid!=` `pd_consent_at timestamptz` `pd_consent_ip varchar` `pd_consent_source varchar` `pd_consent_version varchar` `guide_partner_id uuid` `agent_user_id uuid` `lead_id uuid`
 
-**operator_tour_edits** · 13 кол. · PK id · created_by → users.id, moderated_by → users.id, partner_id → partners.id, tour_id → operator_tours.id · индексов 4
+**operator_tour_edits** · 14 кол. · PK id · created_by → users.id, moderated_by → users.id, partner_id → partners.id, tour_id → operator_tours.id · индексов 4
 
-`id uuid!=` `tour_id bigint!` `partner_id uuid!` `created_by uuid` `patch jsonb!=` `wants_publish boolean!=` `live_before jsonb` `moderation_status varchar!=` `moderation_reason text` `moderated_at timestamptz` `moderated_by uuid` `created_at timestamptz!=` `updated_at timestamptz!=`
+`id uuid!=` `tour_id bigint!` `partner_id uuid!` `created_by uuid` `patch jsonb!=` `wants_publish boolean!=` `live_before jsonb` `moderation_status varchar!=` `moderation_reason text` `moderated_at timestamptz` `moderated_by uuid` `created_at timestamptz!=` `updated_at timestamptz!=` `proposed_by jsonb!=`
 
 **operator_tour_reviews** · 15 кол. · PK id · tour_id → operator_tours.id, user_id → users.id · индексов 4
 

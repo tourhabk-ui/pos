@@ -29,7 +29,7 @@
 import { pool } from '@/lib/db-pool';
 import { freeSlotsSql, occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { logText } from '@/lib/log/log-text';
-import { publicTourSql } from '@/lib/tours/public-visibility';
+import { publicTourSql, tourOpenByLinkSql } from '@/lib/tours/public-visibility';
 
 const ALIAS = /^[a-z_][a-z0-9_]*$/;
 
@@ -252,7 +252,7 @@ export const NEAR_FREE_DATES_SQL = `
     JOIN operator_tours ot_fd ON ot_fd.id = ta_fd.operator_tour_id
     CROSS JOIN LATERAL (${occupiedOnDaySql({ booking: 'ob_fd', day: 'ta_fd.date', tourId: 'ta_fd.operator_tour_id' })}) occ_fd
    WHERE ta_fd.operator_tour_id = $1::bigint
-     AND ${publicTourSql('ot_fd')}
+     AND ${tourOpenByLinkSql('ot_fd')}
      AND ta_fd.date >= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date
      AND ta_fd.date <= (NOW() AT TIME ZONE 'Asia/Kamchatka')::date + INTERVAL '1 year'
      AND COALESCE(ta_fd.is_cancelled, false) = false

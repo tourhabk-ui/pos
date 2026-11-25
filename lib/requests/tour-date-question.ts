@@ -22,7 +22,7 @@
  */
 import { pool } from '@/lib/db-pool';
 import { isRealDate, kamchatkaToday } from '@/lib/seat-requests/core';
-import { publicTourSql } from '@/lib/tours/public-visibility';
+import { tourOpenByLinkSql } from '@/lib/tours/public-visibility';
 import { isClosedByPlatform } from '@/lib/tours/date-closure';
 import { PLATFORM_CLOSED_LEAD_NOTE } from '@/lib/mcp/booking-closed-date';
 import { createLeadDetailed, findRecentLeadByCommentPrefix } from '@/lib/leads/create';
@@ -46,7 +46,7 @@ export const TOUR_FOR_QUESTION_SQL = `
   SELECT ot.id::text AS id, ot.title, ot.operator_id::text AS operator_id, p.name AS operator_name
     FROM operator_tours ot
     LEFT JOIN partners p ON p.id = ot.operator_id
-   WHERE ot.id = $1::bigint AND ${publicTourSql('ot')}`;
+   WHERE ot.id = $1::bigint AND ${tourOpenByLinkSql('ot')}`;
 
 export interface DateQuestionInput {
   tourId: number;

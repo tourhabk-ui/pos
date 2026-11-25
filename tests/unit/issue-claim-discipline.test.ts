@@ -33,7 +33,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const CLAUDE_MD = readFileSync(join(process.cwd(), 'CLAUDE.md'), 'utf-8');
+// §8 CLAUDE.md живёт в скилле vedar-ai-agents (25.11).
+const CLAUDE_MD = readFileSync(join(process.cwd(), '.claude/skills/vedar-ai-agents/SKILL.md'), 'utf-8');
 const WORKFLOW = readFileSync(join(process.cwd(), '.github/workflows/issue-claim-check.yml'), 'utf-8');
 
 describe('правило записано и не потерялось', () => {

@@ -26,7 +26,7 @@ import { createPendingRequest, readPendingRequest, claimPendingRequest, maskedPh
 import { sendPendingRequest, consentPurposesForTool } from '@/lib/mcp/pending-confirm';
 import { POST as readRoute } from '@/app/api/requests/pending/route';
 import { POST as sendRoute } from '@/app/api/requests/pending/send/route';
-import { ConfirmClient } from '@/app/confirm/_ConfirmClient';
+import { ConfirmClient, expiresAtLabel } from '@/app/confirm/_ConfirmClient';
 
 const TOKEN = 'A'.repeat(32);
 const BOOKED = 'Заявка оператору принята: "Мутновский вулкан", 2099-11-09. Это заявка, не оплата. Человеку дайте ссылку https://vedarai.ru/request-status#k1.';
@@ -263,6 +263,37 @@ describe('страница /confirm', () => {
     fireEvent.click(screen.getByRole('button', { name: /Отправить/ }));
     await waitFor(() => expect(screen.getByText('Заявка отправлена')).toBeTruthy());
     vi.unstubAllGlobals();
+  });
+
+  it('на телефоне понятно, почему кнопка не жмётся и до какого времени ссылка; после отправки фокус — на итоге (проход 25.11)', async () => {
+    window.location.hash = `#${TOKEN}`;
+    const expires = new Date(Date.now() + 60 * 60_000).toISOString();
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === '/api/requests/pending') {
+        return new Response(JSON.stringify({ success: true, data: { state: 'pending', draft: 'Черновик', name: 'Тест', phone: '+7 *** ***-45-67', consent_purposes: ['operator'], expires_at: expires } }));
+      }
+      return new Response(JSON.stringify({ success: true, data: { created: true, text: 'Заявка создана.' } }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<ConfirmClient />);
+    await screen.findByText('Черновик');
+    const button = screen.getByRole('button', { name: /Отправить/ });
+    const hint = screen.getByText('Отметьте согласие выше, чтобы отправить.');
+    expect(button.getAttribute('aria-describedby')).toBe(hint.id);
+    expect(screen.getByText(new RegExp(`Ссылка действует до ${expiresAtLabel(expires)!}`))).toBeTruthy();
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(screen.queryByText('Отметьте согласие выше, чтобы отправить.')).toBeNull();
+    expect(button.getAttribute('aria-describedby')).toBeNull();
+    fireEvent.click(button);
+    await screen.findByText('Заявка отправлена');
+    expect(document.activeElement).toBe(screen.getByText('Заявка отправлена').closest('section'));
+    vi.unstubAllGlobals();
+  });
+
+  it('время ссылки: «ЧЧ:ММ»; дата не разобралась — строки нет', () => {
+    expect(expiresAtLabel('2099-01-01T10:05:00Z')).toMatch(/^\d{2}:\d{2}$/);
+    expect(expiresAtLabel('')).toBeNull();
+    expect(expiresAtLabel('не дата')).toBeNull();
   });
 
   it('неполная ссылка — объяснение, а не запрос к серверу', async () => {

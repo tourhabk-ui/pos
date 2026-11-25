@@ -17,7 +17,7 @@ B2C/B2B платформа: туристы ищут маршруты и брон
 
 У Ведара есть **публичный MCP-сервер** (vedar-mcp): endpoint `https://vedarai.ru/api/mcp`, транспорт Streamable HTTP (JSON-RPC 2.0), авторизация не требуется. 25 инструментов: туры и их реальная занятость, сравнение 2–4 туров фактами из базы, безопасность мест и маршрутов, погода, жильё, трансферы, прокат машин без водителя, план поездки и его правка, заявки с подтверждением человеком — на подбор, на тур и дату, на вахтовку целой машиной, владельцу жилья, прокатчику на машину, заявка на поездку целиком (тур + жильё + машина одним вызовом), состояние заявки по ключу, отмена и перенос заявки на тур по тому же ключу (пока оператор не ответил — сразу, после — просьбой ему). Подробнее: [vedarai.ru/mcp](https://vedarai.ru/mcp) · манифест [/.well-known/mcp.json](https://vedarai.ru/.well-known/mcp.json) · [/llms.txt](https://vedarai.ru/llms.txt).
 
-В каталогах: официальный реестр MCP — `ru.vedarai/mcp` (манифест публикации — `server.json`), Glama — `glama.json`. Smithery 31.10.2026 закрыл публикации (карточка `tourhabk/vedar` — 404), поэтому в живом списке его нет. Идентификаторы — в `lib/mcp/catalogs.ts`; их же отдают манифест, `/llms.txt` и `/mcp`. Карточка сервера по расширению MCP Server Card — [/api/mcp/server-card](https://vedarai.ru/api/mcp/server-card), каталог домена AI Catalog — [/.well-known/ai-catalog.json](https://vedarai.ru/.well-known/ai-catalog.json) (`lib/mcp/server-card.ts`). Тот же агент по A2A: визитки [/.well-known/agent-card.json](https://vedarai.ru/.well-known/agent-card.json) (1.0) и [/.well-known/agent.json](https://vedarai.ru/.well-known/agent.json) (0.3), вход `/api/a2a`. Запись в реестре [a2a-registry.org](https://www.a2a-registry.org/agent/ru.vedarai.___vedar_kamchatka) — `ru.vedarai.___vedar_kamchatka`, страница прочитана открытой 14.11 («DNS Verified»). В другой реестр, A2A Registry (a2aregistry.org), 12.10 подана заявка `538d68a1-16a1-4e55-af5a-8d672b6f1ac7`, статус при подаче — «на проверке»; что запись там опубликована, Ведар не утверждает (`lib/a2a/catalogs.ts`). Для агентов без MCP и A2A (GPT Actions, Copilot Studio, OpenAPI-наборы) — описание OpenAPI 3.1 [/openapi.json](https://vedarai.ru/openapi.json) и каталог API по RFC 9727 [/.well-known/api-catalog](https://vedarai.ru/.well-known/api-catalog) (`lib/api/openapi.ts`).
+В каталогах: официальный реестр MCP — `ru.vedarai/mcp` (манифест публикации — `server.json`), Glama — `glama.json`, запись сервера [![tourhabk-ui/pos MCP server](https://glama.ai/mcp/servers/tourhabk-ui/pos/badges/score.svg)](https://glama.ai/mcp/servers/tourhabk-ui/pos). Smithery 31.10.2026 закрыл публикации (карточка `tourhabk/vedar` — 404), поэтому в живом списке его нет. Идентификаторы — в `lib/mcp/catalogs.ts`; их же отдают манифест, `/llms.txt` и `/mcp`. Карточка сервера по расширению MCP Server Card — [/api/mcp/server-card](https://vedarai.ru/api/mcp/server-card), каталог домена AI Catalog — [/.well-known/ai-catalog.json](https://vedarai.ru/.well-known/ai-catalog.json) (`lib/mcp/server-card.ts`). Тот же агент по A2A: визитки [/.well-known/agent-card.json](https://vedarai.ru/.well-known/agent-card.json) (1.0) и [/.well-known/agent.json](https://vedarai.ru/.well-known/agent.json) (0.3), вход `/api/a2a`. Запись в реестре [a2a-registry.org](https://www.a2a-registry.org/agent/ru.vedarai.___vedar_kamchatka) — `ru.vedarai.___vedar_kamchatka`, страница прочитана открытой 14.11 («DNS Verified»). В другой реестр, A2A Registry (a2aregistry.org), 12.10 подана заявка `538d68a1-16a1-4e55-af5a-8d672b6f1ac7`, статус при подаче — «на проверке»; что запись там опубликована, Ведар не утверждает (`lib/a2a/catalogs.ts`). Для агентов без MCP и A2A (GPT Actions, Copilot Studio, OpenAPI-наборы) — описание OpenAPI 3.1 [/openapi.json](https://vedarai.ru/openapi.json) и каталог API по RFC 9727 [/.well-known/api-catalog](https://vedarai.ru/.well-known/api-catalog) (`lib/api/openapi.ts`).
 
 **Vedar — Kamchatka travel (English).** Public MCP server for AI agents: live tours and availability, safety alerts, places, weather, stays, trip plans. Endpoint `https://vedarai.ru/api/mcp`, Streamable HTTP, no auth.
 
@@ -50,14 +50,14 @@ B2C/B2B платформа: туристы ищут маршруты и брон
 | Страниц | 346 |
 | API routes | 967 |
 | UI компонентов | 374 |
-| lib-модулей | 1729 |
-| SQL миграций | 958 (последняя `1510`) |
-| Юнит-тестов | 32620 в 2763 файлах |
+| lib-модулей | 1733 |
+| SQL миграций | 960 (последняя `1512`) |
+| Юнит-тестов | 32719 в 2771 файлах |
 | GitHub Actions | 198 workflow |
 <!-- STATS:END -->
 
 <!-- CATALOG:START -->
-**Каталог** — перепись `GET /api/cron/catalog-census` на проде, замер 2026-11-23 (обновляется после каждого мержа; «живые» — видимые и не слитые):
+**Каталог** — перепись `GET /api/cron/catalog-census` на проде, замер 2026-11-25 (обновляется после каждого мержа; «живые» — видимые и не слитые):
 
 | Сущность | Живых |
 |----------|-------|

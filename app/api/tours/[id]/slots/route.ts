@@ -1,8 +1,9 @@
 /**
  * GET /api/tours/[id]/slots
  * Публичный. Возвращает ближайшие доступные даты из tour_availability для
- * operator_tour_id — но только если сам тур на витрине (`publicTourSql`);
- * иначе 404, а не пустой список.
+ * operator_tour_id — но только если сам тур открыт по прямой ссылке
+ * (`tourOpenByLinkSql`: витрина или оператор на паузе); иначе 404, а не
+ * пустой список.
  *
  * Занятость считается из operator_bookings (та же логика, что у гейткипера
  * /api/hub/bookings/create), а НЕ из счётчика booked_slots: счётчик
@@ -13,7 +14,7 @@
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
-import { publicTourSql } from '@/lib/tours/public-visibility';
+import { tourOpenByLinkSql } from '@/lib/tours/public-visibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,7 +38,7 @@ export async function GET(
     // значит «свободных дат нет», и подменять им «такого тура нет» — выдавать
     // одно состояние за другое (§4.0). Разные ответы — разные исходы.
     const visible = await pool.query(
-      `SELECT 1 FROM operator_tours ot WHERE ot.id = $1 AND ${publicTourSql('ot')}`,
+      `SELECT 1 FROM operator_tours ot WHERE ot.id = $1 AND ${tourOpenByLinkSql('ot')}`,
       [tourId],
     );
     if (visible.rowCount === 0) {

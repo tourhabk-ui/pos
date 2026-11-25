@@ -373,10 +373,10 @@ withPg('снимки партнёров без согласия: спрятан�
       for (const { place } of CASES) expect(await galleryStatus(place.ark, 2)).toBe(302);
     });
 
-    it('оператор на паузе витринных блоков (21.11, «Местечко») — его кадра нет нигде; кадр владельца на месте', async () => {
+    it('пауза «Местечка» снята 25.11 («Сними паузу») — его кадр на карточке, у маршрута и по адресу; кадр владельца на месте', async () => {
       const s0 = await shown(SPRINGS);
-      expect(s0).toMatchObject({ onCard: false, onRoute: false, direct: 404 });
-      expect(s0.credits).not.toContain(MESTECHKO.partner);
+      expect(s0).toMatchObject({ onCard: true, onRoute: true, direct: 302 });
+      expect(s0.credits).toContain(MESTECHKO.partner);
       expect(await galleryStatus(SPRINGS.ark, 2)).toBe(302);
     });
 
@@ -429,12 +429,12 @@ withPg('снимки партнёров без согласия: спрятан�
         { position: 1, partner_id: partnerIds[MESTECHKO.partner] },
         { position: 2, partner_id: partnerIds[VOLCANOESLAND.partner] },
       ]);
-      // Без подписи (21.11) кадр «Края Вулканов» показывается; «Местечко» на паузе — нет.
+      // Без подписи (21.11) оба кадра показываются: пауза «Местечка» снята 25.11.
       const before = await card(NOHERO.id);
       expect(before.images.filter((u) => u.includes('/place-gallery/')).map((u) => u.split('?')[0]))
-        .toEqual([`/api/images/place-gallery/${NOHERO.ark}/2`]);
+        .toEqual([`/api/images/place-gallery/${NOHERO.ark}/1`, `/api/images/place-gallery/${NOHERO.ark}/2`]);
       // Байты в базе — отдаются сами (200); объект хранилища был бы 302.
-      expect(await galleryStatus(NOHERO.ark, 1)).toBe(404);
+      expect(await galleryStatus(NOHERO.ark, 1)).toBe(200);
       expect(await galleryStatus(NOHERO.ark, 2)).toBe(200);
     });
 
@@ -445,13 +445,29 @@ withPg('снимки партнёров без согласия: спрятан�
          VALUES ($1, 'Озеро без фото (тест)', 53.4, 158.9, $2, 'lake', 'avachinsky', TRUE)`,
         [BARE.id, BARE.ark],
       );
+      // Туры — компании, которая стоит на витрине. Приостановленного
+      // партнёра шлюз витрины не пускает, и кадры с его туров на карточки
+      // мест не ставятся — кандидатами они не считаются (тот же отбор, что у
+      // писателя снимков, lib/routes/tour-photos). До 25.11 здесь стояло
+      // «Местечко» на паузе; пауза снята.
+      const LISTED = VOLCANOESLAND;
       const tour = async (title: string, place: string, photos: string[]) => pool.query(
         `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published, main_place_id, photos)
          VALUES ($1::uuid, $2, 10000, 10, TRUE, TRUE, $3, $4::text[])`,
-        [partnerIds[MESTECHKO.partner], title, place, photos],
+        [partnerIds[LISTED.partner], title, place, photos],
       );
       await tour('Тур к озеру со снимками (тест)', BARE.id, ['/api/images/s3/photos/test/1.jpg', '/api/images/s3/photos/test/2.jpg']);
       await tour('Тур к озеру без снимков (тест)', BARE.id, []);
+      // Тур приостановленной компании со снимками — в кандидатах его нет.
+      const suspendedId = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug, is_public, status)
+         VALUES ('Приостановленный партнёр (тест)', 'operator', '{}', 'test-ppnc-suspended', TRUE, 'suspended') RETURNING id::text`,
+      )).rows[0]!.id;
+      await pool.query(
+        `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published, main_place_id, photos)
+         VALUES ($1::uuid, 'Тур к озеру приостановленной компании (тест)', 10000, 10, TRUE, TRUE, $2, ARRAY['/api/images/s3/photos/test/4.jpg'])`,
+        [suspendedId, BARE.id],
+      );
       // У Корякской сопки свой главный кадр — места в списке нет.
       await tour('Тур к сопке (тест)', VOLCANO.id, ['/api/images/s3/photos/test/3.jpg']);
 
@@ -471,18 +487,18 @@ withPg('снимки партнёров без согласия: спрятан�
       expect(r.places_without_any_shown_photo).toBeGreaterThan(0);
       const lake = r.places.find((p) => p.place === 'Озеро без фото (тест)');
       expect(lake?.tours).toEqual([
-        { tour_id: expect.any(String), tour: 'Тур к озеру со снимками (тест)', link: 'main_place', photos: 2, partner: MESTECHKO.partner, partner_slug: 'mestechko', consent: 'none' },
+        { tour_id: expect.any(String), tour: 'Тур к озеру со снимками (тест)', link: 'main_place', photos: 2, partner: LISTED.partner, partner_slug: SLUGS[LISTED.partner], consent: 'none' },
       ]);
       expect(r.places.some((p) => p.place === 'Корякская сопка (тест)')).toBe(false);
 
       // Подпись прежней версии — `old`, новой — `covers`.
-      await sign(partnerIds[MESTECHKO.partner]!, '2026-10-23');
+      await sign(partnerIds[LISTED.partner]!, '2026-10-23');
       expect((await ask()).places.find((p) => p.place === 'Озеро без фото (тест)')?.tours[0]?.consent).toBe('old');
       const { PLACE_CARDS_CONSENT_FROM } = await import('@/lib/legal/partner-materials-consent');
-      await revokeAll(partnerIds[MESTECHKO.partner]!);
-      await sign(partnerIds[MESTECHKO.partner]!, PLACE_CARDS_CONSENT_FROM);
+      await revokeAll(partnerIds[LISTED.partner]!);
+      await sign(partnerIds[LISTED.partner]!, PLACE_CARDS_CONSENT_FROM);
       expect((await ask()).places.find((p) => p.place === 'Озеро без фото (тест)')?.tours[0]?.consent).toBe('covers');
-      await revokeAll(partnerIds[MESTECHKO.partner]!);
+      await revokeAll(partnerIds[LISTED.partner]!);
     });
 
     it('1436: снимки туров партнёров на местах без фото — по одному от партнёра, по алфавиту, с партнёром; без подписи не видны; повтор ничего не меняет', async () => {
@@ -510,13 +526,13 @@ withPg('снимки партнёров без согласия: спрятан�
       await pool.query(M1436);
       expect(await rows()).toEqual(once);
 
-      // Подписи нет ни у кого (21.11) — снимок Запорожца на карточке; «Местечко» на паузе — нет.
+      // Подписи нет ни у кого (21.11) — оба снимка на карточке (пауза «Местечка» снята 25.11).
       await pool.query(`DELETE FROM partner_material_consents WHERE partner_id = $1`, [zapId]);
       const c = await card(GORELY.id);
       expect(c.images.filter((u) => u.includes('/place-gallery/')).map((u) => u.split('?')[0]))
-        .toEqual([`/api/images/place-gallery/${GORELY.ark}/1`]);
+        .toEqual([`/api/images/place-gallery/${GORELY.ark}/1`, `/api/images/place-gallery/${GORELY.ark}/2`]);
       expect(Object.values(c.photoCredits)).toContain('Андрей Запорожец');
-      expect(Object.values(c.photoCredits)).not.toContain(MESTECHKO.partner);
+      expect(Object.values(c.photoCredits)).toContain(MESTECHKO.partner);
 
       // Удаление партнёра уносит его кадры (CASCADE), а не открывает их без
       // согласия (SET NULL показал бы кадр всем).

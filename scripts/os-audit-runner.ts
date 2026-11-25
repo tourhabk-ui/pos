@@ -55,6 +55,12 @@ const BUNDLE_LIMIT_BYTES = 1_800_000;
 /** Что читаем по умолчанию: правила, исполнение, сторожа этих же агентов. */
 const DEFAULT_TARGETS = [
   'CLAUDE.md',
+  // С 25.11 корневой CLAUDE.md — ядро; разделы о коде и агентах (§4, §7, §8)
+  // лежат дословно в скиллах проекта, и аудит агентов читает их тоже.
+  '.claude/skills/vedar-code-rules/SKILL.md',
+  '.claude/skills/vedar-protected-zones/SKILL.md',
+  '.claude/skills/vedar-ai-agents/SKILL.md',
+  '.claude/skills/vedar-agent-messages/SKILL.md',
   'AGENTS.md',
   'lib/agents',
   'lib/ai/providers.ts',

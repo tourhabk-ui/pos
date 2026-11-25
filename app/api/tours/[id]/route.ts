@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
-import { publicTourSql } from '@/lib/tours/public-visibility';
+import { tourOpenByLinkSql } from '@/lib/tours/public-visibility';
 import { publicRating } from '@/lib/reviews/public-rating';
 import { isUuid } from '@/lib/text/slugify';
 import { BEAR_FALLBACK } from '@/lib/media/wildlife-photos';
@@ -84,7 +84,7 @@ export async function GET(
        -- Шлюз витрины один на все публичные чтения тура
        -- (lib/tours/public-visibility.ts). Без is_published карточка
        -- открывалась по прямой ссылке на снятый с витрины черновик.
-       WHERE t.id = $1 AND ${publicTourSql('t')}`,
+       WHERE t.id = $1 AND ${tourOpenByLinkSql('t')}`,
       [id]
     )
       : { rows: [] as Record<string, unknown>[] };

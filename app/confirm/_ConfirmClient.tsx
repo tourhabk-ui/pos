@@ -12,7 +12,7 @@
  * нажатие ничего не отправит. Исход — словами сервера: «создана» только по
  * признаку успеха.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Loader2, Send, CheckCircle2, XCircle } from 'lucide-react';
 import { consentWording, PD_CONSENT_POLICY_URL, type PdConsentPurpose } from '@/lib/legal/pd-consent';
@@ -31,6 +31,16 @@ const GONE_WORDS: Record<'sent' | 'expired' | 'missing', string> = {
   expired: 'Ссылка истекла, заявка не отправлена. Попросите помощника собрать её заново — придёт новая ссылка.',
   missing: 'Такой заявки нет. Проверьте, что открыли ссылку целиком, или попросите помощника собрать заявку заново.',
 };
+
+/**
+ * «до 21:40» — до какого времени действует ссылка, по часам устройства
+ * (ссылка живёт час, PENDING_REQUEST_TTL_MIN). Не разобрали дату — строки нет.
+ */
+export function expiresAtLabel(iso: string): string | null {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  return new Date(t).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
 
 /** Ссылки в тексте ответа — кликабельными, остальное — текстом. */
 function TextWithLinks({ text }: { text: string }) {
@@ -52,6 +62,10 @@ export function ConfirmClient() {
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   // Временный отказ (лимит, база не ответила): заявка ещё ждёт — форма остаётся.
   const [sendError, setSendError] = useState<string | null>(null);
+  // После отправки форма с кнопкой исчезает — фокус ставим на итог, иначе
+  // клавиатура и экранный диктор начинают страницу сначала (проход 25.11).
+  const resultRef = useRef<HTMLElement>(null);
+  useEffect(() => { if (result) resultRef.current?.focus(); }, [result]);
 
   useEffect(() => {
     const t = window.location.hash.replace(/^#/, '').trim();
@@ -138,6 +152,9 @@ export function ConfirmClient() {
             <p className="text-xs text-[var(--text-secondary)]">
               Имя, телефон или комментарий не ваши — не отправляйте: попросите помощника собрать заявку заново.
             </p>
+            {expiresAtLabel(loaded.expiresAt) && (
+              <p className="text-xs text-[var(--text-secondary)]">Ссылка действует до {expiresAtLabel(loaded.expiresAt)}. Потом заявку придётся собрать заново.</p>
+            )}
             <label htmlFor="confirm-consent" className="flex items-start gap-3 min-h-[44px] py-2 cursor-pointer text-xs leading-relaxed text-[var(--text-secondary)]">
               <input id="confirm-consent" type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)}
                 className="w-5 h-5 shrink-0 accent-[var(--accent)]" />
@@ -147,10 +164,15 @@ export function ConfirmClient() {
               </span>
             </label>
             <button type="button" onClick={send} disabled={!consent || sending}
+              aria-describedby={!consent ? 'confirm-consent-hint' : undefined}
               className="ds-btn ds-btn-primary w-full inline-flex items-center justify-center gap-2 disabled:opacity-50">
               {sending ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden /> : <Send className="w-4 h-4" aria-hidden />}
               {sending ? 'Отправляю…' : 'Отправить'}
             </button>
+            {/* Бледная кнопка без слов не объясняла, почему не жмётся (проход 25.11). */}
+            {!consent && (
+              <p id="confirm-consent-hint" className="text-sm text-[var(--text-primary)]">Отметьте согласие выше, чтобы отправить.</p>
+            )}
             {sendError && <p className="text-sm text-[var(--text-primary)]" role="alert">{sendError}</p>}
             <p className="text-xs text-[var(--text-secondary)]">
               Это заявка, не бронь: её подтверждает человек на стороне исполнителя, мгновенной брони нет. Оплаты через платформу нет.
@@ -159,7 +181,7 @@ export function ConfirmClient() {
         )}
 
         {result && (
-          <section className="ds-card p-5 space-y-3" role="status">
+          <section ref={resultRef} tabIndex={-1} className="ds-card p-5 space-y-3 outline-none" role="status">
             <p className="flex items-center gap-2 font-semibold text-[var(--text-primary)]">
               {result.ok
                 ? <CheckCircle2 className="w-5 h-5 text-[var(--success)]" aria-hidden />

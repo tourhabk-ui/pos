@@ -159,6 +159,25 @@ export function pastSeasonNote(t: WindowInput, today: string): string | null {
 }
 
 /**
+ * Те же факты для агента (MCP get_tours и get_tour_availability, #3487,
+ * сверка 24.11): у тура ID4, 7, 10, 11 сезон 2026 кончился, а ответ агенту
+ * звучал «все даты свободны для заявки». Внешний агент пересказывал это
+ * человеку как свободные даты, хотя о них в данных нет ни слова. Заявка на
+ * дату по-прежнему возможна (решение 08.10 в силе), но строка говорит, что
+ * сезон кончился и следующего нет. Без точки на конце: её вставляют в фразу.
+ */
+export function pastSeasonAgentWords(t: WindowInput, today: string): string | null {
+  const w = requestWindow(t, today);
+  if (w.kind !== 'unbounded' || w.why !== 'past') return null;
+  const end = isoDay(t.season_end);
+  if (!end) return null;
+  const head = end < today
+    ? `записанный сезон тура закончился ${longDay(end)}`
+    : `до конца записанного сезона тура (${longDay(end)}) поездка уже не успевает`;
+  return `${head}, сезон следующего года оператор не объявил`;
+}
+
+/**
  * Та же строка для формы на карточке тура. `datesRecorded` — сколько будущих
  * дат записано в календаре тура: больше нуля — даты называет календарь, и
  * строка о сезоне не нужна; `null` (счёт не прочитался) — не знаем, ведёт ли

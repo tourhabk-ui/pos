@@ -39,7 +39,7 @@ vi.mock('@/lib/partners/storefront-gate', async (orig) => ({
   storefrontChannelGate: (...a: unknown[]) => h.gate(...a),
 }));
 
-import { publicTourSql } from '@/lib/tours/public-visibility';
+import { publicTourSql, tourOpenByLinkSql } from '@/lib/tours/public-visibility';
 import {
   testPartnerTourSql, isTestProfileNotPublicViolation, TEST_PROFILE_CONSTRAINT,
   TEST_PROFILE_NOT_PUBLIC_TEXT, TEST_PROFILE_MARKED_TEXT, TEST_PROFILE_UNMARKED_TEXT,
@@ -83,8 +83,11 @@ describe('шлюз витрины спрашивает отметку партн
     );
     expect(testPartnerTourSql('')).toContain('test_gate.id = operator_tours.operator_id');
     expect(() => testPartnerTourSql('ot; DROP TABLE partners')).toThrow(/алиас/);
-    expect(publicTourSql('t')).toContain(`AND NOT ${testPartnerTourSql('t')})`);
-    expect(publicTourSql('')).toContain(`AND NOT ${testPartnerTourSql('')})`);
+    // Тестовый профиль закрыт и на витрине, и по прямой ссылке.
+    expect(publicTourSql('t')).toContain(`AND NOT ${testPartnerTourSql('t')} `);
+    expect(publicTourSql('')).toContain(`AND NOT ${testPartnerTourSql('')} `);
+    expect(tourOpenByLinkSql('t')).toContain(`AND NOT ${testPartnerTourSql('t')})`);
+    expect(tourOpenByLinkSql('')).toContain(`AND NOT ${testPartnerTourSql('')})`);
   });
 
   it('нарушение именно CHECK тестового профиля узнаётся, чужое — нет', () => {

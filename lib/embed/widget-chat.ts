@@ -11,7 +11,8 @@
  * свои туры; общие витрины Ведара — правило для всех, но это не общая витрина.
  *
  * Теперь туры в контексте модели — только туры ЭТОГО партнёра, через тот же
- * шлюз витрины (`publicTourSql`) и в том же порядке, что на его странице
+ * шлюз прямой ссылки (`tourOpenByLinkSql`: виджет — витрина самого партнёра,
+ * пауза на Ведаре его не закрывает) и в том же порядке, что на его странице
  * (`/operators/<slug>`: закреплённые им сверху, потом по сезону). Ответы про
  * обстановку — общие, из сводки платформы (`getCurrentSafetyStatus`), а не из
  * партнёрских данных.
@@ -22,7 +23,7 @@
  */
 
 import { query } from '@/lib/database';
-import { publicTourSql } from '@/lib/tours/public-visibility';
+import { tourOpenByLinkSql } from '@/lib/tours/public-visibility';
 import { tourPath } from '@/lib/tours/tour-url';
 import { activityLabel, priceUnitLabel } from '@/lib/tours/labels';
 import type { WidgetTurn } from '@/lib/embed/widget-chat-limits';
@@ -66,7 +67,7 @@ export async function loadPartnerTours(operatorId: string): Promise<PartnerTourR
               ot.base_price::text AS base_price, ot.price_unit,
               ot.activity_type, ot.location_name
          FROM operator_tours ot
-        WHERE ot.operator_id::text = $1::text AND ${publicTourSql('ot')}
+        WHERE ot.operator_id::text = $1::text AND ${tourOpenByLinkSql('ot')}
         ORDER BY (ot.pinned_at IS NULL), ot.pinned_at, ot.season_start NULLS LAST, ot.id
         LIMIT $2`,
       [operatorId, PARTNER_TOURS_LIMIT],

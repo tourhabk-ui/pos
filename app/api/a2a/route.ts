@@ -14,7 +14,9 @@
  * Ответ повторяет выбранную версию заголовком `A2A-Version`. Ошибки протокола уходят телом
  * JSON-RPC с HTTP 200, как у MCP: клиент SDK на не-2xx бросает транспортную
  * ошибку и не видит кода. Исключения: неподдерживаемая версия (400), тело
- * больше лимита (413), нечитаемый JSON (400).
+ * больше лимита (413), нечитаемый JSON (400). У ошибки A2A (−32001…−32099) в
+ * форме 1.0 поле `data` — массив с google.rpc.ErrorInfo (раздел 9.5,
+ * lib/a2a/wire jsonrpcErrorData).
  *
  * Сторож: tests/unit/a2a-route.test.ts.
  */
@@ -25,11 +27,18 @@ import { MAX_BODY_BYTES, readBodyLimited } from '@/lib/mcp/read-body';
 import { handleA2A } from '@/lib/a2a/handle';
 import { a2aTaskStore } from '@/lib/a2a/durable-store';
 import { buildAgentCard } from '@/lib/a2a/agent-card';
-import { A2A_ERROR, A2A_METHOD_NAMES, A2A_SUPPORTED_VERSIONS, MCP_METHOD_NAMES, readOperation, versionForMethod } from '@/lib/a2a/wire';
+import { A2A_ERROR, A2A_METHOD_NAMES, A2A_SUPPORTED_VERSIONS, MCP_METHOD_NAMES, errorInfo, jsonrpcErrorData, readOperation, versionForMethod } from '@/lib/a2a/wire';
 import { logText } from '@/lib/log/log-text';
 import { buildExecutors, journalA2a, optionsResponse, publicBase, versionOf, withCors, type JournalFields } from './_shared';
 
 export const dynamic = 'force-dynamic';
+
+/** Неподдерживаемая версия — ошибка A2A (−32009), с ErrorInfo в массиве data (раздел 9.5). */
+function versionNotSupported(requested: string) {
+  const supported = A2A_SUPPORTED_VERSIONS.join(', ');
+  return jsonrpcError(null, A2A_ERROR.VersionNotSupported.code, `Unsupported A2A-Version: ${requested}. Supported: ${supported}`,
+    [errorInfo('VersionNotSupported', { requested, supported })]);
+}
 
 /** GET — человеку и curl: визитка, та же, что по well-known адресу. */
 export async function GET(request?: NextRequest) {
@@ -51,7 +60,7 @@ export async function POST(request: NextRequest) {
   if (!version.ok) {
     note({ op: 'invalid', errorCode: 'VersionNotSupported' });
     return reply(NextResponse.json(
-      jsonrpcError(null, A2A_ERROR.VersionNotSupported.code, `Unsupported A2A-Version: ${version.requested}. Supported: ${A2A_SUPPORTED_VERSIONS.join(', ')}`),
+      versionNotSupported(version.requested),
       { status: 400 },
     ));
   }
@@ -88,7 +97,7 @@ export async function POST(request: NextRequest) {
   if (version.ok) version = versionForMethod(version, msg.method);
   if (!version.ok) {
     return reply(NextResponse.json(
-      jsonrpcError(null, A2A_ERROR.VersionNotSupported.code, `Unsupported A2A-Version: ${version.requested}. Supported: ${A2A_SUPPORTED_VERSIONS.join(', ')}`),
+      versionNotSupported(version.requested),
       { status: 400 },
     ));
   }
@@ -105,7 +114,7 @@ export async function POST(request: NextRequest) {
     note({ op, out });
     return reply(NextResponse.json(out.ok
       ? jsonrpcSuccess(msg.id, out.result)
-      : jsonrpcError(msg.id, out.error.code, out.error.message, out.error.data)));
+      : jsonrpcError(msg.id, out.error.code, out.error.message, jsonrpcErrorData(out.error, version.version))));
   } catch (err) {
     note({ op, errorCode: 'Internal' });
     // Наружу — общий текст; подробность — в лог (§4.0: отказ не глушится).

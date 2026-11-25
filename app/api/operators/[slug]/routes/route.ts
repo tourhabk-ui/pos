@@ -42,7 +42,7 @@ export async function GET(
         vm.operator_hero_image,
         vm.next_departure_date,
         vm.next_departure_slots
-      FROM ${routeMarketplaceSql('vm')}
+      FROM ${routeMarketplaceSql('vm', { byLink: true })}
       JOIN agent_route_knowledge ark ON ark.id = vm.route_id
       WHERE vm.operator_slug = $1
         AND ark.is_visible = TRUE

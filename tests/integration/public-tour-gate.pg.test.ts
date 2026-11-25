@@ -221,12 +221,17 @@ withPg('витрина туров: снятый тур не в плане и н�
     expect(counts.storefrontTours).toBe((await queryCatalogSummary()).total);
     // Правило витрины, записанное здесь независимо от шлюза: из пяти туров
     // сцены на витрине два, и удалённый (флаги true, deleted_at стоит) — нет.
+    // Компания на паузе, отклонённая и приостановленная — тоже не на витрине
+    // (23.11, «Разберись с Местечком»; список паузы — lib/operators/site-pause).
+    const { OPERATOR_SITE_PAUSE_SLUGS } = await import('@/lib/operators/site-pause');
     const { rows } = await pool.query<{ on_gate: string; ours: string }>(
       `SELECT COUNT(*) FILTER (WHERE ot.is_active AND ot.is_published AND ot.deleted_at IS NULL
-                                 AND p.is_test IS NOT TRUE)::text AS on_gate,
+                                 AND p.is_test IS NOT TRUE
+                                 AND COALESCE(p.status, '') NOT IN ('suspended', 'rejected')
+                                 AND NOT (COALESCE(p.slug, '') = ANY($2::text[])))::text AS on_gate,
               COUNT(*) FILTER (WHERE ot.operator_id = $1)::text AS ours
          FROM operator_tours ot JOIN partners p ON p.id = ot.operator_id`,
-      [OPERATOR.id],
+      [OPERATOR.id, [...OPERATOR_SITE_PAUSE_SLUGS]],
     );
     expect(Number(rows[0].ours)).toBe(STATES.length);
     expect(counts.storefrontTours).toBe(Number(rows[0].on_gate));
@@ -1749,15 +1754,14 @@ withPg('витрина туров: снятый тур не в плане и н�
       await expect(pool.query(`UPDATE operator_tours SET main_place_source = 'guess' WHERE slug = $1`, [T.gorelyM]))
         .rejects.toMatchObject({ code: '23514' });
 
-      // Карточка Горелого: тур «Местечка» в блоке места не показывается
-      // (оператор на паузе, lib/operators/site-pause). Связь в базе остаётся
-      // (snap выше); прямая ссылка на карточку тура и каталог не закрываются.
+      // Карточка Горелого: туры обеих компаний. С 21.11 по 25.11 тура
+      // «Местечка» здесь не было (оператор на паузе); 25.11 пауза снята —
+      // слово владельца «Сними паузу».
       const { loadPlaceTours } = await import('@/lib/places/place-tours');
       const r = await loadPlaceTours('2886ce3b-0753-41fb-bacc-f80e3f75d1aa');
       expect(r.state).toBe('ok');
       if (r.state === 'ok') {
-        expect(r.offers.map((o) => o.slug).sort()).toEqual([T.gorelyZ]);
-        expect(r.offers.map((o) => o.slug)).not.toContain(T.gorelyM);
+        expect(r.offers.map((o) => o.slug).sort()).toEqual([T.gorelyM, T.gorelyZ].sort());
       }
     });
 

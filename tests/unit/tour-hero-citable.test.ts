@@ -34,7 +34,7 @@ describe('герой карточки тура', () => {
   });
 
   it('стандарт §11 синхронизирован', () => {
-    const claude = readFileSync(join(process.cwd(), 'CLAUDE.md'), 'utf-8');
+    const claude = readFileSync(join(process.cwd(), '.claude/skills/vedar-tour-card/SKILL.md'), 'utf-8');
     expect(claude).toMatch(/short_description[\s\S]{0,40}ГЕРОЕ/);
   });
 });
