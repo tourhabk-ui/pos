@@ -18,7 +18,8 @@
  *  - имя таблицы в кавычках, со схемой, с `ONLY`, ключевые слова в другом
  *    регистре, `MERGE`, `COPY`, `DELETE` — теперь всё это запись;
  *  - код вне `app`, `lib` и `scripts` — теперь обходится весь репозиторий
- *    (tests/helpers/repo-code.ts называет, что пропущено и почему);
+ *    (tests/helpers/repo-code.ts называет, что пропущено и почему), включая
+ *    `app/.well-known`;
  *  - колонка после подзапроса со своим `WHERE` («SET review_count = (SELECT …
  *    WHERE …), description = $1») — список SET разбирается по скобкам;
  *  - вставка (`INSERT`, `ON CONFLICT … DO UPDATE SET`) — проверяется тоже.
@@ -251,6 +252,24 @@ describe('обход репозитория: где перепись ищет з
     }
     for (const skipped of Object.keys(REPO_CODE_SKIPPED)) expect(walked.has(skipped), skipped).toBe(false);
     expect(CODE.some((f) => f.startsWith('.') || f.includes('/node_modules/'))).toBe(false);
+  });
+
+  it('внутри app и lib не пропущен ни один каталог с кодом — и каталог с точкой тоже', () => {
+    // Свой счёт, независимый от обхода: каталог, где есть файл кода, обязан быть в обходе.
+    const hasCode = (dir: string): boolean => readdirSync(join(ROOT, dir)).some((name) => {
+      if (name === 'node_modules') return false;
+      const rel = `${dir}/${name}`;
+      return statSync(join(ROOT, rel)).isDirectory() ? hasCode(rel) : /\.(ts|tsx|js|jsx|mjs|cjs)$/.test(name);
+    });
+    for (const top of ['app', 'lib']) {
+      for (const name of readdirSync(join(ROOT, top))) {
+        const rel = `${top}/${name}`;
+        if (!statSync(join(ROOT, rel)).isDirectory() || !hasCode(rel)) continue;
+        expect(CODE.some((f) => f.startsWith(`${rel}/`)), `${rel}: каталог с кодом не обойдён`).toBe(true);
+      }
+    }
+    // Боевые обработчики под именем с точки: их пропускала первая редакция обхода.
+    expect(CODE.filter((f) => f.startsWith('app/.well-known/')).length).toBeGreaterThan(5);
   });
 
   it('корневые файлы кода читаются — и .js тоже', () => {

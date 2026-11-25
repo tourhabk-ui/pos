@@ -18,6 +18,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
+import ts from 'typescript';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
@@ -953,6 +954,41 @@ describe('отзыв правки гидом: DELETE /api/guide/own/tours/[id]/e
 
 // ─── Запреты ──────────────────────────────────────────────────────────────────
 
+/** Называет ли строка модуль общей записи тура (с расширением или без). */
+const NAMES_TOUR_WRITE = /(?:^|\/)tour-write(?:\.[cm]?[jt]sx?)?$/;
+
+/**
+ * Сколько раз файл называет модуль общей записи строковым литералом ВНЕ
+ * импорта одних типов. Комментарии строковыми литералами не являются.
+ */
+function tourWriteValueRefs(file: string, code: string): number {
+  // Дешёвый отсев до разбора: без имени модуля в тексте назвать его нельзя.
+  if (!code.includes('tour-write')) return 0;
+  const source = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true);
+  const typesOnly = (node: ts.Node): boolean => {
+    const parent = node.parent;
+    if (ts.isImportDeclaration(parent)) {
+      const clause = parent.importClause;
+      if (!clause) return false; // import '…' — подключение ради побочного эффекта
+      if (clause.isTypeOnly) return true;
+      const named = clause.namedBindings;
+      return !clause.name && named !== undefined && ts.isNamedImports(named)
+        && named.elements.length > 0 && named.elements.every((el) => el.isTypeOnly);
+    }
+    if (ts.isExportDeclaration(parent)) return parent.isTypeOnly;
+    // typeof import('…') в позиции типа
+    return ts.isLiteralTypeNode(parent) && ts.isImportTypeNode(parent.parent);
+  };
+  let count = 0;
+  const visit = (node: ts.Node): void => {
+    const literal = ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateTail(node);
+    if (literal && NAMES_TOUR_WRITE.test(node.text) && !typesOnly(node)) count += 1;
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return count;
+}
+
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(join(ROOT, dir))) {
     const rel = `${dir}/${name}`;
@@ -976,19 +1012,44 @@ describe('запреты', () => {
     // Сторож выше ищет вызов по имени и только в app, lib и components: импорт
     // под другим именем («writeTourPatch as w») или из scripts он бы не увидел
     // (ревью безопасности PR #3804, 25.11). Здесь судится само подключение
-    // модуля: без него функцию не позвать ни под каким именем. Импорт одних
-    // типов («import type») записью не грозит и разрешён всем.
-    const VALUE_IMPORT = /\b(?:import|export)\s+(?!type\b)[^;'"`]*\bfrom\s+['"][^'"]*\/tour-write['"]|\b(?:require|import)\(\s*['"`][^'"`]*\/tour-write['"`]/;
-    expect(VALUE_IMPORT.test("import { writeTourPatch } from '@/lib/tours/tour-write';")).toBe(true);
-    expect(VALUE_IMPORT.test("import { writeTourPatch as w, type TourPatchInput } from './tour-write';")).toBe(true);
-    expect(VALUE_IMPORT.test("import * as tw from '../lib/tours/tour-write';")).toBe(true);
-    expect(VALUE_IMPORT.test("export { writeTourPatch } from '@/lib/tours/tour-write';")).toBe(true);
-    expect(VALUE_IMPORT.test("export * from './tour-write';")).toBe(true);
-    expect(VALUE_IMPORT.test("const { writeTourPatch } = require('../lib/tours/tour-write');")).toBe(true);
-    expect(VALUE_IMPORT.test("const m = await import('@/lib/tours/tour-write');")).toBe(true);
-    expect(VALUE_IMPORT.test("import type { TourPatchInput } from '@/lib/tours/tour-write';")).toBe(false);
-    expect(VALUE_IMPORT.test("export type { TourPatchInput } from '@/lib/tours/tour-write';")).toBe(false);
-    const importers = repoCodeFiles(ROOT).filter((f) => VALUE_IMPORT.test(read(f)));
+    // модуля: без него функцию не позвать ни под каким именем.
+    //
+    // Разбор — парсером TypeScript, а не регуляркой: регулярка первой редакции
+    // зависела от пробелов («import{…}from'…'», «require ('…')», комментарий
+    // между from и строкой — мимо; третий круг того же ревью). Правило простое:
+    // строковый литерал, называющий модуль, законен только как адрес импорта
+    // ОДНИХ ТИПОВ. Любое другое место — импорт значения, переэкспорт, require,
+    // динамический import, путь в переменной — считается подключением.
+    const refs = (code: string, file = 'x.ts') => tourWriteValueRefs(file, code);
+    for (const code of [
+      "import { writeTourPatch } from '@/lib/tours/tour-write';",
+      "import { writeTourPatch as w, type TourPatchInput } from './tour-write';",
+      "import{writeTourPatch as applyPatch}from'@/lib/tours/tour-write';",
+      "import { writeTourPatch } from /* why */ '@/lib/tours/tour-write';",
+      "import * as tw from '../lib/tours/tour-write';",
+      "import tw from '../lib/tours/tour-write.ts';",
+      "import '@/lib/tours/tour-write';",
+      "export { writeTourPatch } from '@/lib/tours/tour-write';",
+      "export * from './tour-write';",
+      "const { writeTourPatch } = require('../lib/tours/tour-write');",
+      "const { writeTourPatch } = require ('@/lib/tours/tour-write');",
+      "const m = await import('@/lib/tours/tour-write');",
+      "const m = await import ('@/lib/tours/tour-write');",
+      'const m = await import(`@/lib/tours/tour-write`);',
+      'const m = await import(`${root}/tours/tour-write`);',
+      "const where = '@/lib/tours/tour-write'; const m = require(where);",
+      "import tw = require('./tour-write');",
+    ]) expect(refs(code), code).toBe(1);
+    expect(refs("module.exports = require ('./lib/tours/tour-write');", 'x.js')).toBe(1);
+    for (const code of [
+      "import type { TourPatchInput } from '@/lib/tours/tour-write';",
+      "import { type TourPatchInput, type TourProgramStep } from '@/lib/tours/tour-write';",
+      "export type { TourPatchInput } from '@/lib/tours/tour-write';",
+      "type W = typeof import('@/lib/tours/tour-write');",
+      "// writeTourPatch (lib/tours/tour-write) — общая запись\nexport const a = 1;",
+      "import { x } from '@/lib/tours/tour-write-notes';",
+    ]) expect(refs(code), code).toBe(0);
+    const importers = repoCodeFiles(ROOT).filter((f) => tourWriteValueRefs(f, read(f)) > 0);
     expect(importers).toEqual(['lib/tours/moderation-review.ts', 'lib/tours/tour-change.ts']);
   });
 

@@ -9,7 +9,11 @@
  * увидела (ревью безопасности PR #3804, 25.11).
  *
  * Чего обход не видит и что названо: файлы не из списка расширений (`.sql`,
- * `.sh`, `.yml`) и каталоги с точкой (`.git`, `.next`, `.github`, `.claude`).
+ * `.sh`, `.yml`) и служебные каталоги ВЕРХНЕГО уровня с именем с точки
+ * (`.git`, `.next`, `.github`, `.claude`, `.husky`). Глубже точка в имени
+ * ничего не значит: `app/.well-known` — боевые обработчики, и они обходятся.
+ * Первая редакция пропускала имя с точки на любой глубине и молча теряла их
+ * (ревью безопасности PR #3804, третий круг).
  */
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -28,9 +32,10 @@ const CODE_FILE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 
 function walk(root: string, dir: string, out: string[]): void {
   for (const name of readdirSync(join(root, dir))) {
-    // Имя с точки — служебное; node_modules пропускается на любой глубине.
-    if (name.startsWith('.') || name === 'node_modules') continue;
-    if (dir === '' && name in REPO_CODE_SKIPPED) continue;
+    // node_modules пропускается на любой глубине; имя с точки и названные
+    // каталоги — только на верхнем уровне.
+    if (name === 'node_modules') continue;
+    if (dir === '' && (name.startsWith('.') || name in REPO_CODE_SKIPPED)) continue;
     const rel = dir === '' ? name : `${dir}/${name}`;
     if (statSync(join(root, rel)).isDirectory()) walk(root, rel, out);
     else if (CODE_FILE.test(name)) out.push(rel);
