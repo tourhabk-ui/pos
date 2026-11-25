@@ -43,6 +43,7 @@ import { requestConfirmNote, operatorReachLine, type OperatorReach } from '@/lib
 import { reachForPartner } from '@/lib/partners/reach';
 import { negotiateProtocolVersion, isSupportedProtocolVersion, isModernProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS, LEGACY_PROTOCOL_VERSIONS } from '@/lib/mcp/protocol-version';
 import { hasModernMeta, checkModernRequest, META_SERVER_INFO } from '@/lib/mcp/modern-request';
+import { SEND_ELICITATION_TOOLS, answerSendRetry, clientTakesUrlElicitation, sendInputRequired } from '@/lib/mcp/send-elicitation';
 import { classifyMessage, jsonrpcSuccess, jsonrpcError, McpUserError, MCP_INTERNAL_ERROR_TEXT, type JsonRpcId } from '@/lib/mcp/jsonrpc';
 import { MAX_BODY_BYTES, readBodyLimited } from '@/lib/mcp/read-body';
 import { executeKuzmichTool } from '@/lib/kuzmich/core';
@@ -1904,6 +1905,49 @@ function modernResult(reply: JsonRpcReply): JsonRpcReply {
 }
 
 /**
+ * `tools/call` эпохи 2026-07-28: кнопка отправки заявки (lib/mcp/send-elicitation).
+ *
+ * Заявка из шести, клиент объявил `elicitation.url`, черновик отложен — вместо
+ * текста со ссылкой клиент получает `InputRequiredResult`: окно с той же
+ * страницей /confirm, которую открывает и нажимает человек. Повтор с
+ * `requestState` инструмент заново не исполняет (второго черновика не будет) —
+ * отвечает, как стоит черновик. Всё остальное — прежний `handleToolsCall`.
+ */
+async function handleModernToolsCall(
+  request: NextRequest,
+  id: JsonRpcId,
+  params: Record<string, unknown>,
+): Promise<JsonRpcReply> {
+  const toolName = typeof params.name === 'string' ? params.name : '';
+  if (!SEND_ELICITATION_TOOLS.has(toolName)) return handleToolsCall(request, id, params);
+
+  if (params.requestState !== undefined) {
+    // Повтор стоит одного чтения черновика — под тем же лимитом, что чтение.
+    if (!readLimiter.check(`r:${clientIp(request)}`)) {
+      return jsonrpcSuccess(id, { content: [{ type: 'text', text: 'Слишком много запросов с этого адреса — подождите минуту и повторите.' }], isError: true });
+    }
+    const answer = await answerSendRetry({ tool: toolName, args: params.arguments, params });
+    if (answer.kind === 'state_refused') return jsonrpcError(id, -32602, answer.message);
+    return jsonrpcSuccess(id, {
+      content: [{ type: 'text', text: answer.text }],
+      structuredContent: answer.structured,
+      ...(answer.isError ? { isError: true } : {}),
+    });
+  }
+
+  const reply = await handleToolsCall(request, id, params);
+  if (!clientTakesUrlElicitation(params) || !('result' in reply) || !isPlainObject(reply.result)) return reply;
+  if (reply.result.isError === true) return reply;
+  const sc = reply.result.structuredContent;
+  const confirmation = isPlainObject(sc) ? sc.confirmation : undefined;
+  const url = isPlainObject(confirmation) && typeof confirmation.url === 'string' ? confirmation.url : null;
+  if (!url) return reply;
+  const inputRequired = sendInputRequired({ tool: toolName, args: params.arguments, confirmUrl: url });
+  // Запечатать нечем (нет ключа) — прежний ответ: черновик и ссылка текстом.
+  return inputRequired ? jsonrpcSuccess(id, inputRequired) : reply;
+}
+
+/**
  * Запрос эпохи 2026-07-28 — без рукопожатия, с версией в `_meta`.
  *
  * Отказы формы запроса (испорченная `_meta`, заголовки не совпали с телом,
@@ -1956,7 +2000,7 @@ async function handleModernPost(request: NextRequest, body: unknown): Promise<Ne
         cacheScope: 'public',
       })));
     case 'tools/call':
-      return NextResponse.json(modernResult(await handleToolsCall(request, id, params)));
+      return NextResponse.json(modernResult(await handleModernToolsCall(request, id, params)));
     case 'initialize':
     case 'ping':
       // В 2026-07-28 этих методов нет (changelog, пп. 2 и 5). Спека велит
