@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isSosSurface } from '@/lib/legal/sos-surface';
+import { isConfirmSurface } from '@/lib/legal/confirm-surface';
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8');
 
@@ -43,5 +44,16 @@ describe('на экранах SOS нет баннера согласия и ст
     expect(src).toMatch(/уйдут дежурным Ведара в Telegram/);
     expect(src).toMatch(/\/legal\/privacy/);
     expect(src).not.toMatch(/type=["']checkbox["']/);
+  });
+
+  it('на /confirm (отправка заявки агента) баннера и скриптов нет: полоса лежала на «Отправить» (проход 25.11)', () => {
+    expect(isConfirmSurface('/confirm')).toBe(true);
+    expect(isConfirmSurface('/confirm/change')).toBe(true);
+    expect(isConfirmSurface('/confirmation')).toBe(false);
+    expect(isConfirmSurface('/hub/operator/pricing/confirm')).toBe(false);
+    expect(isConfirmSurface(null)).toBe(false);
+    const src = read('components/legal/ThirdPartyScripts.tsx');
+    expect(src).toMatch(/isConfirmSurface\(pathname\)\) return null/);
+    expect(src.indexOf('isConfirmSurface(pathname)')).toBeLessThan(src.indexOf('role="dialog"'));
   });
 });

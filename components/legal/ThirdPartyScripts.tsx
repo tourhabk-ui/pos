@@ -32,6 +32,7 @@ import { THIRD_PARTIES, loadDecision } from '@/lib/legal/third-party-registry';
 import { CONSENT_BANNER_ZH, CONSENT_BUTTONS, isZhPath, readConsent, writeConsent, type ConsentChoice } from '@/lib/legal/consent';
 import { isForeignSurface } from '@/lib/embed/widget-frame';
 import { isSosSurface } from '@/lib/legal/sos-surface';
+import { isConfirmSurface } from '@/lib/legal/confirm-surface';
 import { metrikaHit, metrikaInitScript, muteWebvisorFields, shouldTrackPath } from '@/lib/analytics/metrika';
 
 const ALL_DENIED: ConsentChoice = { analytics: false, advertising: false };
@@ -67,6 +68,10 @@ export default function ThirdPartyScripts() {
   // счётчики на экране беды не нужны. Согласие спросим на следующей
   // обычной странице.
   if (isSosSurface(pathname)) return null;
+  // На /confirm полоса лежала на кнопке «Отправить» (проход 25.11), а в
+  // адресе — личный токен: ни баннера, ни счётчиков. Спросим на следующей
+  // обычной странице.
+  if (isConfirmSurface(pathname)) return null;
 
   const allowed = THIRD_PARTIES.filter((tp) => loadDecision(tp, choice).load);
   // На китайских страницах полоса говорит по-китайски (аудит 09.11, п. 6).
