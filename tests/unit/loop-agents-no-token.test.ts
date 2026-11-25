@@ -1,6 +1,7 @@
 /**
- * Петли-агенты (ci-sweeper, issue-triage, weekly-chronicle) не держат токен
- * GitHub (аудит агентов 02.11, разрыв №1).
+ * Петли-агенты (ci-sweeper, issue-triage, weekly-chronicle) и рука по задачам
+ * (claude.yml, скан безопасности 25.11) не держат токен GitHub (аудит агентов
+ * 02.11, разрыв №1).
  *
  * У агента Bash/Write на раннере: всё, что лежит в его окружении или в
  * .git/config, модель может прочитать (`env`, `cat .git/config`) — и под
@@ -22,7 +23,7 @@ const yaml = require('js-yaml') as { load: (s: string) => unknown };
 type Step = { id?: string; name?: string; uses?: string; if?: string; env?: Record<string, unknown>; with?: Record<string, unknown> };
 type Wf = { jobs: Record<string, { steps?: Step[] }> };
 
-const LOOPS = ['ci-sweeper', 'issue-triage', 'weekly-chronicle'];
+const LOOPS = ['ci-sweeper', 'issue-triage', 'weekly-chronicle', 'claude'];
 
 for (const name of LOOPS) {
   const wf = yaml.load(readFileSync(path.join('.github/workflows', `${name}.yml`), 'utf8')) as Wf;

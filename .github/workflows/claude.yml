@@ -91,10 +91,21 @@ jobs:
       hand_outcome: ${{ steps.hand.outcome }}
       execution_file: ${{ steps.hand.outputs.execution_file }}
     steps:
+      # Учётки git в .git/config нет (скан безопасности 25.11): у агента Bash,
+      # и текст задачи может быть чужим — с persist-credentials токен записи
+      # читался бы `cat .git/config`. Пишет шаг ПОСЛЕ агента, как у свипера.
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 1
+          persist-credentials: false
+
+      # Точка отсчёта для шага записи: он пушит только коммиты агента поверх неё.
+      - name: База руки
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/hand-base-sha"
+          mkdir -p .agent-out
+          if [ -d .git/info ]; then echo '.agent-out/' >> .git/info/exclude; fi
 
       - name: Read codebase context
         id: ctx
@@ -128,9 +139,16 @@ jobs:
       - name: Run Claude
         id: hand
         uses: anthropics/claude-code-action@115e0b2c49222c831de6748ccdf365bb8d3ea9a3 # v1 от 06.11.2026, ставит Claude Code 2.1.319
+        # Токена GitHub и ключа модели у Bash агента нет (скан безопасности
+        # 25.11): текст задачи бывает чужим (метка agent-proposal, «@claude» в
+        # чужом issue), и без SUBPROCESS_ENV_SCRUB подсказка в нём могла увести
+        # ключ API и токен записи через `env` и curl. Тот же порядок, что у
+        # свипера и триажа: данные — до, запись — шагом после по .agent-out/.
+        # Сторож: tests/unit/loop-agents-no-token.test.ts.
         env:
           ANTHROPIC_BASE_URL: ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'https://api.anthropic.com' || 'https://openrouter.ai/api' }}
           ANTHROPIC_DEFAULT_HAIKU_MODEL: ${{ vars.AGENTS_PROVIDER != 'anthropic' && 'anthropic/claude-haiku-5.5' || '' }}
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1'
         with:
           # Ключ Console из репозиторного секрета — решение владельца 13.10:
           # «я пополню лучше баланс», после того как выпуск токена подписки
@@ -179,8 +197,8 @@ jobs:
             Выполни эту задачу до конца — от чтения кода до draft-PR. Не
             спрашивай уточнений: если что-то неоднозначно, выбери разумный
             вариант и опиши выбор в PR. Если задача не требует изменений кода
-            (анализ/разведка) — оставь развёрнутый результат комментарием:
-            gh issue comment ${{ github.event.issue.number }} --body "..."
+            (анализ/разведка) — оставь развёрнутый результат комментарием
+            через .agent-out/hand.json (см. «ЧЕМ ЗАКОНЧИТЬ»).
 
             ОБЯЗАТЕЛЬНО ПЕРЕД ЛЮБЫМИ ИЗМЕНЕНИЯМИ:
             1. CLAUDE.md уже у тебя в контексте — Claude Code кладёт его сам. Не
@@ -201,13 +219,68 @@ jobs:
             ЗАПРЕЩЕНО (нарушения блокируют коммит):
             ${{ steps.ctx.outputs.RULES }}
 
-            ПРАВИЛА GIT (СТРОГО):
-            - НИКОГДА не делай git push origin main — это сломает прод
-            - Всегда создавай ветку: git checkout -b claude/issue-${{ github.event.issue.number }}
-            - После реализации: git push origin claude/issue-${{ github.event.issue.number }}
-            - Открой PR в main через gh pr create с описанием что сделано
-            - В body PR укажи «Closes #${{ github.event.issue.number }}» — GitHub закроет issue при мерже
-            - PR создаётся как draft: gh pr create --draft
+            ══ ЧЕМ ЗАКОНЧИТЬ ══
+            Доступа к GitHub у тебя нет: gh и git push работать не будут, и это
+            нарочно — запись делает следующий шаг по твоему выводу.
+            Ровно один исход, записанный в .agent-out/hand.json:
+            {"action": "pr" | "comment" | "none", "title": "<заголовок PR>", "body": "<текст>"}
+              pr      — изменения закоммичены ЛОКАЛЬНО в текущую ветку (без
+                        новых веток и без push). Шаг после тебя запушит их в
+                        claude/issue-<номер> и откроет draft-PR в main с твоими
+                        title и body; «Closes #<номер>» он допишет сам.
+              comment — кода менять не нужно: ничего не коммить, в body —
+                        развёрнутый результат, он уйдёт комментарием в задачу.
+              none    — сделать нельзя: в body — почему, уйдёт комментарием.
+            Не трогай .github/, middleware.ts, lib/auth.ts, app/api/payments/,
+            app/api/safety/sos — коммит с ними шаг после тебя не запушит.
+
+      # ── Запись — отдельным шагом ПОСЛЕ агента (скан безопасности 25.11) ─
+      # Токен есть только здесь. Вывод агента — данные, а не команды: исход из
+      # белого списка, title и body уходят в gh файлами, коммиты проверяются
+      # по запретным путям до push. Хуки git из рабочей копии агента
+      # отключены (core.hooksPath): иначе pre-push агента исполнился бы с
+      # токеном в окружении.
+      - name: Исход руки — push, draft-PR, комментарий
+        if: steps.hand.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          out=.agent-out/hand.json
+          if [ ! -f "$out" ]; then echo "::warning::Агент не оставил $out — записывать нечего"; exit 0; fi
+          action=$(jq -r '.action // "" | tostring' "$out")
+          jq -r '.title // "" | tostring | .[0:200]' "$out" | tr '\n' ' ' > "$RUNNER_TEMP/hand-title"
+          jq -r '.body // "" | tostring | .[0:60000]' "$out" > "$RUNNER_TEMP/hand-body"
+          num="${ISSUE_NUMBER:-$PR_NUMBER}"
+          [ -n "$num" ] || { echo "::warning::Нет номера задачи — записывать некуда"; exit 0; }
+          base=$(cat "$RUNNER_TEMP/hand-base-sha")
+          case "$action" in
+            comment|none)
+              [ -s "$RUNNER_TEMP/hand-body" ] || { echo "::warning::Пустой body — комментировать нечего"; exit 0; }
+              gh issue comment "$num" --repo "$REPO" --body-file "$RUNNER_TEMP/hand-body" ;;
+            pr)
+              [ -n "$ISSUE_NUMBER" ] || { echo "::warning::PR открывается только по задаче, не по ревью"; exit 0; }
+              commits=$(git rev-list "$base..HEAD")
+              [ -n "$commits" ] || { echo "::warning::pr без коммитов"; exit 0; }
+              if git diff --name-only "$base" HEAD | grep -E '^(app/api/payments/|app/api/safety/sos|middleware\.ts$|lib/auth\.ts$|\.github/)'; then
+                echo "::error::агент тронул запретный путь — не пушу"; exit 1
+              fi
+              branch="claude/issue-$ISSUE_NUMBER"
+              auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+              git -c core.hooksPath=/dev/null -c http.extraheader="$auth" push "https://github.com/$REPO.git" "HEAD:refs/heads/$branch"
+              title=$(cat "$RUNNER_TEMP/hand-title")
+              [ -n "$title" ] || title="Задача #$ISSUE_NUMBER"
+              printf '\n\nCloses #%s\n' "$ISSUE_NUMBER" >> "$RUNNER_TEMP/hand-body"
+              existing=$(gh pr list --repo "$REPO" --head "$branch" --state open --json number --jq '.[0].number // empty' || true)
+              if [ -z "$existing" ]; then
+                gh pr create --repo "$REPO" --draft --base main --head "$branch" --title "$title" --body-file "$RUNNER_TEMP/hand-body"
+              fi ;;
+            *)
+              echo "::warning::неизвестный исход «$action» — ничего не делаю" ;;
+          esac
 
       # ── Расход руки — в книги (аудит 15.10, AC-1) ──────────────────────
       # К работе учёта usage-books уезжают ОДНИ СЧЁТЧИКИ, а не файл выполнения.
