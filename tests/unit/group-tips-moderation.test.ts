@@ -39,3 +39,20 @@ describe('миграция 1513 скрывает уже записанные с�
     expect(MIGRATION).not.toMatch(/\bDELETE\b/i);
   });
 });
+
+// Скрытая строка бесполезна, если хоть один читатель для туриста её берёт
+// (ревью безопасности #3831: виджет Кузьмича шёл через rag-context без
+// фильтра). VIEW agent_route_knowledge отдаёт is_visible, но не фильтрует.
+describe('туристские читатели знаний берут только видимое', () => {
+  const READERS = ['lib/ai/rag-context.ts', 'lib/ai/embeddings.ts', 'lib/ai/route-knowledge.ts'];
+
+  for (const f of READERS) {
+    it(`${f}: каждый SELECT по знаниям маршрутов фильтрует is_visible`, () => {
+      const src = readFileSync(join(ROOT, f), 'utf-8');
+      const selects = [...src.matchAll(/SELECT[\s\S]*?FROM (agent_route_knowledge|kamchatka_routes)\b[\s\S]*?`/g)].map((m) => m[0]);
+      // Ноль найденных — сломался разбор, а не «читателей нет».
+      expect(selects.length).toBeGreaterThan(0);
+      for (const q of selects) expect(q).toMatch(/is_visible\s*=\s*TRUE/i);
+    });
+  }
+});

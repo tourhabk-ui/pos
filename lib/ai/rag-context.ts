@@ -127,6 +127,10 @@ async function findRoutesByText(
       lat: number | null;
       lng: number | null;
     }>(
+      // is_visible = TRUE — как у route-knowledge (ревью #3831): скрытая строка
+      // (совет из Telegram-группы до модерации, скрытый дубль) не уходит
+      // туристу «контекстом платформы».
+      //
       // ORDER BY обязателен: LIMIT без него отдаёт ПРОИЗВОЛЬНЫЕ строки из
       // совпавших, и на один и тот же вопрос Кузьмич получал разный контекст.
       // Ранжирование по ts_rank заодно ставит лучшие совпадения первыми —
@@ -134,7 +138,8 @@ async function findRoutesByText(
       // ключом: равный ранг не должен возвращать недетерминированность.
       `SELECT title, LEFT(description, 100) AS description, category, lat, lng
        FROM agent_route_knowledge
-       WHERE to_tsvector('russian', coalesce(title,'') || ' ' || coalesce(description,''))
+       WHERE is_visible = TRUE
+         AND to_tsvector('russian', coalesce(title,'') || ' ' || coalesce(description,''))
          @@ plainto_tsquery('russian', $1)
        ORDER BY ts_rank(
          to_tsvector('russian', coalesce(title,'') || ' ' || coalesce(description,'')),
@@ -216,7 +221,8 @@ async function findNearbyPlaces(
       // и финальная сортировка остаются в JS ниже.
       `SELECT title, category, lat, lng, LEFT(description, 150) AS description
        FROM agent_route_knowledge
-       WHERE lat IS NOT NULL AND lng IS NOT NULL
+       WHERE is_visible = TRUE
+         AND lat IS NOT NULL AND lng IS NOT NULL
          AND lat BETWEEN $1 - 2.0 AND $1 + 2.0
          AND lng BETWEEN $2 - 2.0 AND $2 + 2.0
        ORDER BY (lat - $1)^2 + ((lng - $2) * cos(radians($1)))^2, title
