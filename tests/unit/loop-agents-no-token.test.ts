@@ -67,10 +67,79 @@ for (const name of LOOPS) {
       expect(String(hand.with?.claude_args ?? '')).toMatch(/--allowedTools/);
     });
 
-    it('запись — отдельным шагом после агента, с токеном', () => {
-      const after = steps.slice(handIdx + 1).filter((s) => s.env?.GH_TOKEN === '${{ github.token }}');
-      expect(after.length).toBeGreaterThan(0);
-      expect(after.every((s) => String(s.if ?? '').includes("steps.hand.outcome == 'success'"))).toBe(true);
-    });
+    // Рука по задачам пишет не шагом рядом, а своей работой (ревью #3831):
+    // её проверяет отдельный блок ниже.
+    if (name !== 'claude') {
+      it('запись — отдельным шагом после агента, с токеном', () => {
+        const after = steps.slice(handIdx + 1).filter((s) => s.env?.GH_TOKEN === '${{ github.token }}');
+        expect(after.length).toBeGreaterThan(0);
+        expect(after.every((s) => String(s.if ?? '').includes("steps.hand.outcome == 'success'"))).toBe(true);
+      });
+    }
   });
 }
+
+/**
+ * Рука по задачам: запись — отдельной работой на чистом раннере (ревью
+ * безопасности #3831). В одной работе с агентом шаг записи был беззащитен:
+ * агент правил .git/config (url.insteadOf уводил push с заголовком токена на
+ * чужой хост), подкладывал BASH_ENV/PATH через GITHUB_ENV/GITHUB_PATH, менял
+ * файл с базой; путь с кириллицей прятался в кавычки git от регулярки, а
+ * сама регулярка была подмножеством реестра зон.
+ */
+describe('claude: запись руки — своей работой, без агента рядом', () => {
+  type Job = { needs?: string | string[]; if?: string; permissions?: Record<string, string>; steps?: (Step & { run?: string })[] };
+  const wf = yaml.load(readFileSync(path.join('.github/workflows', 'claude.yml'), 'utf8')) as { jobs: Record<string, Job> };
+  const isHand = (j: Job) => (j.steps ?? []).some((s) => s.uses?.startsWith('anthropics/claude-code-action'));
+  const handJob = wf.jobs.claude;
+  const entries = Object.entries(wf.jobs).filter(([, j]) => (j.steps ?? []).some((s) => s.env?.GH_TOKEN === '${{ github.token }}'));
+  const [writeId, write] = entries[0] ?? ['', {} as Job];
+  const writeStep = (write.steps ?? []).find((s) => s.env?.GH_TOKEN === '${{ github.token }}');
+  const run = String(writeStep?.run ?? '');
+
+  it('токен записи — ровно в одной работе, и это не работа агента', () => {
+    expect(entries.map(([id]) => id)).toEqual([writeId]);
+    expect(isHand(write)).toBe(false);
+    expect(JSON.stringify(handJob.steps)).not.toMatch(/github\.token|GH_TOKEN/);
+  });
+
+  it('работа записи ждёт руку и идёт только при её успехе', () => {
+    const needs = Array.isArray(write.needs) ? write.needs : [write.needs];
+    expect(needs).toContain('claude');
+    expect(String(write.if)).toContain("needs.claude.outputs.hand_outcome == 'success'");
+  });
+
+  it('из работы руки уезжают только данные — артефакт hand-out', () => {
+    const up = (handJob.steps ?? []).find((s) => s.uses?.startsWith('actions/upload-artifact') && s.with?.name === 'hand-out');
+    expect(up).toBeTruthy();
+    const down = (write.steps ?? []).find((s) => s.uses?.startsWith('actions/download-artifact'));
+    expect(down?.with?.name).toBe('hand-out');
+    expect(String(down?.with?.path)).toMatch(/^\$\{\{\s*runner\.temp\s*\}\}\//);
+  });
+
+  it('копия записи чистая: свой checkout без учётки, конфиг git только её', () => {
+    const co = (write.steps ?? []).find((s) => s.uses?.startsWith('actions/checkout'));
+    expect(co?.with?.['persist-credentials']).toBe(false);
+    expect(co?.with?.ref).toBeUndefined();
+    expect(writeStep?.env?.GIT_CONFIG_GLOBAL).toBe('/dev/null');
+    expect(String(writeStep?.env?.GIT_CONFIG_NOSYSTEM)).toBe('1');
+    expect(String(writeStep?.env?.GIT_NO_REPLACE_OBJECTS)).toBe('1');
+    expect(run).toMatch(/core\.hooksPath=\/dev\/null/);
+  });
+
+  it('база — из своей копии, а не из файла, доступного агенту', () => {
+    expect(run).toMatch(/base=\$\(git rev-parse --verify 'HEAD\^\{commit\}'\)/);
+    expect(run).not.toMatch(/hand-base-sha/);
+    expect(run).toMatch(/merge-base --is-ancestor "\$base" "\$tip"/);
+    expect(run).toMatch(/--min-parents=2/);
+  });
+
+  it('пути — по каждому коммиту, без кавычек git, по реестру зон', () => {
+    expect(run).toMatch(/core\.quotePath=false diff-tree -r -z/);
+    expect(run).toMatch(/zonesOfFile/);
+    expect(run).toMatch(/startsWith\("\.github\/"\)/);
+    // Не прочитал список — не пушу (§4.0): пустой список краснит.
+    expect(run).toMatch(/files\.length === 0[^\n]*process\.exit\(1\)/);
+    expect(run).not.toMatch(/grep -E '\^\(app\/api\/payments/);
+  });
+});

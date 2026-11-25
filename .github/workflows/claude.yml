@@ -100,10 +100,13 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      # Точка отсчёта для шага записи: он пушит только коммиты агента поверх неё.
+      # Точка отсчёта для сборки исхода: в артефакт уходят только коммиты
+      # агента поверх неё. Работа записи берёт базу не отсюда, а из своей
+      # чистой копии (тот же коммит события).
       - name: База руки
+        id: base
         run: |
-          git rev-parse HEAD > "$RUNNER_TEMP/hand-base-sha"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           mkdir -p .agent-out
           if [ -d .git/info ]; then echo '.agent-out/' >> .git/info/exclude; fi
 
@@ -142,8 +145,8 @@ jobs:
         # Токена GitHub и ключа модели у Bash агента нет (скан безопасности
         # 25.11): текст задачи бывает чужим (метка agent-proposal, «@claude» в
         # чужом issue), и без SUBPROCESS_ENV_SCRUB подсказка в нём могла увести
-        # ключ API и токен записи через `env` и curl. Тот же порядок, что у
-        # свипера и триажа: данные — до, запись — шагом после по .agent-out/.
+        # ключ API и токен записи через `env` и curl. Запись — отдельной
+        # работой hand-write на чистом раннере по артефакту hand-out.
         # Сторож: tests/unit/loop-agents-no-token.test.ts.
         env:
           ANTHROPIC_BASE_URL: ${{ vars.AGENTS_PROVIDER == 'anthropic' && 'https://api.anthropic.com' || 'https://openrouter.ai/api' }}
@@ -221,66 +224,19 @@ jobs:
 
             ══ ЧЕМ ЗАКОНЧИТЬ ══
             Доступа к GitHub у тебя нет: gh и git push работать не будут, и это
-            нарочно — запись делает следующий шаг по твоему выводу.
+            нарочно — запись делает отдельная работа по твоему выводу.
             Ровно один исход, записанный в .agent-out/hand.json:
             {"action": "pr" | "comment" | "none", "title": "<заголовок PR>", "body": "<текст>"}
               pr      — изменения закоммичены ЛОКАЛЬНО в текущую ветку (без
-                        новых веток и без push). Шаг после тебя запушит их в
+                        новых веток и без push). Запись запушит их в
                         claude/issue-<номер> и откроет draft-PR в main с твоими
                         title и body; «Closes #<номер>» он допишет сам.
               comment — кода менять не нужно: ничего не коммить, в body —
                         развёрнутый результат, он уйдёт комментарием в задачу.
               none    — сделать нельзя: в body — почему, уйдёт комментарием.
-            Не трогай .github/, middleware.ts, lib/auth.ts, app/api/payments/,
-            app/api/safety/sos — коммит с ними шаг после тебя не запушит.
-
-      # ── Запись — отдельным шагом ПОСЛЕ агента (скан безопасности 25.11) ─
-      # Токен есть только здесь. Вывод агента — данные, а не команды: исход из
-      # белого списка, title и body уходят в gh файлами, коммиты проверяются
-      # по запретным путям до push. Хуки git из рабочей копии агента
-      # отключены (core.hooksPath): иначе pre-push агента исполнился бы с
-      # токеном в окружении.
-      - name: Исход руки — push, draft-PR, комментарий
-        if: steps.hand.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          out=.agent-out/hand.json
-          if [ ! -f "$out" ]; then echo "::warning::Агент не оставил $out — записывать нечего"; exit 0; fi
-          action=$(jq -r '.action // "" | tostring' "$out")
-          jq -r '.title // "" | tostring | .[0:200]' "$out" | tr '\n' ' ' > "$RUNNER_TEMP/hand-title"
-          jq -r '.body // "" | tostring | .[0:60000]' "$out" > "$RUNNER_TEMP/hand-body"
-          num="${ISSUE_NUMBER:-$PR_NUMBER}"
-          [ -n "$num" ] || { echo "::warning::Нет номера задачи — записывать некуда"; exit 0; }
-          base=$(cat "$RUNNER_TEMP/hand-base-sha")
-          case "$action" in
-            comment|none)
-              [ -s "$RUNNER_TEMP/hand-body" ] || { echo "::warning::Пустой body — комментировать нечего"; exit 0; }
-              gh issue comment "$num" --repo "$REPO" --body-file "$RUNNER_TEMP/hand-body" ;;
-            pr)
-              [ -n "$ISSUE_NUMBER" ] || { echo "::warning::PR открывается только по задаче, не по ревью"; exit 0; }
-              commits=$(git rev-list "$base..HEAD")
-              [ -n "$commits" ] || { echo "::warning::pr без коммитов"; exit 0; }
-              if git diff --name-only "$base" HEAD | grep -E '^(app/api/payments/|app/api/safety/sos|middleware\.ts$|lib/auth\.ts$|\.github/)'; then
-                echo "::error::агент тронул запретный путь — не пушу"; exit 1
-              fi
-              branch="claude/issue-$ISSUE_NUMBER"
-              auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-              git -c core.hooksPath=/dev/null -c http.extraheader="$auth" push "https://github.com/$REPO.git" "HEAD:refs/heads/$branch"
-              title=$(cat "$RUNNER_TEMP/hand-title")
-              [ -n "$title" ] || title="Задача #$ISSUE_NUMBER"
-              printf '\n\nCloses #%s\n' "$ISSUE_NUMBER" >> "$RUNNER_TEMP/hand-body"
-              existing=$(gh pr list --repo "$REPO" --head "$branch" --state open --json number --jq '.[0].number // empty' || true)
-              if [ -z "$existing" ]; then
-                gh pr create --repo "$REPO" --draft --base main --head "$branch" --title "$title" --body-file "$RUNNER_TEMP/hand-body"
-              fi ;;
-            *)
-              echo "::warning::неизвестный исход «$action» — ничего не делаю" ;;
-          esac
+            Не трогай .github/ и зоны §7 (реестр scripts/protected-zones.mjs:
+            платежи, вход, SOS, регистрация группы и др.) — коммит с ними
+            запись не запушит. Без merge-коммитов.
 
       # ── Расход руки — в книги (аудит 15.10, AC-1) ──────────────────────
       # К работе учёта usage-books уезжают ОДНИ СЧЁТЧИКИ, а не файл выполнения.
@@ -338,6 +294,140 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
           overwrite: true
+
+      # ── Исход руки — данными в работу записи (ревью безопасности #3831) ─
+      # Токена в этой работе нет и не будет: агент мог переписать .git/config
+      # (url.insteadOf уводил бы push с заголовком токена на чужой хост),
+      # подложить BASH_ENV/PATH следующим шагам через GITHUB_ENV/GITHUB_PATH
+      # и файл с базой. Поэтому отсюда уезжают только данные — hand.json и
+      # git bundle коммитов поверх базы, — а пушит hand-write на чистом
+      # раннере. Всё в артефакте — недоверенное, там его и проверяют. Идёт
+      # после пары «выжимка — загрузка» учёта: её ищут первой после руки.
+      - name: Исход руки — в артефакт для записи
+        if: steps.hand.outcome == 'success'
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/hand-out"
+          rm -rf "$dir"; mkdir -p "$dir"
+          if [ -f .agent-out/hand.json ]; then cp .agent-out/hand.json "$dir/hand.json"; fi
+          if [ -n "$(git rev-list "$BASE_SHA..HEAD")" ]; then
+            git bundle create "$dir/hand.bundle" "$BASE_SHA..HEAD"
+          fi
+
+      - name: Исход руки — к записи
+        if: steps.hand.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: hand-out
+          path: ${{ runner.temp }}/hand-out/
+          if-no-files-found: ignore
+          retention-days: 1
+          overwrite: true
+
+  # ── Запись руки — отдельной работой на чистом раннере (ревью #3831) ─────
+  #
+  # Токен записи есть только здесь, а агента здесь нет: ни его .git/config,
+  # ни его GITHUB_ENV/GITHUB_PATH, ни файлов. База — коммит события в
+  # собственной копии (тот же, что у руки), коммиты — из bundle, который
+  # проверяется: потомок базы, без merge-коммитов, по каждому коммиту список
+  # путей (quotePath=false и NUL — кириллица не прячется в кавычки), ни
+  # .github/, ни зон §7 по реестру scripts/protected-zones.mjs из этой копии,
+  # а не из дерева агента. Не прочитался список — не пушу (§4.0). Конфиг git
+  # только из чистой копии, replace-ссылки выключены, хуки — тоже.
+  # Сторож: tests/unit/loop-agents-no-token.test.ts.
+  hand-write:
+    needs: claude
+    if: needs.claude.outputs.hand_outcome == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Чистая копия на базе руки
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Исход руки — из работы руки
+        id: dl
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: hand-out
+          path: ${{ runner.temp }}/hand-out
+
+      - name: Исход руки — push, draft-PR, комментарий
+        if: steps.dl.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_NOSYSTEM: '1'
+          GIT_NO_REPLACE_OBJECTS: '1'
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          set -euo pipefail
+          in="$RUNNER_TEMP/hand-out"
+          out="$in/hand.json"
+          if [ ! -f "$out" ]; then echo "::warning::Агент не оставил hand.json — записывать нечего"; exit 0; fi
+          action=$(jq -r '.action // "" | tostring' "$out")
+          jq -r '.title // "" | tostring | .[0:200]' "$out" | tr '\n' ' ' > "$RUNNER_TEMP/hand-title"
+          jq -r '.body // "" | tostring | .[0:60000]' "$out" > "$RUNNER_TEMP/hand-body"
+          num="${ISSUE_NUMBER:-$PR_NUMBER}"
+          [ -n "$num" ] || { echo "::warning::Нет номера задачи — записывать некуда"; exit 0; }
+          case "$action" in
+            comment|none)
+              [ -s "$RUNNER_TEMP/hand-body" ] || { echo "::warning::Пустой body — комментировать нечего"; exit 0; }
+              gh issue comment "$num" --repo "$REPO" --body-file "$RUNNER_TEMP/hand-body" ;;
+            pr)
+              [ -n "$ISSUE_NUMBER" ] || { echo "::warning::PR открывается только по задаче, не по ревью"; exit 0; }
+              bundle="$in/hand.bundle"
+              [ -f "$bundle" ] || { echo "::warning::pr без коммитов"; exit 0; }
+              base=$(git rev-parse --verify 'HEAD^{commit}')
+              git bundle verify "$bundle" >/dev/null || { echo "::error::bundle руки не проверился — не пушу"; exit 1; }
+              git fetch --no-tags "$bundle" '+HEAD:refs/hand/tip' || { echo "::error::bundle руки не прочитан — не пушу"; exit 1; }
+              tip=$(git rev-parse --verify 'refs/hand/tip^{commit}')
+              git merge-base --is-ancestor "$base" "$tip" || { echo "::error::коммиты руки не поверх базы — не пушу"; exit 1; }
+              merges=$(git rev-list --min-parents=2 "$base..$tip") || { echo "::error::история руки не прочитана — не пушу"; exit 1; }
+              [ -z "$merges" ] || { echo "::error::в истории руки merge-коммит — не пушу"; exit 1; }
+              commits=$(git rev-list "$base..$tip") || { echo "::error::история руки не прочитана — не пушу"; exit 1; }
+              [ -n "$commits" ] || { echo "::warning::pr без коммитов"; exit 0; }
+              files="$RUNNER_TEMP/hand-files.z"
+              : > "$files"
+              for c in $commits; do
+                git -c core.quotePath=false diff-tree -r -z --no-commit-id --name-only "$c" >> "$files" \
+                  || { echo "::error::пути коммита $c не прочитаны — не пушу"; exit 1; }
+              done
+              node --input-type=module -e '
+                const { readFileSync } = await import("node:fs");
+                const { pathToFileURL } = await import("node:url");
+                const { zonesOfFile } = await import(pathToFileURL(process.cwd() + "/scripts/protected-zones.mjs").href);
+                const files = readFileSync(process.argv[1], "utf8").split("\0").filter(Boolean);
+                if (files.length === 0) { console.log("::error::Список путей коммитов руки пуст — не пушу"); process.exit(1); }
+                const bad = files.filter((f) => f.startsWith(".github/") || zonesOfFile(f).length > 0);
+                for (const f of bad) console.log(`::error::Агент тронул ${JSON.stringify(f)} — .github/ или зона §7, не пушу`);
+                process.exit(bad.length ? 1 : 0);
+              ' "$files"
+              branch="claude/issue-$ISSUE_NUMBER"
+              auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+              git -c core.hooksPath=/dev/null -c http.extraheader="$auth" push "https://github.com/$REPO.git" "$tip:refs/heads/$branch"
+              title=$(cat "$RUNNER_TEMP/hand-title")
+              [ -n "$title" ] || title="Задача #$ISSUE_NUMBER"
+              printf '\n\nCloses #%s\n' "$ISSUE_NUMBER" >> "$RUNNER_TEMP/hand-body"
+              existing=$(gh pr list --repo "$REPO" --head "$branch" --state open --json number --jq '.[0].number // empty' || true)
+              if [ -z "$existing" ]; then
+                gh pr create --repo "$REPO" --draft --base main --head "$branch" --title "$title" --body-file "$RUNNER_TEMP/hand-body"
+              fi ;;
+            *)
+              echo "::warning::неизвестный исход «$action» — ничего не делаю" ;;
+          esac
 
   # ── Расход руки — в книги llm_usage_log (аудит 15.10, AC-1) ─────────────
   #
