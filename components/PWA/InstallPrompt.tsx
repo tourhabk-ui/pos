@@ -14,7 +14,8 @@ import { isForeignSurface } from '@/lib/embed/widget-frame';
  * покупкой; приложение ему предлагают в поле, а не посреди брони.
  * Сторож: tests/unit/install-prompt-placement.test.tsx.
  */
-export const INSTALL_PROMPT_HIDDEN_PREFIXES = ['/catalog', '/marketplace', '/booking-success'];
+// /confirm — отправка заявки агента: карточка выезжала на кнопку «Отправить» (проход 25.11).
+export const INSTALL_PROMPT_HIDDEN_PREFIXES = ['/catalog', '/marketplace', '/booking-success', '/confirm'];
 
 export function installPromptHiddenOn(pathname: string | null): boolean {
   if (!pathname) return true;
