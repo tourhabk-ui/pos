@@ -178,15 +178,27 @@ export function seasonZh(start: string | Date | null | undefined, end: string | 
 }
 
 /**
- * Предел группы из базы: «最多 12 人»; не записан или ноль — null. Группа не
- * ограничена (1342) — «人数不限» и потолок одной заявки на сайте, тем же
- * правилом, что русская карточка (lib/tours/group-size).
+ * Группа из базы: «最多 12 人»; минимум больше одного — «5–14 人», как «5–14» на
+ * русской карточке (#3487, сверка 24.11: ZH показывал только предел, и
+ * человек не видел, что тур идёт от пяти). Не записано или ноль — null.
+ * Группа не ограничена (1342) — «人数不限» и потолок одной заявки на сайте, тем
+ * же правилом, что русская карточка (lib/tours/group-size).
  */
-export function groupZh(max: number | string | null | undefined, unlimited?: boolean | null): string | null {
+export function groupZh(
+  max: number | string | null | undefined,
+  unlimited?: boolean | null,
+  min?: number | string | null,
+): string | null {
+  const lo = Number(min);
+  const least = Number.isFinite(lo) && lo > 1 ? Math.round(lo) : null;
   if (unlimited === true) {
     const ceiling = bookingRequestCeiling(max, true);
-    return ceiling === null ? '人数不限' : `人数不限（网站单次申请最多 ${ceiling} 人）`;
+    const head = least === null ? '人数不限' : `至少 ${least} 人，人数上限不限`;
+    return ceiling === null ? head : `${head}（网站单次申请最多 ${ceiling} 人）`;
   }
   const n = Number(max);
-  return Number.isFinite(n) && n > 0 ? `最多 ${Math.round(n)} 人` : null;
+  const most = Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+  if (most === null) return least === null ? null : `至少 ${least} 人`;
+  if (least === null || least > most) return `最多 ${most} 人`;
+  return least === most ? `${most} 人` : `${least}–${most} 人`;
 }

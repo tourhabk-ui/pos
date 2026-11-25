@@ -218,7 +218,7 @@ export function ZhTourSummary({ tour, translations, cny = null }: { tour: ZhTour
             items={[
               [ZH_DETAIL.facts.price, priceZh(tour, cny)],
               [ZH_DETAIL.facts.duration, durationZh(tour)],
-              [ZH_DETAIL.facts.group, groupZh(tour.max_participants, tour.group_size_unlimited)],
+              [ZH_DETAIL.facts.group, groupZh(tour.max_participants, tour.group_size_unlimited, tour.min_participants)],
               [ZH_DETAIL.facts.season, seasonZh(tour.season_start, tour.season_end)],
               [ZH_DETAIL.facts.operator, operator],
             ]}
