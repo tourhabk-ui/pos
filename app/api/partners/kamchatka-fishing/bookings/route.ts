@@ -5,6 +5,13 @@ import { requireRole } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
+// Только администратор (25.11, скан безопасности): запрос к партнёру идёт с
+// ключом ПЛАТФОРМЫ и не фильтруется по вызывающему, а роль оператора любой
+// получает сам при регистрации (register-operator). С ролью оператора здесь
+// читались все брони «Камчатской рыбалки» с именами, телефонами и почтами
+// клиентов и создавались брони от имени Ведара. Так же закрыт соседний
+// /api/partners/kamchatka-fishing (25.09).
+
 // Валидация брони (§4): данные клиента уходят внешнему партнёру, а тело
 // проверялось только на присутствие полей. Телефон/почта/число участников
 // теперь типизированы и ограничены.
@@ -21,7 +28,7 @@ const FishingBookingSchema = z.object({
 // GET /api/partners/kamchatka-fishing/bookings - Получить бронирования
 export async function GET(request: NextRequest) {
   try {
-    const userOrResponse = await requireRole(request, ['operator', 'admin']);
+    const userOrResponse = await requireRole(request, ['admin']);
     if (userOrResponse instanceof NextResponse) return userOrResponse;
 
     const apiKey = process.env.KAMCHATKA_FISHING_API_KEY;
@@ -65,7 +72,7 @@ export async function GET(request: NextRequest) {
 // POST /api/partners/kamchatka-fishing/bookings - Создать бронирование
 export async function POST(request: NextRequest) {
   try {
-    const userOrResponse = await requireRole(request, ['operator', 'admin']);
+    const userOrResponse = await requireRole(request, ['admin']);
     if (userOrResponse instanceof NextResponse) return userOrResponse;
 
     const apiKey = process.env.KAMCHATKA_FISHING_API_KEY;

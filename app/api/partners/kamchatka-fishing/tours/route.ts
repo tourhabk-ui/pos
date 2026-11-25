@@ -7,10 +7,17 @@ import { requireRole } from '@/lib/auth/middleware';
 
 export const dynamic = 'force-dynamic';
 
+// Только администратор (25.11, скан безопасности): запрос к партнёру идёт с
+// ключом ПЛАТФОРМЫ и не фильтруется по вызывающему, а роль оператора любой
+// получает сам при регистрации (register-operator). С ролью оператора здесь
+// читались все брони «Камчатской рыбалки» с именами, телефонами и почтами
+// клиентов и создавались брони от имени Ведара. Так же закрыт соседний
+// /api/partners/kamchatka-fishing (25.09).
+
 // GET /api/partners/kamchatka-fishing/tours - Получить туры партнера
 export async function GET(request: NextRequest) {
   try {
-    const userOrResponse = await requireRole(request, ['operator', 'admin']);
+    const userOrResponse = await requireRole(request, ['admin']);
     if (userOrResponse instanceof NextResponse) return userOrResponse;
 
     const apiKey = process.env.KAMCHATKA_FISHING_API_KEY;
