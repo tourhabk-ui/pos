@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  A2A_ERROR, A2A_METHOD_NAMES, a2aError, encodeSendMessageResult, encodeTask, httpErrorBody,
+  A2A_ERROR, A2A_METHOD_NAMES, a2aError, encodeSendMessageResult, encodeTask, errorInfo, httpErrorBody, jsonrpcErrorData,
   readOperation, readPart, readSendMessageParams, readTaskIdParams, readVersion, versionForMethod, MAX_PARTS, MAX_TEXT_CHARS,
   type TaskRecord,
 } from '@/lib/a2a/wire';
@@ -109,6 +109,29 @@ describe('ошибки по спецификации 1.0 (раздел 5.4)', ()
       },
     });
   });
+
+  it('data ошибки JSON-RPC (раздел 9.5): у ошибки A2A в 1.0 — массив с ErrorInfo, метаданные строками', () => {
+    const err = a2aError('TaskNotCancelable', 'уже завершена', { taskId: 't1', state: 'completed', attempts: 2 });
+    expect(jsonrpcErrorData(err, '1.0')).toEqual([{
+      '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+      reason: 'TASK_NOT_CANCELABLE',
+      domain: 'a2a-protocol.org',
+      metadata: { taskId: 't1', state: 'completed', attempts: '2' },
+    }]);
+    // Без подробностей — ErrorInfo без metadata, но массив всё равно есть.
+    expect(jsonrpcErrorData(a2aError('UnsupportedOperation', 'нет потока'), '1.0')).toEqual([errorInfo('UnsupportedOperation')]);
+    expect(errorInfo('UnsupportedOperation')).not.toHaveProperty('metadata');
+    // Каждая ошибка A2A из таблицы получает причину UPPER_SNAKE_CASE.
+    for (const kind of Object.keys(A2A_ERROR) as Array<keyof typeof A2A_ERROR>) {
+      const code = A2A_ERROR[kind].code;
+      if (code > -32001 || code < -32099) continue;
+      const data = jsonrpcErrorData(a2aError(kind, 'x'), '1.0') as Array<{ reason: string }>;
+      expect(data[0].reason, kind).toMatch(/^[A-Z][A-Z0-9_]+$/);
+    }
+    // Стандартные коды JSON-RPC и форма 0.3 — объект подробностей, как раньше.
+    expect(jsonrpcErrorData(a2aError('InvalidParams', 'x', { taskId: 't1' }), '1.0')).toEqual({ taskId: 't1' });
+    expect(jsonrpcErrorData(err, '0.3')).toEqual({ taskId: 't1', state: 'completed', attempts: 2 });
+  });
 });
 
 describe('кодек Task', () => {
@@ -152,6 +175,9 @@ describe('чтение входящего сообщения', () => {
     expect(readPart({ kind: 'data', data: { a: 1 } })).toEqual({ kind: 'data', data: { a: 1 } });
     expect(readPart({ kind: 'file', file: { uri: 'x' } })).toEqual({ kind: 'file' });
     expect(readPart({ file: { bytes: 'x' } })).toEqual({ kind: 'file' });
+    // Файл формы 1.0: байты в raw или ссылка в url, с mediaType.
+    expect(readPart({ raw: 'dGNr', mediaType: 'application/x-unsupported-tck-type' })).toEqual({ kind: 'file' });
+    expect(readPart({ url: 'https://example.org/a.pdf', mediaType: 'application/pdf' })).toEqual({ kind: 'file' });
     expect(readPart('строка')).toEqual({ kind: 'unknown' });
     expect(readPart({ kind: 'text' })).toEqual({ kind: 'unknown' });
   });

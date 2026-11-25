@@ -4,7 +4,9 @@
  * подставными исполнителями: версия из заголовка решает форму ответа,
  * ошибки протокола уходят телом JSON-RPC с HTTP 200 (как у MCP), REST
  * отвечает google.rpc.Status со статусом из таблицы, тип содержимого
- * application/a2a+json, CORS на каждом ответе.
+ * application/json (раздел 11.1; до 25.11 был application/a2a+json), CORS на
+ * каждом ответе. У ошибки A2A в JSON-RPC 1.0 поле data — массив с ErrorInfo;
+ * список задач анонимному клиенту — пустой на обоих биндингах.
  *
  * 13.10: задачи переживают перезапуск — задача, которой нет в памяти процесса,
  * читается из базы (a2a_tasks); база не ответила — -32603 и HTTP 500, а не
@@ -120,6 +122,32 @@ describe('JSON-RPC биндинг', () => {
     expect(missing.error.code).toBe(-32001);
   });
 
+  it('ошибка A2A в 1.0 — data массивом с ErrorInfo (раздел 9.5); в 0.3 и у стандартных кодов — как было', async () => {
+    const missing = await (await rpc('GetTask', { id: 'nope' }, { 'A2A-Version': '1.0' })).json();
+    expect(missing.error.code).toBe(-32001);
+    expect(Array.isArray(missing.error.data)).toBe(true);
+    expect(missing.error.data[0]).toMatchObject({ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'TASK_NOT_FOUND', domain: 'a2a-protocol.org' });
+    const file = await (await rpc('SendMessage', { message: { role: 'ROLE_USER', messageId: 'm', parts: [{ raw: 'dGNr', mediaType: 'application/x-unsupported-tck-type' }] } }, { 'A2A-Version': '1.0' })).json();
+    expect(file.error.code).toBe(-32005);
+    expect(file.error.data[0].reason).toBe('CONTENT_TYPE_NOT_SUPPORTED');
+    const bad = await rpc('SendMessage', {}, { 'A2A-Version': '3.0' });
+    const badBody = await bad.json();
+    expect(badBody.error.data[0]).toMatchObject({ reason: 'VERSION_NOT_SUPPORTED', metadata: { requested: '3.0' } });
+    const legacy = await (await rpc('tasks/get', { id: 'nope' })).json();
+    expect(Array.isArray(legacy.error.data)).toBe(false);
+    const params = await (await rpc('GetTask', {}, { 'A2A-Version': '1.0' })).json();
+    expect(params.error.code).toBe(-32602);
+    expect(params.error).not.toHaveProperty('data');
+  });
+
+  it('ListTasks / tasks/list — пустой список, nextPageToken пустой строкой, размер страницы назван', async () => {
+    await rpc('SendMessage', { message: { contextId: 'ctx-tck', parts: [{ data: { tool: 'get_tours' } }] } }, { 'A2A-Version': '1.0' });
+    const list = await (await rpc('ListTasks', { context_id: 'ctx-tck', page_size: 2 }, { 'A2A-Version': '1.0' })).json();
+    expect(list.result).toEqual({ tasks: [], nextPageToken: '', pageSize: 2, totalSize: 0 });
+    const legacy = await (await rpc('tasks/list', {})).json();
+    expect(legacy.result).toMatchObject({ tasks: [], nextPageToken: '' });
+  });
+
   it('чужая версия — HTTP 400 и -32009; неизвестный метод — -32601 со списком имён', async () => {
     const bad = await rpc('SendMessage', {}, { 'A2A-Version': '3.0' });
     expect(bad.status).toBe(400);
@@ -191,10 +219,10 @@ describe('JSON-RPC биндинг', () => {
 });
 
 describe('HTTP+JSON биндинг', () => {
-  it('POST /message:send → 200 application/a2a+json, форма по заголовку версии', async () => {
+  it('POST /message:send → 200 application/json (раздел 11.1), форма по заголовку версии', async () => {
     const res = await restPost(req('/api/a2a/v1/message:send', { method: 'POST', body: { message: { messageId: 'm', role: 'ROLE_USER', parts: [{ data: { tool: 'get_tours' } }] } }, headers: { 'A2A-Version': '1.0' } }), restCtx('message:send'));
     expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toContain('application/a2a+json');
+    expect(res.headers.get('content-type')).toMatch(/^application\/json(;|$)/);
     expect(res.headers.get('access-control-allow-origin')).toBe('*');
     const body = await res.json();
     expect(body.task.status.state).toBe('TASK_STATE_COMPLETED');
@@ -215,7 +243,19 @@ describe('HTTP+JSON биндинг', () => {
     expect(err.details[0]).toMatchObject({ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'TASK_NOT_FOUND', domain: 'a2a-protocol.org' });
   });
 
-  it('поток, подписка, push и список — 400 FAILED_PRECONDITION с причиной; неизвестный путь — 404', async () => {
+  it('GET /tasks — 200 пустой список с размером страницы из строки запроса; кривой размер — 400', async () => {
+    const list = await restGet(req('/api/a2a/v1/tasks?pageSize=2&contextId=ctx-tck', { method: 'GET', headers: { 'A2A-Version': '1.0' } }), restCtx('tasks'));
+    expect(list.status).toBe(200);
+    expect(list.headers.get('content-type')).toMatch(/^application\/json(;|$)/);
+    expect(await list.json()).toEqual({ tasks: [], nextPageToken: '', pageSize: 2, totalSize: 0 });
+    const plain = await restGet(req('/api/a2a/v1/tasks', { method: 'GET' }), restCtx('tasks'));
+    expect((await plain.json()).pageSize).toBe(50);
+    const bad = await restGet(req('/api/a2a/v1/tasks?pageSize=1000', { method: 'GET' }), restCtx('tasks'));
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error.details[0].reason).toBe('INVALID_PARAMS');
+  });
+
+  it('поток, подписка и push — 400 FAILED_PRECONDITION с причиной; неизвестный путь — 404', async () => {
     const stream = await restPost(req('/api/a2a/v1/message:stream', { method: 'POST', body: {} }), restCtx('message:stream'));
     expect(stream.status).toBe(400);
     expect((await stream.json()).error.details[0].reason).toBe('UNSUPPORTED_OPERATION');
@@ -223,8 +263,6 @@ describe('HTTP+JSON биндинг', () => {
     expect((await push.json()).error.details[0].reason).toBe('PUSH_NOTIFICATION_NOT_SUPPORTED');
     const del = await restDelete(req('/api/a2a/v1/tasks/abc/pushNotificationConfigs/c1', { method: 'DELETE' }), restCtx('tasks/abc/pushNotificationConfigs/c1'));
     expect(del.status).toBe(400);
-    const list = await restGet(req('/api/a2a/v1/tasks', { method: 'GET' }), restCtx('tasks'));
-    expect((await list.json()).error.details[0].reason).toBe('UNSUPPORTED_OPERATION');
     const unknown = await restGet(req('/api/a2a/v1/whatever', { method: 'GET' }), restCtx('whatever'));
     expect(unknown.status).toBe(404);
     // POST в корень (внешняя проверка 22.10): отказ называет пути, а не только «нет такого».

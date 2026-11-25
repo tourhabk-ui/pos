@@ -722,7 +722,7 @@ export function buildOpenApiDocument(base: string): Json {
         parameters: [a2aVersionHeader],
         requestBody: { required: true, content: { [JSON_CT]: { schema: ref('A2ASendMessageRequest') } } },
         responses: {
-          '200': { description: 'Задача', content: { 'application/a2a+json': { schema: ref('A2ASendMessageResponse') } } },
+          '200': { description: 'Задача', content: { [JSON_CT]: { schema: ref('A2ASendMessageResponse') } } },
           ...a2aErrors,
         },
       },
@@ -738,7 +738,7 @@ export function buildOpenApiDocument(base: string): Json {
           a2aVersionHeader,
         ],
         responses: {
-          '200': { description: 'Задача', content: { 'application/a2a+json': { schema: ref('A2ASendMessageResponse') } } },
+          '200': { description: 'Задача', content: { [JSON_CT]: { schema: ref('A2ASendMessageResponse') } } },
           '400': a2aErrors['400'],
           '404': a2aErrors['404'],
         },

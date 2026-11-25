@@ -6,7 +6,8 @@
  * артефактом и ссылкой «продолжить», refused/rate_limited/unknown_tool →
  * rejected, failed → failed), путь свободного текста (ответ Кузьмича →
  * completed, переписка запоминается по contextId), ошибки протокола для
- * того, чего нет (поток, push, список, расширенная карточка), GetTask и
+ * того, чего нет (поток, push, расширенная карточка), пустой список задач
+ * анонимному клиенту (ListTasks, 25.11), GetTask и
  * CancelTask, и то, что входящее сообщение агента в историю задачи не
  * попадает (pd-guard). С 13.10 — и третий исход чтения: хранилище не
  * прочиталось — InternalError, а не «задачи нет».
@@ -120,6 +121,11 @@ describe('свободный текст', () => {
   it('только файл — ContentTypeNotSupported; пустое — InvalidParams', async () => {
     const file = await handleA2A('SendMessage', { message: { parts: [{ file: { uri: 'x' } }] } }, ctx(), deps({ kind: 'failed', text: '' }));
     expect(!file.ok && file.error.code).toBe(-32005);
+    // Файл формы 1.0 (проверка A2A, CORE-SEND-003): байты в raw или ссылка в url с mediaType.
+    for (const part of [{ raw: 'dGNr', mediaType: 'application/x-unsupported-tck-type' }, { url: 'https://example.org/a.pdf', mediaType: 'application/pdf' }]) {
+      const out = await handleA2A('SendMessage', { message: { role: 'ROLE_USER', messageId: 'm', parts: [part] } }, ctx(), deps({ kind: 'failed', text: '' }));
+      expect(!out.ok && out.error, JSON.stringify(part)).toMatchObject({ code: -32005, kind: 'ContentTypeNotSupported' });
+    }
     const empty = await handleA2A('SendMessage', { message: { parts: [{ text: '   ' }] } }, ctx(), deps({ kind: 'failed', text: '' }));
     expect(!empty.ok && empty.error.code).toBe(-32602);
     const bad = await handleA2A('SendMessage', { nope: true }, ctx(), deps({ kind: 'failed', text: '' }));
@@ -149,9 +155,32 @@ describe('задачи и то, чего нет', () => {
     expect(!ghost.ok && ghost.error.code).toBe(-32001);
   });
 
-  it('поток, подписка, push, список и расширенная карточка названы неподдерживаемыми своими кодами', async () => {
+  it('ListTasks: пустой список с пустым nextPageToken, даже когда задачи есть; размер страницы назван; кривой размер — InvalidParams', async () => {
     const d = deps({ kind: 'ok', text: 'ок', handoffUrl: null });
-    for (const op of ['SendStreamingMessage', 'SubscribeToTask', 'ListTasks', 'GetExtendedAgentCard'] as const) {
+    // Задача уже лежит в хранилище — список её всё равно не отдаёт: клиент анонимен.
+    const sent = await handleA2A('SendMessage', dataMsg('get_tours', {}, { contextId: 'ctx-tck' }), ctx(), d);
+    expect(sent.ok).toBe(true);
+    const all = await handleA2A('ListTasks', undefined, ctx(), d);
+    expect(all).toEqual({ ok: true, result: { tasks: [], nextPageToken: '', pageSize: 50, totalSize: 0 } });
+    for (const params of [{ context_id: 'ctx-tck' }, { contextId: 'ctx-tck', includeArtifacts: true }, { status: 'TASK_STATE_COMPLETED' }]) {
+      const out = await handleA2A('ListTasks', params, ctx(), d);
+      expect(out.ok && out.result.tasks, JSON.stringify(params)).toEqual([]);
+    }
+    const two = await handleA2A('ListTasks', { context_id: 'x', page_size: 2 }, ctx(), d);
+    expect(two.ok && two.result).toMatchObject({ pageSize: 2, nextPageToken: '' });
+    const hundred = await handleA2A('ListTasks', { pageSize: '100' }, ctx('0.3'), d);
+    expect(hundred.ok && hundred.result.pageSize).toBe(100);
+    for (const pageSize of [0, 101, 2.5, 'много']) {
+      const bad = await handleA2A('ListTasks', { pageSize }, ctx(), d);
+      expect(!bad.ok && bad.error.code, String(pageSize)).toBe(-32602);
+    }
+    const notObject = await handleA2A('ListTasks', 'все', ctx(), d);
+    expect(!notObject.ok && notObject.error.code).toBe(-32602);
+  });
+
+  it('поток, подписка, push и расширенная карточка названы неподдерживаемыми своими кодами', async () => {
+    const d = deps({ kind: 'ok', text: 'ок', handoffUrl: null });
+    for (const op of ['SendStreamingMessage', 'SubscribeToTask', 'GetExtendedAgentCard'] as const) {
       const out = await handleA2A(op, {}, ctx(), d);
       expect(!out.ok && out.error.code, op).toBe(-32004);
     }
