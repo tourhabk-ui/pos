@@ -27,7 +27,7 @@ import { asksTripPlan, checkAnswerPrices } from '@/lib/kuzmich/answer-quality';
 import { asksTourComparison } from '@/lib/kuzmich/tour-ask';
 import { resolveCommercialTurn } from '@/lib/kuzmich/commercial-turn';
 import { detectEmergency } from '@/lib/safety/sos-detector';
-import { requestWindow, windowLabel } from '@/lib/tours/request-window';
+import { pastSeasonAgentWords, requestWindow, windowLabel } from '@/lib/tours/request-window';
 import { nearestFreeDateSql } from '@/lib/tours/nearest-free-date';
 import { anyDayOpenSql, anyDayLine } from '@/lib/tours/schedule-kind';
 import { OFFER_ORDER_NOTE_AGENT, OFFER_ORDER_NOTE_AGENT_TURNS, offerOrderDay, orderOffersByCompanyTurns, type OfferKeyInput } from '@/lib/tours/offer-order';
@@ -784,11 +784,21 @@ export async function loadTourCatalogEntries(): Promise<TourCatalog | null> {
             duration_hours: r.duration_hours ?? null,
           }, today)
         : null;
+      // Сезон кончился, следующего нет (#3487, сверка 24.11): не «все даты свободны».
+      const pastSeason = r.has_schedule === false
+        ? pastSeasonAgentWords({
+            season_start: r.season_start ?? null, season_end: r.season_end ?? null,
+            duration_type: r.duration_type ?? null, multi_day_count: r.multi_day_count,
+            duration_hours: r.duration_hours ?? null,
+          }, today)
+        : null;
       // «В любой день сезона» (#3476): слово оператора, а не пробел в данных.
       const slots = window?.kind === 'season' && r.any_day_open === true
         ? ` | ${anyDayLine(window)} (create_booking_request с датой сезона)`
         : window?.kind === 'season'
         ? ` | Расписания в системе нет — только заявка оператору на дату сезона (${windowLabel(window)}), это не бронь: create_booking_request; места подтверждает он`
+        : r.has_schedule === false && pastSeason
+        ? ` | Расписания в системе нет, ${pastSeason}: даты не подтверждены, заявка оператору на дату — create_booking_request; возьмёт ли он дату, скажет он сам`
         : r.has_schedule === false
         ? ' | Расписания в системе нет — все даты свободны для заявки оператору (create_booking_request с датой отправит ему запрос; места подтверждает он)'
         : r.available_slots != null
