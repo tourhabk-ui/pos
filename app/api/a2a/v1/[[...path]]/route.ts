@@ -8,8 +8,12 @@
  * Двоеточие в сегменте Next отдаёт как есть, поэтому один catch-all вместо
  * папок с двоеточием в имени (на Windows такие имена запрещены).
  *
- * Тип содержимого ответа — application/a2a+json, как рекомендует
- * спецификация; на входе принимается любой JSON.
+ * Тип содержимого ответа — application/json: раздел 11.1 требует его для
+ * запросов и ответов REST-биндинга (до 25.11 здесь был application/a2a+json, и
+ * проверка A2A считала это провалом). На входе принимается любой JSON.
+ *
+ * `GET /tasks` — ListTasks: пустой список (почему — lib/a2a/handle); размер
+ * страницы берётся из строки запроса.
  *
  * Сторож: tests/unit/a2a-route.test.ts.
  */
@@ -37,7 +41,7 @@ function restError(err: A2AError, version?: VersionRead): NextResponse {
 }
 
 function restOk(result: Record<string, unknown>, version?: VersionRead): NextResponse {
-  const headers: Record<string, string> = { 'Content-Type': 'application/a2a+json; charset=utf-8', ...CORS_HEADERS };
+  const headers: Record<string, string> = { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS };
   if (version?.ok) headers[A2A_VERSION_HEADER] = version.version;
   return new NextResponse(JSON.stringify(result), { status: 200, headers });
 }
@@ -70,7 +74,7 @@ function refuse(request: NextRequest, startedAt: number, version: VersionRead, e
  * корень POST-ом (внешняя проверка 22.10), из «нет такого пути» не узнал бы,
  * куда идти.
  */
-const REST_PATHS_HINT = 'POST /message:send, GET /tasks/{id}, POST /tasks/{id}:cancel';
+const REST_PATHS_HINT = 'POST /message:send, GET /tasks/{id}, GET /tasks, POST /tasks/{id}:cancel';
 
 /** Пути нет: в журнал — что прислали («ГЛАГОЛ /путь»), агенту — что прислал и какие пути есть. */
 function noSuchPath(request: NextRequest, startedAt: number, version: VersionRead, path: string): NextResponse {
@@ -108,7 +112,11 @@ export async function GET(request: NextRequest, ctx: RouteContext) {
   const v = versionOr400(request, startedAt);
   if (!v.ok) return v.res;
 
-  if (path === 'tasks') return run(request, v.read, 'ListTasks', {}, startedAt);
+  if (path === 'tasks') {
+    const q = request.nextUrl.searchParams;
+    const pageSize = q.get('pageSize') ?? q.get('page_size');
+    return run(request, v.read, 'ListTasks', pageSize !== null ? { pageSize } : {}, startedAt);
+  }
   if (path === 'extendedAgentCard') return run(request, v.read, 'GetExtendedAgentCard', {}, startedAt);
   if (TASK_PUSH.test(path)) return refuse(request, startedAt, v.read, 'PushNotificationNotSupported', a2aError('PushNotificationNotSupported', PUSH_UNSUPPORTED));
   const get = TASK_GET.exec(path);

@@ -18,8 +18,14 @@
  *
  * Чего нет и что сказано вслух: потока (SendStreamingMessage, SubscribeToTask
  * → UnsupportedOperationError), push-уведомлений (→
- * PushNotificationNotSupportedError), списка задач (анонимному клиенту чужие
- * задачи не отдаются → UnsupportedOperationError), расширенной карточки.
+ * PushNotificationNotSupportedError), расширенной карточки.
+ *
+ * ListTasks (раздел 3.1.4: «только задачи, видимые клиенту») отвечает пустым
+ * списком: клиенты анонимны, и задачи, видимой одному клиенту и не видимой
+ * другому, здесь нет — задача читается только по своему id (GetTask). Чужих
+ * задач список не отдаёт ни при каком фильтре (слово владельца 25.11). До
+ * 25.11 здесь был отказ UnsupportedOperation, и проверка A2A считала его
+ * провалом пяти требований.
  * CancelTask у завершённой задачи — TaskNotCancelableError: задачи здесь
  * рождаются уже завершёнными.
  *
@@ -38,7 +44,7 @@ import { safeRejectCode } from './reject-reason';
 import { toolNameIsQuestion } from '@/lib/mcp/unknown-tool';
 import { nonIdentifierKind } from '@/lib/mcp/call-log';
 import {
-  a2aError, encodeSendMessageResult, encodeTask, readSendMessageParams, readTaskIdParams,
+  a2aError, encodeSendMessageResult, encodeTask, readListTasksParams, readSendMessageParams, readTaskIdParams,
   TERMINAL_STATES,
   type A2AError, type A2AOperation, type A2AVersion, type InboundPart, type OutMessage, type OutPart, type TaskRecord, type TaskState,
 } from './wire';
@@ -237,8 +243,11 @@ export async function handleA2A(
       const { state } = found.task;
       return { ok: false, error: a2aError('TaskNotCancelable', `Задача ${read.id} уже завершена (${state}): отменять нечего. CancelTask отменяет задачу A2A, а не заявку: заявку на тур отменяет инструмент change_request по её ключу.`, { taskId: read.id, state }) };
     }
-    case 'ListTasks':
-      return { ok: false, error: a2aError('UnsupportedOperation', 'Список задач анонимному клиенту не отдаётся: задачи читаются по id (GetTask).') };
+    case 'ListTasks': {
+      const read = readListTasksParams(params);
+      if (!read.ok) return { ok: false, error: a2aError('InvalidParams', read.reason) };
+      return { ok: true, result: { tasks: [], nextPageToken: '', pageSize: read.pageSize, totalSize: 0 } };
+    }
     case 'SendStreamingMessage':
     case 'SubscribeToTask':
       return { ok: false, error: a2aError('UnsupportedOperation', 'Поток не поддерживается (capabilities.streaming = false): используйте SendMessage — ответ приходит целиком.') };

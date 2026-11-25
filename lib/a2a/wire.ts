@@ -183,15 +183,44 @@ export function httpErrorBody(err: A2AError, now: () => number = Date.now): { st
         code: def.http,
         status: def.status,
         message: err.message,
-        details: [{
-          '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
-          reason: def.reason,
-          domain: 'a2a-protocol.org',
-          metadata: { ...(err.data ?? {}), timestamp: new Date(now()).toISOString() },
-        }],
+        details: [errorInfo(err.kind, { ...(err.data ?? {}), timestamp: new Date(now()).toISOString() })],
       },
     },
   };
+}
+
+/**
+ * google.rpc.ErrorInfo в ProtoJSON. `metadata` у ErrorInfo — map<string,
+ * string>, поэтому строка остаётся строкой, остальное уходит JSON-текстом.
+ */
+export function errorInfo(kind: A2AErrorKind, data?: Record<string, unknown>): Record<string, unknown> {
+  const metadata: Record<string, string> = {};
+  for (const [k, v] of Object.entries(data ?? {})) {
+    if (v === undefined) continue;
+    metadata[k] = typeof v === 'string' ? v : JSON.stringify(v);
+  }
+  return {
+    '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+    reason: A2A_ERROR[kind].reason,
+    domain: 'a2a-protocol.org',
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+  };
+}
+
+/** Коды A2A (−32001…−32099, раздел 5.4), в отличие от стандартных кодов JSON-RPC. */
+export function isA2ASpecificCode(code: number): boolean {
+  return code <= -32001 && code >= -32099;
+}
+
+/**
+ * Поле `data` ошибки JSON-RPC. В 1.0 у ошибки A2A это массив
+ * google.protobuf.Any с ErrorInfo (раздел 9.5: reason, domain
+ * a2a-protocol.org); подробности ошибки — в его metadata. Стандартные коды
+ * JSON-RPC и форма 0.3 — как были: объект подробностей или ничего.
+ */
+export function jsonrpcErrorData(err: A2AError, v: A2AVersion): unknown {
+  if (v === '1.0' && isA2ASpecificCode(err.code)) return [errorInfo(err.kind, err.data)];
+  return err.data;
 }
 
 // ── Модель задачи (внутренняя, независимая от версии) ─────────────────────
@@ -309,12 +338,17 @@ function optionalString(v: unknown, max: number): string | null {
   return typeof v === 'string' && v.trim() !== '' ? v.trim().slice(0, max) : null;
 }
 
-/** Part обеих версий: `{text}` / `{kind:'text', text}`, `{data}` / `{kind:'data', data}`, файл. */
+/**
+ * Part обеих версий: `{text}` / `{kind:'text', text}`, `{data}` / `{kind:'data', data}`,
+ * файл. Файл в 1.0 — `{raw, mediaType}` или `{url, mediaType}`, в 0.3 —
+ * `{kind:'file', file}`: мы его не принимаем, и пустой без текста вопрос с
+ * файлом получает ContentTypeNotSupported, а не «пустое сообщение».
+ */
 export function readPart(raw: unknown): InboundPart {
   if (!isRecord(raw)) return { kind: 'unknown' };
   if (typeof raw.text === 'string') return { kind: 'text', text: raw.text };
   if (isRecord(raw.data)) return { kind: 'data', data: raw.data };
-  if ('file' in raw || raw.kind === 'file') return { kind: 'file' };
+  if ('file' in raw || raw.kind === 'file' || 'raw' in raw || 'url' in raw) return { kind: 'file' };
   return { kind: 'unknown' };
 }
 
@@ -350,6 +384,27 @@ export function readSendMessageParams(params: unknown): { ok: true; params: Send
       historyLength,
     },
   };
+}
+
+/** Размер страницы ListTasks по разделу 3.1.4: 1…100, без указания — 50. */
+export const LIST_TASKS_DEFAULT_PAGE_SIZE = 50;
+export const LIST_TASKS_MAX_PAGE_SIZE = 100;
+
+/**
+ * Параметры ListTasks. Читается только размер страницы — его ответ называет;
+ * фильтры (contextId, status) список не меняют: задач, видимых анонимному
+ * клиенту, нет ни в каком контексте. Имена — обеих форм (pageSize, page_size).
+ */
+export function readListTasksParams(params: unknown): { ok: true; pageSize: number } | { ok: false; reason: string } {
+  if (params !== undefined && params !== null && !isRecord(params)) return { ok: false, reason: 'params ListTasks должен быть объектом' };
+  const p = isRecord(params) ? params : {};
+  const rawSize = p.pageSize ?? p.page_size;
+  if (rawSize === undefined || rawSize === null) return { ok: true, pageSize: LIST_TASKS_DEFAULT_PAGE_SIZE };
+  const n = typeof rawSize === 'string' && /^\d+$/.test(rawSize) ? Number(rawSize) : rawSize;
+  if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > LIST_TASKS_MAX_PAGE_SIZE) {
+    return { ok: false, reason: `pageSize — целое от 1 до ${LIST_TASKS_MAX_PAGE_SIZE}` };
+  }
+  return { ok: true, pageSize: n };
 }
 
 /** Параметры GetTask / CancelTask: `{ id }` (0.3 и 1.0), `historyLength` у GetTask. */
