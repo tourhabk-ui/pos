@@ -402,7 +402,7 @@ jobs:
               files="$RUNNER_TEMP/hand-files.z"
               : > "$files"
               for c in $commits; do
-                git -c core.quotePath=false diff-tree -r -z --no-commit-id --name-only "$c" >> "$files" \
+                git -c core.quotePath=false diff-tree -r -z --no-renames --no-commit-id --name-only "$c" >> "$files" \
                   || { echo "::error::пути коммита $c не прочитаны — не пушу"; exit 1; }
               done
               node --input-type=module -e '

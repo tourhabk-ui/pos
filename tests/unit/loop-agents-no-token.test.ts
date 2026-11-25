@@ -12,7 +12,9 @@
  *  - подсказка агента не велит звать gh / git push;
  *  - запись (push, PR, лейблы, комментарии) — шаг ПОСЛЕ агента, с токеном.
  */
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -135,11 +137,33 @@ describe('claude: запись руки — своей работой, без а
   });
 
   it('пути — по каждому коммиту, без кавычек git, по реестру зон', () => {
-    expect(run).toMatch(/core\.quotePath=false diff-tree -r -z/);
+    expect(run).toMatch(/core\.quotePath=false diff-tree -r -z --no-renames/);
     expect(run).toMatch(/zonesOfFile/);
     expect(run).toMatch(/startsWith\("\.github\/"\)/);
     // Не прочитал список — не пушу (§4.0): пустой список краснит.
     expect(run).toMatch(/files\.length === 0[^\n]*process\.exit\(1\)/);
     expect(run).not.toMatch(/grep -E '\^\(app\/api\/payments/);
+  });
+
+  it('переименование из зоны видно по обоим путям (git mv middleware.ts — не обход)', () => {
+    // Исполнением, а не по тексту: та же команда git, что в шаге записи.
+    const cmd = /git (-c core\.quotePath=false diff-tree [^"]*)"\$c"/.exec(run)?.[1];
+    expect(cmd).toBeTruthy();
+    const dir = mkdtempSync(path.join(tmpdir(), 'hand-rename-'));
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+    const git = (...a: string[]) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: dir, env, encoding: 'utf8' });
+    try {
+      git('init', '-q');
+      writeFileSync(path.join(dir, 'middleware.ts'), 'export {};\n');
+      git('add', '.');
+      git('commit', '-qm', 'base');
+      git('mv', 'middleware.ts', 'middleware.ts.bak');
+      git('commit', '-qm', 'rename');
+      const out = git(...String(cmd).trim().split(/\s+/), 'HEAD');
+      expect(out.status).toBe(0);
+      expect(out.stdout.split('\0').filter(Boolean).sort()).toEqual(['middleware.ts', 'middleware.ts.bak']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
