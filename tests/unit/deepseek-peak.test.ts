@@ -48,6 +48,7 @@ describe('окно пика DeepSeek', () => {
       '.github/workflows/cron-enrich-routes.yml',
       '.github/workflows/cron-evo.yml',
       'CLAUDE.md',
+      '.claude/skills/vedar-ai-agents/SKILL.md',
     ]) {
       const src = read(p);
       // В CLAUDE.md и cron-evo старая цифра остаётся как история — только рядом

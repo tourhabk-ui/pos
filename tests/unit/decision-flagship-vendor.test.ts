@@ -50,7 +50,7 @@ describe('вендор флагмана решателя', () => {
     const vendor = declaredVendor(read(DECIDER_WORKFLOWS[0]));
     expect(vendor).toBeTruthy();
     // Правила — не украшение: ими сверяются, когда разбирают качество находок.
-    expect(read('CLAUDE.md')).toContain(`EVO_DECISION_FLAGSHIP_VENDOR: ${vendor}`);
+    expect(read('.claude/skills/vedar-ai-agents/SKILL.md')).toContain(`EVO_DECISION_FLAGSHIP_VENDOR: ${vendor}`);
   });
 
   it('id модели в workflow НЕ прибивается', () => {

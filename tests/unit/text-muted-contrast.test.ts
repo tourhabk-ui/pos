@@ -75,7 +75,7 @@ describe('акцентные токены держат AA в обеих тема
 
   it('документация называет те же значения, что и CSS', () => {
     const b = block(':root[data-theme="light"]');
-    const claude = readFileSync('CLAUDE.md', 'utf-8');
+    const claude = readFileSync('.claude/skills/vedar-design-tokens/SKILL.md', 'utf-8');
     const ds = readFileSync('.claude/DESIGN_SYSTEM.md', 'utf-8');
     for (const name of ['accent', 'success', 'danger', 'warning']) {
       const v = token(b, name);

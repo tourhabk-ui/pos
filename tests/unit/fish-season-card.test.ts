@@ -104,7 +104,7 @@ describe('карточка тура', () => {
   });
 
   it('стандарт §11 знает о блоке', () => {
-    expect(read('CLAUDE.md')).toMatch(/Когда какая\s+рыба клюёт\?/);
+    expect(read('.claude/skills/vedar-tour-card/SKILL.md')).toMatch(/Когда какая\s+рыба клюёт\?/);
   });
 });
 

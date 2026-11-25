@@ -94,8 +94,8 @@ function check(name: string, list: Row[]) {
 describe('таблицы токенов в инструкциях равны стилям', () => {
   // DESIGN_SYSTEM.md: | Токен | Назначение | dark | light |
   check('.claude/DESIGN_SYSTEM.md', rows(read('.claude/DESIGN_SYSTEM.md'), 'dark-light'));
-  // CLAUDE.md §2: | Токен | Light | Dark | Назначение |
-  check('CLAUDE.md §2', rows(read('CLAUDE.md'), 'light-dark'));
+  // CLAUDE.md §2 (скилл vedar-design-tokens): | Токен | Light | Dark | Назначение |
+  check('CLAUDE.md §2', rows(read('.claude/skills/vedar-design-tokens/SKILL.md'), 'light-dark'));
 
   it('разбор стилей сам не пуст и различает темы', () => {
     // Блок не найден — это отказ разбора, а не «расхождений нет».

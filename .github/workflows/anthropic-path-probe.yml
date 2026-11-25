@@ -315,10 +315,13 @@ jobs:
             echo "::warning::С подписью Claude Code запрос отвергнут, без подписи тот же прошёл (прогон 19) — черта Claude Code в Console (Settings → Claude Code, лимиты), не баланс."
             exit 0
           fi
-          # Большой вход: CLAUDE.md целиком, без подписи. --rawfile — файл больше
+          # Большой вход: правила проекта целиком, без подписи. С 25.11 CLAUDE.md —
+          # ядро, а разделы лежат в скиллах vedar-*, поэтому вход — их склейка
+          # (тот же объём, что прежний CLAUDE.md). --rawfile — файл больше
           # предела одного аргумента командной строки (128 КБ).
-          jq -n --rawfile t CLAUDE.md '{model:"claude-opus-5",max_tokens:128000,messages:[{role:"user",content:("Below is a document. Ignore it and reply with the single word: ok\n\n" + $t)}]}' > /tmp/big.json
-          echo "большой вход: $(wc -c < CLAUDE.md | tr -d ' ') байт CLAUDE.md, max_tokens=128000"
+          cat CLAUDE.md .claude/skills/vedar-*/SKILL.md > /tmp/rules.md
+          jq -n --rawfile t /tmp/rules.md '{model:"claude-opus-5",max_tokens:128000,messages:[{role:"user",content:("Below is a document. Ignore it and reply with the single word: ok\n\n" + $t)}]}' > /tmp/big.json
+          echo "большой вход: $(wc -c < /tmp/rules.md | tr -d ' ') байт правил (CLAUDE.md и скиллы vedar-*), max_tokens=128000"
           CODE=$(curl -s -D /tmp/big.h -o /tmp/bigr.json -w '%{http_code}' --max-time 120 -X POST \
             -H "x-api-key: $ANTHROPIC_API_KEY" -H 'anthropic-version: 2023-06-01' -H 'Content-Type: application/json' \
             -d @/tmp/big.json https://api.anthropic.com/v1/messages || true)

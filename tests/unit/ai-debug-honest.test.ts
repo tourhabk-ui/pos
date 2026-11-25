@@ -340,7 +340,7 @@ describe('решатель: ступень xAI', () => {
   it('правила проекта описывают ту же лестницу, что и код', () => {
     // Расхождение правил с кодом уже стоило трёх недель: §8 обещал «DeepSeek
     // первичный → Qwen на подхвате», когда судья считал на Opus.
-    const rules = readFileSync(join(ROOT, 'CLAUDE.md'), 'utf-8');
+    const rules = readFileSync(join(ROOT, '.claude/skills/vedar-ai-agents/SKILL.md'), 'utf-8'); // §8 CLAUDE.md
     expect(rules).toMatch(/Anthropic напрямую → xAI Grok/);
     expect(rules).toMatch(/сильная модель/);
   });
@@ -354,7 +354,7 @@ describe('решатель: ступень xAI', () => {
   });
 
   it('правила проекта описывают ту же лестницу, что и код', () => {
-    const rules = readFileSync(join(ROOT, 'CLAUDE.md'), 'utf-8');
+    const rules = readFileSync(join(ROOT, '.claude/skills/vedar-ai-agents/SKILL.md'), 'utf-8'); // §8 CLAUDE.md
     expect(rules).toMatch(/Anthropic напрямую → xAI Grok/);
     expect(rules).toMatch(/добавь\s*\n?\s*4\.6, сильная модель/);
   });
