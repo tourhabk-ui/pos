@@ -62,6 +62,7 @@ import {
 import { LIVE_CONTENT_COLUMNS } from '@/lib/tours/moderation-store';
 import { loadPlaceNames } from '@/lib/tours/moderation-read';
 import { TOUR_PATCH_COLUMNS } from '@/lib/tours/tour-write';
+import { repoCodeFiles } from '../helpers/repo-code';
 import { TourEditQueue, type TourEditCard } from '@/components/admin/TourEditQueue';
 import { TourModerationStatus, type TourModerationView } from '@/components/tours/TourModerationStatus';
 import { OwnTourCard, OwnTourForm } from '@/components/guide/OwnToursManager';
@@ -969,6 +970,26 @@ describe('запреты', () => {
   it('общую запись тура зовут только единая дверь и одобрение — владелец мимо них не пишет', () => {
     const callers = SOURCES.filter((f) => /\bwriteTourPatch\(/.test(read(f)));
     expect(callers.sort()).toEqual(['lib/tours/moderation-review.ts', 'lib/tours/tour-change.ts', 'lib/tours/tour-write.ts']);
+  });
+
+  it('модуль общей записи подключают только дверь и одобрение — во всём репозитории и под любым именем', () => {
+    // Сторож выше ищет вызов по имени и только в app, lib и components: импорт
+    // под другим именем («writeTourPatch as w») или из scripts он бы не увидел
+    // (ревью безопасности PR #3804, 25.11). Здесь судится само подключение
+    // модуля: без него функцию не позвать ни под каким именем. Импорт одних
+    // типов («import type») записью не грозит и разрешён всем.
+    const VALUE_IMPORT = /\b(?:import|export)\s+(?!type\b)[^;'"`]*\bfrom\s+['"][^'"]*\/tour-write['"]|\b(?:require|import)\(\s*['"`][^'"`]*\/tour-write['"`]/;
+    expect(VALUE_IMPORT.test("import { writeTourPatch } from '@/lib/tours/tour-write';")).toBe(true);
+    expect(VALUE_IMPORT.test("import { writeTourPatch as w, type TourPatchInput } from './tour-write';")).toBe(true);
+    expect(VALUE_IMPORT.test("import * as tw from '../lib/tours/tour-write';")).toBe(true);
+    expect(VALUE_IMPORT.test("export { writeTourPatch } from '@/lib/tours/tour-write';")).toBe(true);
+    expect(VALUE_IMPORT.test("export * from './tour-write';")).toBe(true);
+    expect(VALUE_IMPORT.test("const { writeTourPatch } = require('../lib/tours/tour-write');")).toBe(true);
+    expect(VALUE_IMPORT.test("const m = await import('@/lib/tours/tour-write');")).toBe(true);
+    expect(VALUE_IMPORT.test("import type { TourPatchInput } from '@/lib/tours/tour-write';")).toBe(false);
+    expect(VALUE_IMPORT.test("export type { TourPatchInput } from '@/lib/tours/tour-write';")).toBe(false);
+    const importers = repoCodeFiles(ROOT).filter((f) => VALUE_IMPORT.test(read(f)));
+    expect(importers).toEqual(['lib/tours/moderation-review.ts', 'lib/tours/tour-change.ts']);
   });
 
   it('в дверях владельца нет своего UPDATE содержания тура и своей публикации', () => {
