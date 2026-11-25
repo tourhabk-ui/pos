@@ -5,13 +5,17 @@
  * Пауза 21.11 жила только в блоках туров мест и посадочных, и «Местечко» с
  * шестнадцатью турами стояло в списке компаний, каталоге и ответах агентов.
  * Сцена держит связку на данных, а не на тексте запроса:
- *   - тур компании на паузе (slug из OPERATOR_SITE_PAUSE_SLUGS) и
+ *   - тур компании на паузе (slug из списка паузы сцены) и
  *     приостановленной (`status = 'suspended'`) не проходит шлюз витрины
  *     `publicTourSql`, но открывается по прямой ссылке (`tourOpenByLinkSql`);
  *   - список компаний /operators таких компаний не ставит, живую — ставит;
  *   - вид туров маршрута (`routeMarketplaceSql`: «Туры по маршруту» и цена
  *     маршрута «от») таких туров не отдаёт, а для страницы самой компании
  *     (`byLink`) отдаёт (24.11: вид держит свою копию флагов и паузы не знал).
+ *
+ * С 25.11 действующий список паузы пуст (пауза «Местечка» снята, слово
+ * владельца «Сними паузу»). Механизм остался, и сцена проверяет его на своём
+ * списке: модуль паузы подменён так, что умолчание списка — TEST_PAUSED.
  *
  * Запуск: KERNEL_PG_TEST_URL=postgresql://user:pass@host/db. Без неё файл
  * честно пропускается (не прогнан, а не зелёный).
@@ -20,6 +24,21 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { createTestDatabase } from '../helpers/pg-schema';
 
 vi.mock('next/cache', () => ({ unstable_cache: (fn: () => unknown) => fn }));
+
+const TEST_PAUSED = vi.hoisted(() => ['pause-test-paused'] as const);
+vi.mock('@/lib/operators/site-pause', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('@/lib/operators/site-pause')>();
+  return {
+    ...orig,
+    OPERATOR_SITE_PAUSE_SLUGS: TEST_PAUSED,
+    operatorPausedOnTourBlocks: (s: string | null | undefined, p: readonly string[] = TEST_PAUSED) =>
+      orig.operatorPausedOnTourBlocks(s, p),
+    operatorShownInTourBlocksSql: (a = 'p', p: readonly string[] = TEST_PAUSED) =>
+      orig.operatorShownInTourBlocksSql(a, p),
+    partnerOffStorefrontIdSql: (c: string, p: readonly string[] = TEST_PAUSED) =>
+      orig.partnerOffStorefrontIdSql(c, p),
+  };
+});
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -45,20 +64,14 @@ withPg('пауза оператора — шлюз витрины и списо�
 
   beforeAll(async () => {
     const { Pool } = await import('pg');
-    const { OPERATOR_SITE_PAUSE_SLUGS } = await import('@/lib/operators/site-pause');
     const dbUrl = await createTestDatabase(PG_URL, TEST_DB);
     pool = new Pool({ connectionString: dbUrl, max: 4 });
     process.env.DATABASE_URL = dbUrl;
     process.env.DATABASE_SSL = 'false';
 
-    // Компания на паузе — та, что названа в списке паузы. Если миграции уже
-    // завели её карточку, сцена берёт её slug у нового партнёра, освободив
-    // прежний: решать должен slug, а не история данных.
-    const pausedSlug = OPERATOR_SITE_PAUSE_SLUGS[0];
-    expect(pausedSlug).toBeTruthy();
-    await pool.query(`UPDATE partners SET slug = slug || '-old-pause-test' WHERE slug = $1`, [pausedSlug]);
+    // Компания на паузе — та, что названа в списке паузы сцены (TEST_PAUSED).
     slug.live = 'pause-test-live';
-    slug.paused = pausedSlug;
+    slug.paused = TEST_PAUSED[0];
     slug.suspended = 'pause-test-suspended';
 
     // Маршрут, к которому привязаны все три тура: вид v_route_marketplace

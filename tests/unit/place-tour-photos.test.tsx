@@ -100,22 +100,22 @@ describe('кадр галереи партнёра — без согласия (
   });
 });
 
-describe('оператор на паузе витринных блоков (21.11, «Местечко») — его снимков нет', () => {
-  it('снимки туров мест и маршрутов, плитки — через фильтр паузы', () => {
+describe('снимки туров — через фильтр витрины партнёра; пауза «Местечка» снята 25.11', () => {
+  it('снимки туров мест и маршрутов, плитки — через фильтр витрины (статус и список паузы)', () => {
     expect(tourPhotoAllowedSql()).toContain(operatorShownInTourBlocksSql('pa'));
-    for (const sql of [PLACE_TOUR_PHOTOS_SQL, PLACE_CARD_TOUR_PHOTOS_SQL, ROUTE_TOUR_PHOTOS_SQL, ROUTE_CARD_TOUR_PHOTOS_SQL]) {
-      expect(sql).toContain("<> ALL(ARRAY['mestechko']::text[])");
+    for (const sql of [PLACE_TOUR_PHOTOS_SQL, PLACE_CARD_TOUR_PHOTOS_SQL, ROUTE_TOUR_PHOTOS_SQL, ROUTE_CARD_TOUR_PHOTOS_SQL, PLACE_CARD_GALLERY_PHOTOS_SQL]) {
+      expect(sql).toContain("NOT IN ('suspended', 'rejected')");
+      expect(sql).not.toContain("'mestechko'");
     }
-    expect(PLACE_CARD_GALLERY_PHOTOS_SQL).toContain("<> ALL(ARRAY['mestechko']::text[])");
   });
 
-  it('и в разборе строк: строка «Местечка» отбрасывается, даже если SQL её пропустил', () => {
+  it('в разборе строк строка «Местечка» больше не отбрасывается: пауза снята (слово владельца «Сними паузу»)', () => {
     const row = {
       url: '/m.jpg', author: 'Местечко Камчатка', partner_name: 'Местечко Камчатка', partner_slug: 'mestechko',
       partner_public: true, tour_title: 'Т', tour_slug: null, place_name: 'Место',
     };
-    expect(toRouteTourPhotos([row], { feedEnabled: true })).toEqual([]);
-    expect(toGalleryCardPhoto(row, { feedEnabled: true })).toBeNull();
+    expect(toRouteTourPhotos([row], { feedEnabled: true })).toHaveLength(1);
+    expect(toGalleryCardPhoto(row, { feedEnabled: true })).not.toBeNull();
   });
 });
 
