@@ -109,7 +109,7 @@ describe('одна версия на всё: пин dembrandt и браузер 
 });
 
 describe('фиолетовый — токен --purple, не хардкод (решение владельца 12.10)', () => {
-  it('токен есть во всех трёх блоках globals.css, им пользуется карточка SOS, он описан в CLAUDE.md и DESIGN_SYSTEM.md', () => {
+  it('токен есть во всех трёх блоках globals.css, им пользуется карточка SOS, он описан в §2 (скилл vedar-design-tokens) и DESIGN_SYSTEM.md', () => {
     const css = read('app/globals.css');
     expect(css.match(/^\s*--purple:\s*#[0-9A-Fa-f]{6};/gm)?.length).toBe(3);
     // Судится код, не комментарий: шапка компонента как раз рассказывает про прежний #a78bfa.
@@ -119,7 +119,7 @@ describe('фиолетовый — токен --purple, не хардкод (р�
     // Без data-theme на корне: токен-гейт CI (scripts/token-gate.mjs) красит любое
     // переопределение --accent/--danger на элементе /sos как теневое.
     expect(card).not.toMatch(/data-theme=/);
-    expect(read('CLAUDE.md')).toMatch(/^\| `--purple` \| `#7C3AED` \| `#A855F7` \|/m);
+    expect(read('.claude/skills/vedar-design-tokens/SKILL.md')).toMatch(/^\| `--purple` \| `#7C3AED` \| `#A855F7` \|/m);
     expect(read('.claude/DESIGN_SYSTEM.md')).toMatch(/^\| `--purple` \|/m);
     // Узаконенный цвет не живёт в исключениях гейта.
     expect(ALLOWLIST.colors).not.toHaveProperty('#a78bfa');

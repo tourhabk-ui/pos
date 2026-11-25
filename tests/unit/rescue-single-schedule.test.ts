@@ -55,7 +55,7 @@ describe('Rescue: один запускающий', () => {
   });
 
   it('CLAUDE.md говорит про него то же самое, а не про эволюцию', () => {
-    const md = read('CLAUDE.md');
+    const md = read('.claude/skills/vedar-ai-agents/SKILL.md'); // §8 CLAUDE.md
     expect(md).toMatch(/\*\*Rescue\*\* \|.*cron-safety-heartbeat\.yml/);
     expect(md).not.toMatch(/\*\*Rescue\*\* \| В Evo/);
   });

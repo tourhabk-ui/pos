@@ -24,7 +24,8 @@ const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');
 
 const M = read('migrations/817_bystraya_description_dedup.sql');
 const CARD = read('app/catalog/tours/[id]/_TourDetailClient.tsx');
-const CLAUDE = read('CLAUDE.md');
+// §11 CLAUDE.md живёт в скилле vedar-tour-card (25.11).
+const CLAUDE = read('.claude/skills/vedar-tour-card/SKILL.md');
 
 /** SQL без строк-комментариев: пояснения не должны считаться кодом. */
 const sql = M.split('\n').filter((l) => !/^\s*--/.test(l)).join('\n');

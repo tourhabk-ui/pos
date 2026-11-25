@@ -54,7 +54,25 @@ export interface ScoutInnovatorResult {
 
 async function readCodebaseRules(): Promise<string> {
   try {
-    const raw = await readFile(join(process.cwd(), 'CLAUDE.md'), 'utf-8');
+    // С 25.11 корневой CLAUDE.md — ядро, а §4, §4.1 и §7 лежат дословно в
+    // скиллах проекта. Полный текст раздела — из скилла; нет скилла — ядро.
+    const files = [
+      '.claude/skills/vedar-code-rules/SKILL.md',
+      '.claude/skills/vedar-data-structure/SKILL.md',
+      '.claude/skills/vedar-protected-zones/SKILL.md',
+      'CLAUDE.md',
+    ];
+    const texts: string[] = [];
+    for (const f of files) {
+      try {
+        // Шапку скилла (name/description) срезаем: в выдержку идут только правила.
+        texts.push((await readFile(join(process.cwd(), f), 'utf-8')).replace(/^---\n[\s\S]*?\n---\n/, ''));
+      } catch (e) {
+        console.warn(`[scout-innovator] правила: ${f} не прочитан`, e instanceof Error ? e.message : e);
+      }
+    }
+    if (texts.length === 0) return '';
+    const raw = texts.join('\n\n');
     // Extract sections 4, 4.1, 7 — code rules, schema, protected files
     const markers = ['## 4. КОД', '## 4.1 СТРУКТУРА ДАННЫХ', '## 7. НЕ ТРОГАТЬ'];
     const sections: string[] = [];
