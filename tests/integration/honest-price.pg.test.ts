@@ -90,7 +90,7 @@ withPg('честная цена на настоящем PostgreSQL', () => {
       );
     }
     await pool.query(
-      // Правило проверено администратором: цену меняет только такое (1512).
+      // Правило проверено администратором: цену меняет только такое (1513).
       `INSERT INTO tour_pricing_rules
          (operator_tour_id, rule_type, days_before_min, days_before_max, multiplier, is_active, moderation_status)
        VALUES ($1, 'last_minute', 0, 7, 0.85, true, 'approved')`,

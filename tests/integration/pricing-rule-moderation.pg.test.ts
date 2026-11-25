@@ -2,7 +2,7 @@
  * Скидки и наценки тура — с отметкой проверки, на настоящем PostgreSQL.
  *
  * Слово владельца 23.11: «Наценки тоже показываются в модерации: цена тура
- * меняется только через одну дверь». Миграция 1512 даёт правилу
+ * меняется только через одну дверь». Миграция 1513 даёт правилу
  * `tour_pricing_rules` статус проверки; цену считают только по правилам
  * `approved`. Здесь судится то, чего мок не скажет:
  *
@@ -110,11 +110,11 @@ withPg('правила цены: действует только провере�
     await dropTestDatabase(PG_URL, TEST_DB).catch(() => {});
   });
 
-  it('миграция 1512 на таблице с данными: прежние правила действуют, новое без статуса — «на проверке»', async () => {
+  it('миграция 1513 на таблице с данными: прежние правила действуют, новое без статуса — «на проверке»', async () => {
     // Тот же текст миграции — на пробной таблице с двумя правилами, заведёнными «до миграции».
     await pool.query(`CREATE TABLE probe_rules (id BIGSERIAL PRIMARY KEY, multiplier NUMERIC(5,3) NOT NULL, is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMP DEFAULT NOW())`);
     await pool.query(`INSERT INTO probe_rules (multiplier, is_active) VALUES (0.85, TRUE), (1.15, FALSE)`);
-    const sql = readFileSync(join(process.cwd(), 'migrations/1512_tour_pricing_rules_moderation.sql'), 'utf-8')
+    const sql = readFileSync(join(process.cwd(), 'migrations/1513_tour_pricing_rules_moderation.sql'), 'utf-8')
       .replace(/tour_pricing_rules/g, 'probe_rules');
     await pool.query(sql);
     expect((await pool.query(`SELECT multiplier::float8 AS m, moderation_status FROM probe_rules ORDER BY id`)).rows)
