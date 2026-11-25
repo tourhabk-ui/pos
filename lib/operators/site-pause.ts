@@ -29,27 +29,42 @@
  * умолчанием вставки.
  *
  * Снять паузу — убрать slug видимым коммитом. Срок возврата владелец не
- * назвал: пауза не кончается сама. Сторожа: tests/unit/operator-site-pause.test.ts,
- * сцена «пауза оператора» в tests/integration/public-tour-gate.pg.test.ts.
+ * назвал: пауза не кончается сама.
+ *
+ * 25.11 пауза с «Местечка» снята — слово владельца «Сними паузу» («это наш
+ * давний друг»). Причины паузы 21.11 не записано нигде: ни жалобы, ни
+ * юридического повода, ни просьбы оператора, ни отказа в согласии на снимки.
+ * Список пуст; механизм остался. Отклонённые и приостановленные партнёры
+ * уходят с витрины по-прежнему. Вернётся пауза — slug сюда, видимым коммитом.
+ *
+ * Сторожа: tests/unit/operator-site-pause.test.ts (правило — на списке,
+ * переданном тестом), сцена «пауза оператора» в
+ * tests/integration/public-tour-gate.pg.test.ts.
  */
 
 const SLUG_RE = /^[a-z0-9-]+$/;
 const ALIAS_RE = /^[a-z_][a-z0-9_]*$/i;
 
-export const OPERATOR_SITE_PAUSE_SLUGS: readonly string[] = ['mestechko'];
+export const OPERATOR_SITE_PAUSE_SLUGS: readonly string[] = [];
 
-/** На паузе ли этот оператор — по slug. */
-export function operatorPausedOnTourBlocks(slug: string | null | undefined): boolean {
-  return typeof slug === 'string' && OPERATOR_SITE_PAUSE_SLUGS.includes(slug);
+/**
+ * На паузе ли этот оператор — по slug. `paused` — список паузы; по умолчанию
+ * действующий. Другой список передают только тесты правила.
+ */
+export function operatorPausedOnTourBlocks(
+  slug: string | null | undefined,
+  paused: readonly string[] = OPERATOR_SITE_PAUSE_SLUGS,
+): boolean {
+  return typeof slug === 'string' && paused.includes(slug);
 }
 
-function pausedSlugsSql(): string {
-  for (const slug of OPERATOR_SITE_PAUSE_SLUGS) {
+function pausedSlugsSql(paused: readonly string[]): string {
+  for (const slug of paused) {
     if (!SLUG_RE.test(slug)) {
       throw new Error(`operatorShownInTourBlocksSql: недопустимый slug «${slug}»`);
     }
   }
-  return OPERATOR_SITE_PAUSE_SLUGS.map((s) => `'${s}'`).join(', ');
+  return paused.map((s) => `'${s}'`).join(', ');
 }
 
 /**
@@ -57,15 +72,19 @@ function pausedSlugsSql(): string {
  * отклонён. Имя осталось от 21.11, когда условие закрывало только блоки мест
  * и посадочных.
  * Алиас — имя таблицы `partners` в запросе; пустая строка — без префикса.
- * Алиас задаёт код, не пользователь, и всё же проверяется.
+ * Алиас задаёт код, не пользователь, и всё же проверяется. `paused` — список
+ * паузы; по умолчанию действующий, другой передают только тесты правила.
  */
-export function operatorShownInTourBlocksSql(alias = 'p'): string {
+export function operatorShownInTourBlocksSql(
+  alias = 'p',
+  paused: readonly string[] = OPERATOR_SITE_PAUSE_SLUGS,
+): string {
   if (alias !== '' && !ALIAS_RE.test(alias)) {
     throw new Error(`operatorShownInTourBlocksSql: недопустимый алиас «${alias}»`);
   }
   const p = alias ? `${alias}.` : '';
   const status = `(${p}status IS NULL OR ${p}status NOT IN ('suspended', 'rejected'))`;
-  const slugs = pausedSlugsSql();
+  const slugs = pausedSlugsSql(paused);
   if (!slugs) return status;
   return `${status} AND (${p}slug IS NULL OR ${p}slug <> ALL(ARRAY[${slugs}]::text[]))`;
 }
@@ -74,11 +93,14 @@ export function operatorShownInTourBlocksSql(alias = 'p'): string {
  * SQL-условие «партнёр с этим id снят с витрины» (пауза, `suspended`,
  * `rejected`). Для шлюза витрины туров: у тура в запросе есть только id
  * партнёра. `column` — имя колонки, проверяется: в текст запроса попадает
- * только имя.
+ * только имя. `paused` — как у `operatorShownInTourBlocksSql`.
  */
-export function partnerOffStorefrontIdSql(column: string): string {
+export function partnerOffStorefrontIdSql(
+  column: string,
+  paused: readonly string[] = OPERATOR_SITE_PAUSE_SLUGS,
+): string {
   if (!/^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?$/i.test(column)) {
     throw new Error(`partnerOffStorefrontIdSql: недопустимая колонка «${column}»`);
   }
-  return `EXISTS (SELECT 1 FROM partners AS off_gate WHERE off_gate.id = ${column} AND NOT (${operatorShownInTourBlocksSql('off_gate')}))`;
+  return `EXISTS (SELECT 1 FROM partners AS off_gate WHERE off_gate.id = ${column} AND NOT (${operatorShownInTourBlocksSql('off_gate', paused)}))`;
 }

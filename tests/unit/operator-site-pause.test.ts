@@ -22,21 +22,38 @@ import { queryOperators, queryOperatorLinks } from '@/lib/operators/list-query';
 import { PLACE_TOURS_SQL, PLACE_TOUR_COUNTS_SQL } from '@/lib/places/place-tours';
 import { LANDING_PUBLIC_TOURS_SQL } from '@/lib/landings/tours';
 
-describe('operatorPausedOnTourBlocks', () => {
-  it('прячет «Местечко» и не трогает других', () => {
-    expect(OPERATOR_SITE_PAUSE_SLUGS).toContain('mestechko');
-    expect(operatorPausedOnTourBlocks('mestechko')).toBe(true);
-    expect(operatorPausedOnTourBlocks('volcanoesland')).toBe(false);
-    expect(operatorPausedOnTourBlocks(null)).toBe(false);
-    expect(operatorPausedOnTourBlocks('')).toBe(false);
+describe('пауза «Местечка» снята 25.11 (слово владельца «Сними паузу»)', () => {
+  it('список паузы пуст: «Местечко» на витрине, как все', () => {
+    expect(OPERATOR_SITE_PAUSE_SLUGS).toEqual([]);
+    expect(operatorPausedOnTourBlocks('mestechko')).toBe(false);
+  });
+
+  it('при пустом списке условие — только статус: отклонённые и приостановленные уходят по-прежнему', () => {
+    expect(operatorShownInTourBlocksSql('p')).toBe(
+      "(p.status IS NULL OR p.status NOT IN ('suspended', 'rejected'))",
+    );
+  });
+});
+
+describe('operatorPausedOnTourBlocks — правило на переданном списке', () => {
+  it('прячет slug из списка и не трогает других', () => {
+    const paused = ['mestechko'];
+    expect(operatorPausedOnTourBlocks('mestechko', paused)).toBe(true);
+    expect(operatorPausedOnTourBlocks('volcanoesland', paused)).toBe(false);
+    expect(operatorPausedOnTourBlocks(null, paused)).toBe(false);
+    expect(operatorPausedOnTourBlocks('', paused)).toBe(false);
   });
 });
 
 describe('operatorShownInTourBlocksSql', () => {
   it('отсекает suspended, rejected и slug из списка паузы', () => {
-    const sql = operatorShownInTourBlocksSql('p');
+    const sql = operatorShownInTourBlocksSql('p', ['mestechko']);
     expect(sql).toMatch(/p\.status NOT IN \('suspended', 'rejected'\)/);
     expect(sql).toMatch(/p\.slug <> ALL\(ARRAY\['mestechko'\]::text\[\]\)/);
+  });
+
+  it('отвергает недопустимый slug в списке', () => {
+    expect(() => operatorShownInTourBlocksSql('p', ["x'; drop"])).toThrow(/недопустимый slug/);
   });
 
   it('отвергает посторонний алиас', () => {
