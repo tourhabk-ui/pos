@@ -43,6 +43,7 @@ import { alertOrigin } from '@/lib/safety/alert-origin';
 import { queryCatalog } from '@/lib/routes/catalog-query';
 import { locationTypeLabel } from '@/lib/places/location-types';
 import { varietyByType } from '@/lib/home/explore-variety';
+import { EXPLORE_PINNED_PLACES, exploreWithPinned } from '@/lib/home/explore-pinned';
 import { rentalSitePauseActive } from '@/lib/rental/site-pause';
 
 export interface SafetyAlert {
@@ -463,7 +464,10 @@ export async function fetchPlates(): Promise<Plate[]> {
   }
 }
 
-/** Сколько мест в ленте «Исследовать»: столько же, сколько туров в витрине. */
+/**
+ * Сколько мест каталога в ленте «Исследовать»: столько же, сколько туров в
+ * витрине. Места владельца (lib/home/explore-pinned) стоят сверх них.
+ */
 export const EXPLORE_LIMIT = 8;
 /** Из скольких первых мест каталога собирается лента: хватает, чтобы типы нашлись. */
 const EXPLORE_POOL = 60;
@@ -471,27 +475,52 @@ const EXPLORE_POOL = 60;
 export async function fetchExplore(): Promise<ExplorePlace[]> {
   // Та же выдача, что у каталога мест (/routes?kind=place), тем же порядком
   // `recommended`: места со снимком впереди, без снимка — в конце (решение
-  // владельца 20.09). Своей сортировки и своего отбора здесь нет — иначе
-  // главная и каталог отвечали бы на один вопрос по-разному.
-  try {
-    // Берём с запасом и раскладываем по типам (lib/home/explore-variety): в
-    // порядке `recommended` первые восемь были сплошь вулканами (29.09).
-    const { items } = await queryCatalog({ kind: 'place', page: 1, limit: EXPLORE_POOL, sort: 'recommended' });
-    return varietyByType(items, EXPLORE_LIMIT).map((it) => ({
-      id: it.id,
-      title: it.title,
-      typeLabel: locationTypeLabel(it.locationType),
-      description: (it.description || '').slice(0, 140),
-      imageUrl: it.imageUrl ?? null,
-      urlSlug: it.urlSlug ?? null,
-    }));
-  } catch (err) {
-    // Пусто — блок не рисуется; но «мест нет» и «запрос упал» различимы только
-    // в логе, и молчать здесь нельзя (§4.0).
+  // владельца 20.09). Своей сортировки здесь нет — иначе главная и каталог
+  // отвечали бы на один вопрос по-разному.
+  //
+  // Свой отбор один, и он назван: места, которые владелец поставил в ленту
+  // сам (lib/home/explore-pinned, слово 25.11). Они стоят первыми и читаются
+  // тем же каталогом, по номеру места; восемь мест каталога идут за ними.
+  //
+  // Берём с запасом и раскладываем по типам (lib/home/explore-variety): в
+  // порядке `recommended` первые восемь были сплошь вулканами (29.09).
+  const [poolRes, pinnedRes] = await Promise.allSettled([
+    queryCatalog({ kind: 'place', page: 1, limit: EXPLORE_POOL, sort: 'recommended' }),
+    queryCatalog(
+      { kind: 'place', page: 1, limit: EXPLORE_PINNED_PLACES.length, sort: 'recommended' },
+      { placeIds: EXPLORE_PINNED_PLACES.map((p) => p.placeId) },
+    ),
+  ]);
+
+  // Пусто — блок не рисуется; но «мест нет» и «запрос упал» различимы только
+  // в логе, и молчать здесь нельзя (§4.0). Отказ одной половины не гасит
+  // другую: места владельца без ленты каталога — всё ещё лента.
+  const failed = (what: string, err: unknown) => {
     const e = err as { code?: string; message?: string } | undefined;
-    console.error('[home] fetchExplore не выполнен', { sqlstate: e?.code, message: e?.message });
-    return [];
+    console.error(`[home] fetchExplore: ${what} не прочитаны`, { sqlstate: e?.code, message: e?.message });
+  };
+  if (poolRes.status === 'rejected') failed('места каталога', poolRes.reason);
+  if (pinnedRes.status === 'rejected') failed('места владельца', pinnedRes.reason);
+
+  const pool = poolRes.status === 'fulfilled' ? poolRes.value.items : [];
+  const pinned = pinnedRes.status === 'fulfilled' ? pinnedRes.value.items : [];
+  if (pinnedRes.status === 'fulfilled' && pinned.length < EXPLORE_PINNED_PLACES.length) {
+    // Место скрыто или слито — каталог его не вернул, и в ленте его нет.
+    // Карточку за него не придумываем; кто пропал, видно по именам.
+    console.warn('[home] fetchExplore: не все места владельца в каталоге', {
+      expected: EXPLORE_PINNED_PLACES.map((p) => p.name),
+      got: pinned.map((p) => p.title),
+    });
   }
+
+  return exploreWithPinned(pinned, pool, (rest) => varietyByType(rest, EXPLORE_LIMIT)).map((it) => ({
+    id: it.id,
+    title: it.title,
+    typeLabel: locationTypeLabel(it.locationType),
+    description: (it.description || '').slice(0, 140),
+    imageUrl: it.imageUrl ?? null,
+    urlSlug: it.urlSlug ?? null,
+  }));
 }
 
 async function fetchFeed(): Promise<FeedItem[]> {

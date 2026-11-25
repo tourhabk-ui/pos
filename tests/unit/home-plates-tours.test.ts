@@ -69,7 +69,8 @@ describe('главная: платы = туры операторов', () => {
     expect(explore).toMatch(/queryCatalog\(\{ kind: 'place'/);
     expect(explore).not.toMatch(/operator_tours|kind: 'tour'|kind: 'route'/);
     // Отказ не молчит: «мест нет» и «запрос упал» различимы в логе (§4.0).
-    expect(explore).toMatch(/console\.error\('\[home\] fetchExplore не выполнен'/);
+    // С 25.11 это судится вызовом fetchExplore с упавшим каталогом —
+    // tests/unit/home-explore-pinned.test.tsx (оба запроса ленты, SQLSTATE).
   });
   it('честная пустота: нет туров → пустой массив, но отказ не молчит', () => {
     // До 24.09 здесь требовался ровно `catch { return []; }` — то есть сторож

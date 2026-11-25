@@ -174,6 +174,20 @@ export const CatalogQuerySchema = z.object({
 
 export type CatalogFilters = z.infer<typeof CatalogQuerySchema>;
 
+/**
+ * Отбор, которого нет в публичной схеме запроса (`CatalogQuerySchema`): его
+ * не задать параметром адреса каталога, только вызовом из кода.
+ *
+ * `placeIds` — только эти места, по `places.id`, и в том же порядке, в каком
+ * они названы. Сравнение не с id VIEW: у места он равен `places.ark_id`, а
+ * миграции и карточки места знают его по `places.id`. Видимость и слитость —
+ * те же, что у всего каталога: скрытое или слитое место не вернётся.
+ * Первый потребитель — ленты «Исследовать» на главной (lib/home/explore-pinned).
+ */
+export interface CatalogInternal {
+  placeIds?: readonly string[];
+}
+
 export interface CatalogItem {
   imageUrl?: string;
   /**
@@ -278,13 +292,28 @@ function stripGeometryStyle(v: unknown): CatalogItem['geometry'] {
   return { type: g.type, coordinates: g.coordinates as [number, number][] };
 }
 
-export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResult> {
+export async function queryCatalog(filters: CatalogFilters, internal: CatalogInternal = {}): Promise<CatalogResult> {
   const { q, kind, category, location_type, activity_type, page, limit, hasCoords, sort, difficulty, price_min, price_max, near_lat, near_lng, radius_km, has_waypoints, place_type } = filters;
   const offset = (page - 1) * limit;
 
   const conditions: string[] = ['ark.is_visible = TRUE'];
   const params: unknown[] = [];
   let idx = 1;
+
+  // Порядок названных мест — номер места в списке; null — отбора по местам нет.
+  let pinnedOrder: string | null = null;
+  if (internal.placeIds) {
+    // `ark.kind = 'place'`: id VIEW у маршрута может совпасть с ark_id места
+    // (сцена «place-twin» в catalog-place-type.pg.test.ts), а маршрут —
+    // не место. Типы: places.id — text, places.ark_id и id VIEW — uuid.
+    conditions.push(`ark.kind = 'place' AND EXISTS (
+       SELECT 1 FROM places ppid
+        WHERE ppid.ark_id = ark.id AND ppid.id = ANY($${idx}::text[]))`);
+    pinnedOrder = `(SELECT MIN(array_position($${idx}::text[], ppo.id))
+                      FROM places ppo WHERE ppo.ark_id = ark.id) ASC, ark.title ASC`;
+    params.push([...internal.placeIds]);
+    idx++;
+  }
 
   if (q) {
     // Строка целиком — в названии или описании, как раньше; плюс нечётко по
@@ -425,6 +454,7 @@ export async function queryCatalog(filters: CatalogFilters): Promise<CatalogResu
   // Цена — только кнопка туриста с подписью (правило 1в): в `recommended` и
   // `navigable` она не входит. Цены нет — в конце при любом направлении.
   const orderBy =
+    pinnedOrder !== null   ? pinnedOrder :
     sort === 'recent'      ? 'ark.created_at DESC' :
     sort === 'price_asc'   ? 'tp.price_from ASC NULLS LAST, ark.title ASC' :
     sort === 'price_desc'  ? 'tp.price_from DESC NULLS LAST, ark.title ASC' :
