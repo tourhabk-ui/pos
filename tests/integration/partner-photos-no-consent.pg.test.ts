@@ -445,13 +445,24 @@ withPg('снимки партнёров без согласия: спрятан�
          VALUES ($1, 'Озеро без фото (тест)', 53.4, 158.9, $2, 'lake', 'avachinsky', TRUE)`,
         [BARE.id, BARE.ark],
       );
+      // Туры — компании, которая стоит на витрине. «Местечко» на паузе
+      // (lib/operators/site-pause, 23.11): его туры шлюз витрины не пускает,
+      // и кадры с них на карточки мест не ставятся — кандидатами они не
+      // считаются (тот же отбор, что у писателя снимков, lib/routes/tour-photos).
+      const LISTED = VOLCANOESLAND;
       const tour = async (title: string, place: string, photos: string[]) => pool.query(
         `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published, main_place_id, photos)
          VALUES ($1::uuid, $2, 10000, 10, TRUE, TRUE, $3, $4::text[])`,
-        [partnerIds[MESTECHKO.partner], title, place, photos],
+        [partnerIds[LISTED.partner], title, place, photos],
       );
       await tour('Тур к озеру со снимками (тест)', BARE.id, ['/api/images/s3/photos/test/1.jpg', '/api/images/s3/photos/test/2.jpg']);
       await tour('Тур к озеру без снимков (тест)', BARE.id, []);
+      // Тур компании на паузе со снимками — в кандидатах его нет.
+      await pool.query(
+        `INSERT INTO operator_tours (operator_id, title, base_price, max_participants, is_active, is_published, main_place_id, photos)
+         VALUES ($1::uuid, 'Тур к озеру компании на паузе (тест)', 10000, 10, TRUE, TRUE, $2, ARRAY['/api/images/s3/photos/test/4.jpg'])`,
+        [partnerIds[MESTECHKO.partner], BARE.id],
+      );
       // У Корякской сопки свой главный кадр — места в списке нет.
       await tour('Тур к сопке (тест)', VOLCANO.id, ['/api/images/s3/photos/test/3.jpg']);
 
@@ -471,18 +482,18 @@ withPg('снимки партнёров без согласия: спрятан�
       expect(r.places_without_any_shown_photo).toBeGreaterThan(0);
       const lake = r.places.find((p) => p.place === 'Озеро без фото (тест)');
       expect(lake?.tours).toEqual([
-        { tour_id: expect.any(String), tour: 'Тур к озеру со снимками (тест)', link: 'main_place', photos: 2, partner: MESTECHKO.partner, partner_slug: 'mestechko', consent: 'none' },
+        { tour_id: expect.any(String), tour: 'Тур к озеру со снимками (тест)', link: 'main_place', photos: 2, partner: LISTED.partner, partner_slug: SLUGS[LISTED.partner], consent: 'none' },
       ]);
       expect(r.places.some((p) => p.place === 'Корякская сопка (тест)')).toBe(false);
 
       // Подпись прежней версии — `old`, новой — `covers`.
-      await sign(partnerIds[MESTECHKO.partner]!, '2026-10-23');
+      await sign(partnerIds[LISTED.partner]!, '2026-10-23');
       expect((await ask()).places.find((p) => p.place === 'Озеро без фото (тест)')?.tours[0]?.consent).toBe('old');
       const { PLACE_CARDS_CONSENT_FROM } = await import('@/lib/legal/partner-materials-consent');
-      await revokeAll(partnerIds[MESTECHKO.partner]!);
-      await sign(partnerIds[MESTECHKO.partner]!, PLACE_CARDS_CONSENT_FROM);
+      await revokeAll(partnerIds[LISTED.partner]!);
+      await sign(partnerIds[LISTED.partner]!, PLACE_CARDS_CONSENT_FROM);
       expect((await ask()).places.find((p) => p.place === 'Озеро без фото (тест)')?.tours[0]?.consent).toBe('covers');
-      await revokeAll(partnerIds[MESTECHKO.partner]!);
+      await revokeAll(partnerIds[LISTED.partner]!);
     });
 
     it('1436: снимки туров партнёров на местах без фото — по одному от партнёра, по алфавиту, с партнёром; без подписи не видны; повтор ничего не меняет', async () => {

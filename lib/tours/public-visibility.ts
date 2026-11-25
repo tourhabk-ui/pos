@@ -27,6 +27,20 @@
  */
 
 import { testPartnerTourSql } from '@/lib/partners/test-profile';
+import { partnerOffStorefrontIdSql } from '@/lib/operators/site-pause';
+
+function checkTourAlias(fn: string, alias: string): void {
+  if (alias !== '' && !/^[a-z_][a-z0-9_]*$/i.test(alias)) {
+    throw new Error(`${fn}: недопустимый алиас «${alias}»`);
+  }
+}
+
+/** Флаги тура и отметка тестового профиля — общее у витрины и прямой ссылки. */
+function tourFlagsSql(alias: string): string {
+  const p = alias ? `${alias}.` : '';
+  // Тур тестового партнёра на витрину не выходит (миграция 1495, #2770).
+  return `${p}is_active = true AND ${p}is_published = true AND ${p}deleted_at IS NULL AND NOT ${testPartnerTourSql(alias)}`;
+}
 
 /**
  * SQL-условие «тур на витрине». Алиас — имя таблицы `operator_tours` в
@@ -35,13 +49,29 @@ import { testPartnerTourSql } from '@/lib/partners/test-profile';
  * однажды встретит строку из запроса.
  */
 export function publicTourSql(alias = 'ot'): string {
-  if (alias !== '' && !/^[a-z_][a-z0-9_]*$/i.test(alias)) {
-    throw new Error(`publicTourSql: недопустимый алиас «${alias}»`);
-  }
-  const p = alias ? `${alias}.` : '';
-  // Тур тестового партнёра на витрину не выходит (миграция 1495, #2770):
-  // каталог, поиск, план, Кузьмич и MCP зовут этот шлюз.
-  return `(${p}is_active = true AND ${p}is_published = true AND ${p}deleted_at IS NULL AND NOT ${testPartnerTourSql(alias)})`;
+  checkTourAlias('publicTourSql', alias);
+  // Тур оператора на паузе или отклонённого — тоже не на витрине (23.11,
+  // «Разберись с Местечком», lib/operators/site-pause): каталог, поиск, план,
+  // главная, Кузьмич и MCP зовут этот шлюз.
+  const operatorColumn = alias ? `${alias}.operator_id` : 'operator_tours.operator_id';
+  return `(${tourFlagsSql(alias)} AND NOT ${partnerOffStorefrontIdSql(operatorColumn)})`;
+}
+
+/**
+ * SQL-условие «тур открывается по прямой ссылке»: то же, что витрина, без
+ * паузы оператора. Для читателей, которые показывают ОДИН тур или одну
+ * компанию по адресу, уже бывшему у человека в руках: карточка тура, её даты,
+ * цена и вопрос оператору, страница компании, её сайт, виджет, подборка по
+ * ссылке. Тур на паузе Ведар не предлагает, но заявку по старой ссылке
+ * оставить можно (решение 21.11, lib/operators/site-pause). Черновик,
+ * удалённый тур и тестовый профиль закрыты и здесь.
+ *
+ * Отбор, где турист выбирает из нескольких туров или компаний, зовёт
+ * `publicTourSql`, а не это условие.
+ */
+export function tourOpenByLinkSql(alias = 'ot'): string {
+  checkTourAlias('tourOpenByLinkSql', alias);
+  return `(${tourFlagsSql(alias)})`;
 }
 
 /**
@@ -64,9 +94,7 @@ export function publicTourSql(alias = 'ot'): string {
  * построению, а не по удаче.
  */
 export function hiddenTourReasonSql(alias = 'ot'): { draft: string; inactive: string; testProfile: string } {
-  if (alias !== '' && !/^[a-z_][a-z0-9_]*$/i.test(alias)) {
-    throw new Error(`hiddenTourReasonSql: недопустимый алиас «${alias}»`);
-  }
+  checkTourAlias('hiddenTourReasonSql', alias);
   const p = alias ? `${alias}.` : '';
   return {
     draft: `(${p}is_active IS TRUE AND ${p}is_published IS FALSE)`,

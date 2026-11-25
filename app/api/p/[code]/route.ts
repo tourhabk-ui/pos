@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db-pool';
 import { shownPhotoSql } from '@/lib/images/origin';
-import { publicTourSql } from '@/lib/tours/public-visibility';
+import { tourOpenByLinkSql } from '@/lib/tours/public-visibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,7 +66,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
        kr.hazards,
        kr.mchs_registration_required
      FROM tour_selection_items si
-     JOIN operator_tours ot ON ot.id = si.operator_tour_id AND ${publicTourSql('ot')}
+     JOIN operator_tours ot ON ot.id = si.operator_tour_id AND ${tourOpenByLinkSql('ot')}
      LEFT JOIN kamchatka_routes kr ON kr.id = ot.route_id
      WHERE si.selection_id = $1
      ORDER BY si.position`,

@@ -36,6 +36,7 @@ import {
   type OperatorTourFacts,
 } from '@/lib/operators/tour-facts';
 import { publicPartnerSql } from '@/lib/partners/test-profile';
+import { operatorShownInTourBlocksSql } from '@/lib/operators/site-pause';
 
 /** Ключ вида тура: тот же алфавит, что у `operator_tours.activity_type`. */
 export const ACTIVITY_KEY = /^[a-z_]{1,40}$/;
@@ -97,6 +98,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 function listedPartner(alias: string): string[] {
   return [
     publicPartnerSql(alias),
+    // Компания на паузе или отклонённая (lib/operators/site-pause, 23.11):
+    // её туры шлюз витрины уже не пускает, и в списке она стояла бы с
+    // «0 туров» — витрина обещала бы компанию, которую Ведар не предлагает.
+    operatorShownInTourBlocksSql(alias),
     // Тестовый стенд (lib/seat-requests/test-stand): компания «Тестовый
     // оператор Ведар» нужна для прогона запросов мест, а не туристу. В списке
     // она стояла ссылкой на 404 (аудит 20.11). Признак — id из кода стенда.

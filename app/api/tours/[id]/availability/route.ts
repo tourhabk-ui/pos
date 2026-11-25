@@ -1,7 +1,7 @@
 import { occupiedOnDaySql } from '@/lib/bookings/occupancy';
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/database';
-import { publicTourSql } from '@/lib/tours/public-visibility';
+import { tourOpenByLinkSql } from '@/lib/tours/public-visibility';
 import { ApiResponse } from '@/types';
 import { TourCheckRow, AvailabilityDateRow } from '@/lib/types/db-rows';
 import { dateInWindow, outOfSeasonText, requestWindow, windowLabel } from '@/lib/tours/request-window';
@@ -54,7 +54,7 @@ export async function GET(
              season_start::text AS season_start, season_end::text AS season_end,
              duration_type, duration_hours, multi_day_count
       FROM operator_tours
-      WHERE id = $1 AND ${publicTourSql('')}
+      WHERE id = $1 AND ${tourOpenByLinkSql('')}
     `;
     const tourResult = await query<TourCheckRow>(tourQuery, [id]);
 

@@ -3,7 +3,8 @@
  *
  * Те же строки, что у страницы оператора /operators/[slug]: профиль из
  * `partners` и живые туры из `operator_tours` за шлюзом витрины
- * (`publicTourSql`). Сайт и карточки на Ведаре читают одну базу — разойтись им
+ * прямой ссылки (`tourOpenByLinkSql`: пауза оператора на Ведаре его собственный
+ * сайт не закрывает). Сайт и карточки на Ведаре читают одну базу — разойтись им
  * негде (вопросы к партнёру 22.10 нашли шесть расхождений сайта на Tilda с
  * карточками).
  *
@@ -13,7 +14,7 @@
 import { cache } from 'react';
 import { query } from '@/lib/database';
 import type { OperatorProfileRow, PartnerSiteTourRow } from '@/lib/types/db-rows';
-import { publicTourSql } from '@/lib/tours/public-visibility';
+import { tourOpenByLinkSql } from '@/lib/tours/public-visibility';
 import { publicPartnerSql } from '@/lib/partners/test-profile';
 
 export interface PartnerSiteData {
@@ -52,7 +53,7 @@ export const loadPartnerSite = cache(async (partnerId: string): Promise<PartnerS
             ot.photos, ot.tour_image,
             ot.included, ot.not_included, ot.min_participants, ot.max_participants, ot.group_size_unlimited
        FROM operator_tours ot
-      WHERE ot.operator_id::text = $1::text AND ${publicTourSql('ot')}
+      WHERE ot.operator_id::text = $1::text AND ${tourOpenByLinkSql('ot')}
       ORDER BY (ot.pinned_at IS NULL), ot.pinned_at, ot.season_start NULLS LAST, ot.id`,
     [profile.id],
   );

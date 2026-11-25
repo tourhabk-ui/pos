@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { publicTourSql } from '@/lib/tours/public-visibility';
+import { publicTourSql, tourOpenByLinkSql } from '@/lib/tours/public-visibility';
 import { programSteps } from '@/lib/tours/describe';
 
 const CARD = join(process.cwd(), 'app/catalog/tours/[id]/_TourDetailClient.tsx');
@@ -74,9 +74,13 @@ describe('стандарт карточки тура — безопасност�
     // знали вовсе и отдавали черновики. Поэтому сторож спрашивает ВЫЗОВ шлюза
     // и отдельно — что сам шлюз держит флаг (проверять только вызов значило бы
     // зеленеть при выпотрошенном шлюзе, §10.09).
-    expect(query).toMatch(/publicTourSql\('ot'\)/);
+    // С 23.11 карточка зовёт шлюз прямой ссылки: тур компании на паузе
+    // открывается по бывшей у человека ссылке, но в общих списках его нет
+    // (CLAUDE.md §0, «Пауза оператора»). Флаги тура у обоих шлюзов одни.
+    expect(query).toMatch(/tourOpenByLinkSql\('ot'\)/);
+    expect(tourOpenByLinkSql('ot')).toMatch(/ot\.is_published = true/);
+    expect(tourOpenByLinkSql('ot')).toMatch(/ot\.deleted_at IS NULL/);
     expect(publicTourSql('ot')).toMatch(/ot\.is_published = true/);
-    expect(publicTourSql('ot')).toMatch(/ot\.deleted_at IS NULL/);
     // С 26.09 бронь заводит только reserveBooking (/api/bookings/tour удалён).
     const booking = readFileSync(
       join(process.cwd(), 'lib/bookings/reserve.ts'), 'utf-8');
