@@ -391,6 +391,9 @@ describe('карточка готовности', () => {
     }));
     render(<PartnerReadinessCard />);
     const box = within(await screen.findByTestId('accept-offer'));
+    // Пока оферта не принята, пункт подписан просьбой владельца, а не «не обязательно».
+    const offerRow = screen.getAllByRole('listitem').find((r) => r.getAttribute('data-key') === 'offer') as HTMLElement;
+    expect(within(offerRow).getByTestId('item-tag').textContent).toBe('просим до начала сезона');
     const button = box.getByRole('button', { name: 'Принять оферту' });
     expect(button).toHaveProperty('disabled', true);
     expect(box.getByText('Чтобы принять, поставьте отметку.')).toBeTruthy();
