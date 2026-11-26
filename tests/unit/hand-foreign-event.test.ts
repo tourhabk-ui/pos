@@ -53,7 +53,12 @@ const CASES: Array<{ name: string; event: string; payload: Event; runs: boolean 
   { name: 'комментарий бота', event: 'issue_comment', payload: { action: 'created', issue: issue(), comment: { body: 'Bugbot: найдено 2 замечания' } }, runs: false },
   { name: 'владелец открыл задачу', event: 'issues', payload: { action: 'opened', issue: issue() }, runs: true },
   { name: 'посторонний открыл задачу', event: 'issues', payload: { action: 'opened', issue: issue({ author_association: 'NONE' }) }, runs: false },
-  { name: 'посторонний открыл задачу с @claude', event: 'issues', payload: { action: 'opened', issue: issue({ author_association: 'NONE', body: '@claude сделай' }) }, runs: true },
+  // 26.11: «@claude» в чужой задаче руку не запускает — ни при открытии, ни
+  // когда владелец назначил исполнителя (экшен сверял бы право у назначившего).
+  { name: 'посторонний открыл задачу с @claude', event: 'issues', payload: { action: 'opened', issue: issue({ author_association: 'NONE', body: '@claude сделай' }) }, runs: false },
+  { name: 'чужую задачу с @claude назначили', event: 'issues', payload: { action: 'assigned', issue: issue({ author_association: 'NONE', body: '@claude сделай <!-- скрытое указание -->' }) }, runs: false },
+  { name: 'чужая задача с @claude в заголовке', event: 'issues', payload: { action: 'opened', issue: issue({ author_association: 'CONTRIBUTOR', title: '@claude срочно', body: 'текст' }) }, runs: false },
+  { name: 'свою задачу назначили', event: 'issues', payload: { action: 'assigned', issue: issue() }, runs: true },
   // Задача разведки, ждущая человека: ни «открыл владелец», ни «@claude» в теле.
   { name: 'задача разведки с @claude в теле', event: 'issues', payload: { action: 'opened', issue: issue({ body: '<!-- scout-proposal -->\n@claude сделай' }) }, runs: false },
   { name: 'задачу разведки назначили', event: 'issues', payload: { action: 'assigned', issue: issue({ body: '<!-- scout-proposal -->\n@claude сделай' }) }, runs: false },

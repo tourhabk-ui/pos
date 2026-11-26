@@ -83,8 +83,21 @@ export const PROTECTED_ZONES = Object.freeze([
   {
     id: 'lib-auth',
     title: 'JWT-логика',
-    paths: ['lib/auth.ts'],
-    reason: 'Выпуск и проверка JWT: ошибка здесь открывает чужие кабинеты.',
+    paths: [
+      'lib/auth.ts',
+      // Проверка безопасности 26.11 (слово владельца «чини Карт бланш»):
+      // lib/auth.ts лишь зовёт verifyToken и extractToken, а подпись,
+      // проверка и сессия JWT живут здесь — зона стерегла обёртку.
+      'lib/auth/jwt.ts',
+      // requireAuth / requireAdmin / requireRole — проверка роли за каждым
+      // защищённым роутом (CLAUDE.md §1, ключевые файлы).
+      'lib/auth/middleware.ts',
+      // Сравнение секретов за Edge-гвардом и вызовами кронов: обычное `===`
+      // здесь отдаёт секрет по времени ответа.
+      'lib/security/constant-time-equal.ts',
+    ],
+    reason:
+      'Выпуск и проверка JWT, проверка роли за роутами и сравнение секретов: ошибка здесь открывает чужие кабинеты.',
     claude: '§7 НЕ ТРОГАТЬ: `lib/auth.ts`',
   },
   {
@@ -239,6 +252,28 @@ export function ownerWordSection(body) {
   return out;
 }
 
+/**
+ * Кто вправе принести слово владельца в теле PR (проверка безопасности 26.11,
+ * слово владельца «чини Карт бланш»). Тело PR пишет его автор, а PR в
+ * открытый репозиторий открывает кто угодно: посторонний вписал бы раздел
+ * «Слово владельца» сам, и проверка зон зеленела бы на его правке JWT или
+ * оплаты. Отметка автора (`author_association`) приходит в событии от GitHub,
+ * её автор PR не пишет. PR владельца, участника и соавтора — как раньше; у
+ * остальных раздел не засчитывается, правку в зоне переносит в свой PR
+ * участник репозитория.
+ */
+export const OWNER_WORD_AUTHORS = Object.freeze(['OWNER', 'MEMBER', 'COLLABORATOR']);
+
+/**
+ * Может ли автор PR с этой отметкой принести слово владельца. Отметка не
+ * пришла (пустая строка) — «не знаю», и это не «можно» (§4.0).
+ *
+ * @param {unknown} association
+ */
+export function authorMayCarryWord(association) {
+  return typeof association === 'string' && OWNER_WORD_AUTHORS.includes(association);
+}
+
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
@@ -273,9 +308,15 @@ const stripGlob = (p) => (p.endsWith('/**') ? p.slice(0, -3) : p);
  *  - warn — без слова только зоны, где меняются одни комментарии;
  *  - fail — хоть одна зона с правкой кода без слова.
  *
- * @param {{ files: TouchedFile[]; body: unknown; zones?: ReadonlyArray<ProtectedZone> }} input
+ * `authorAssociation` — отметка автора PR из события GitHub. Передана и не
+ * из OWNER_WORD_AUTHORS — раздел «Слово владельца» не засчитывается.
+ * Не передана вовсе (undefined) — судится одно тело: так зовут разбор тесты
+ * формата и проверка прямого пуша, где автор коммита уже имеет право пуша.
+ * Проход по PR (runZonesCheck) передаёт её всегда.
+ *
+ * @param {{ files: TouchedFile[]; body: unknown; zones?: ReadonlyArray<ProtectedZone>; authorAssociation?: string }} input
  */
-export function judgeZones({ files, body, zones = PROTECTED_ZONES }) {
+export function judgeZones({ files, body, zones = PROTECTED_ZONES, authorAssociation }) {
   /** @type {Map<string, { zone: ProtectedZone; files: TouchedFile[] }>} */
   const touched = new Map();
   for (const f of files) {
@@ -291,7 +332,8 @@ export function judgeZones({ files, body, zones = PROTECTED_ZONES }) {
   }
 
   const section = ownerWordSection(body);
-  const wordLines = (section ?? []).filter((l) => QUOTE.test(l) && DATE.test(l));
+  const authorTrusted = authorAssociation === undefined || authorMayCarryWord(authorAssociation);
+  const wordLines = authorTrusted ? (section ?? []).filter((l) => QUOTE.test(l) && DATE.test(l)) : [];
 
   const results = [...touched.values()].map(({ zone, files: zf }) => {
     const commentOnly = zf.every((f) => f.commentOnly === true);
@@ -316,7 +358,13 @@ export function judgeZones({ files, body, zones = PROTECTED_ZONES }) {
         : results.some((r) => r.status === 'comment-only')
           ? 'warn'
           : 'ok';
-  return { outcome, sectionFound: section !== null, zones: results };
+  return {
+    outcome,
+    sectionFound: section !== null,
+    zones: results,
+    authorTrusted,
+    authorAssociation: authorAssociation ?? null,
+  };
 }
 
 // ── Только комментарии: сравнение по разбору, не по строкам диффа ──────────
@@ -412,6 +460,13 @@ export function formatVerdict(verdict) {
     return { out, summary: summary.join('\n'), exitCode: 0 };
   }
 
+  if (verdict.authorTrusted === false && verdict.zones.some((r) => r.status === 'missing')) {
+    out.push(
+      `::error::${escapeAnnotation(
+        `Слово владельца из тела этого PR не засчитано: PR открыт не владельцем, участником или соавтором репозитория (отметка автора: ${verdict.authorAssociation || 'не пришла'}). Правку в зоне переносит в свой PR участник репозитория.`,
+      )}`,
+    );
+  }
   for (const r of verdict.zones) {
     const files = r.files.map((f) => f.path).join(', ');
     if (r.status === 'missing') {
@@ -451,7 +506,11 @@ export function formatVerdict(verdict) {
       '',
       '    - payments — «цитата владельца» (15.10)',
       '',
-      verdict.sectionFound ? 'Раздел найден, но строки для зон выше в нём нет.' : 'Раздела «Слово владельца» в теле PR нет.',
+      verdict.authorTrusted === false
+        ? `Раздел в теле не засчитан: PR открыт не владельцем, участником или соавтором (отметка автора: ${verdict.authorAssociation || 'не пришла'}).`
+        : verdict.sectionFound
+          ? 'Раздел найден, но строки для зон выше в нём нет.'
+          : 'Раздела «Слово владельца» в теле PR нет.',
       'Реестр зон и причины — `scripts/protected-zones.mjs`, правило — CLAUDE.md §7.',
     );
   }
@@ -605,7 +664,9 @@ export async function runZonesCheck({ env, fetchImpl = globalThis.fetch, ts = nu
     ts,
   });
 
-  return formatVerdict(judgeZones({ files, body: env.PR_BODY ?? '', zones }));
+  // Отметку автора проход по PR передаёт всегда: не пришла — пустая строка,
+  // и раздел не засчитывается («не знаю» не равно «можно»).
+  return formatVerdict(judgeZones({ files, body: env.PR_BODY ?? '', zones, authorAssociation: String(env.PR_AUTHOR_ASSOCIATION ?? '') }));
 }
 
 // ── Прямой пуш в main ──────────────────────────────────────────────────────

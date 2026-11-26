@@ -48,6 +48,7 @@ interface RunOpts {
   headSha?: string;
   mainSha?: string;
   eventName?: string;
+  ref?: string;
   secrets?: Record<string, string>;
 }
 
@@ -55,6 +56,7 @@ function ctx(o: RunOpts = {}): Record<string, unknown> {
   return {
     github: {
       event_name: o.eventName ?? 'workflow_run',
+      ref: o.ref ?? 'refs/heads/main',
       repository: REPO,
       sha: o.mainSha ?? 'f'.repeat(40),
       run_id: 4242,
@@ -255,6 +257,14 @@ describe('выкат зовётся только зелёным CI по пушу
   it('ручной выкат владельца — идёт, тревоги нет', () => {
     expect(evalIf(deployJob.if, ctx({ eventName: 'workflow_dispatch' }))).toBe(true);
     expect(evalIf(alertJob.if, ctx({ eventName: 'workflow_dispatch' }))).toBe(false);
+  });
+
+  // Проверка безопасности 26.11: кнопка запускается на любой ветке, и
+  // github.sha тогда — голова этой ветки, не влитая и не проверенная.
+  it('ручной выкат с другой ветки или тега — джоб выката не идёт', () => {
+    for (const ref of ['refs/heads/ccr-branch', 'refs/heads/main-copy', 'refs/tags/v1', 'refs/pull/7/merge']) {
+      expect(evalIf(deployJob.if, ctx({ eventName: 'workflow_dispatch', ref })), ref).toBe(false);
+    }
   });
 });
 
