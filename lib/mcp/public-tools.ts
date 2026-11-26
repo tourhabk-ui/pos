@@ -13,7 +13,7 @@
 
 import { TOOL_REGISTRY } from '@/lib/kuzmich/tool-schemas';
 import { SEARCH_TOOL, FETCH_TOOL } from '@/lib/mcp/connector-schemas';
-import { GET_REQUEST_STATUS_TOOL, REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS } from '@/lib/mcp/request-status-schema';
+import { GET_REQUEST_STATUS_TOOL, REQUEST_KEY_MIN_CHARS, REQUEST_KEY_MAX_CHARS, ANSWER_RELAY_RULE_EN } from '@/lib/mcp/request-status-schema';
 import { CHANGE_ACTIONS, CHANGE_REQUEST_OUTPUT_SCHEMA } from '@/lib/mcp/change-request-schema';
 import { NOTIFY_URL_PROPERTY, NOTIFY_TOOL_PHRASE } from '@/lib/mcp/request-notify-schema';
 import { WRITE_OUTPUT_SCHEMA } from '@/lib/mcp/test-run';
@@ -54,7 +54,7 @@ const WRITE_CONTRACT_PHRASE = ' Проверить интеграцию или �
 const HUMAN_SENDS_PHRASE = ' Имя и телефон — персональные данные. Вызов не отправляет заявку: в ответе черновик и ссылка — дай её человеку, на странице Ведара он сам нажмёт «Отправить».';
 
 /** Английская фраза поля `test` — одна у шести заявок (PARAM_ENGLISH). */
-const WRITE_TEST_ENGLISH = { lead: 'true for a dry run: the same checks as a real request, but nothing is stored or sent to anyone.', example: false } as const;
+const WRITE_TEST_ENGLISH = { lead: 'true for a dry run: the same checks as a real request, nothing stored or sent; the reply has a test_ key, and get_request_status answers state test.', example: false } as const;
 
 /**
  * create_lead — единственный ПИШУЩИЙ инструмент наружу. Бронь и оплату
@@ -394,36 +394,149 @@ export const TOOL_ANNOTATIONS: Record<string, Omit<McpToolAnnotations, 'title'>>
  * «Kamchatka» у всех; safety/alerts у безопасности; «live availability» у
  * туров и дат; «human-confirmed» у заявок.
  */
-export const TOOL_ENGLISH: Record<string, { title: string; lead: string }> = {
+/**
+ * Правила инструмента для агента — по-английски, ОДНИМ языком (26.11, слово
+ * владельца «Ужми описания»). До этого дня описание наружу было английской
+ * фразой плюс русским описанием Кузьмича целиком, и каждое поле — тоже
+ * дважды: tools/list весил ~113 тыс. знаков, втрое-впятеро больше обычного
+ * MCP-сервера, и агент платил это в каждом запросе. Русские описания Кузьмича
+ * в `lib/kuzmich/tool-schemas.ts` не тронуты: его модель читает их, как
+ * читала; правило в `rules` — тот же смысл, пересказанный короче. Новое
+ * правило в русском описании Кузьмича или заявки дописывается и сюда.
+ */
+const REQUEST_SENT_BY_PERSON = 'Name, phone and consent come only from the person; never invent them. The call makes a draft: give the person the link from the reply, and they press Send on the Vedar page themselves.';
+
+export const TOOL_ENGLISH: Record<string, { title: string; lead: string; rules?: string }> = {
   // Пары, которые оценщик путал (Glama TDQS 18.09, Disambiguation 4/5):
   // каждая фраза говорит, когда брать этот инструмент, а когда соседний.
-  get_tours:             { title: 'Tour catalogue',        lead: 'Use when the user asks about Kamchatka (Russia) tours: operator tours with prices and dates; live availability via get_tour_availability. One tour in depth: get_tour_details.' },
-  get_tour_details:      { title: 'Tour details',          lead: 'One Kamchatka tour in depth: program, what is included, what to bring, safety notes. A company or guide name returns a tour list and their page instead. To list or search tours use get_tours.' },
-  get_tour_availability: { title: 'Tour availability',     lead: 'Use when the user asks if a Kamchatka tour has free seats: live availability by date, free seats and nearest open dates. Then booking via create_booking_request.' },
-  compare_tours:         { title: 'Compare tours',         lead: 'Side-by-side facts for 2-4 Kamchatka tours on what the user cares about: price or group total, duration, dates, inclusions, cancellation, pickup, operator. No ranking; one tour: get_tour_details.' },
-  get_guardian_context:  { title: 'Place safety',          lead: "Kamchatka safety context for a place or route: place status, hazards, active alerts; a catalog route with no place record gets today's go/caution/no call and park permit terms. Facts: get_place_info." },
-  get_place_info:        { title: 'Place info',            lead: 'Kamchatka place facts on record: type, coordinates, altitude, hazards, distance to medical help, satellite comms, MChS registration, tours by company. No live alerts — use get_guardian_context.' },
-  safety_status:         { title: 'Regional safety status', lead: 'Kamchatka regional safety status: active alerts (seismic, volcanic, weather, MChS) with their source and dates, plus elevated volcanoes (KVERT, KB GS RAS).' },
-  get_weather:           { title: 'Weather',               lead: 'Daily weather forecast (Open-Meteo) for a Kamchatka place by name, or for any point by latitude/longitude.' },
-  get_volcano_status:    { title: 'Volcano status',        lead: 'Use when the user asks about Kamchatka volcano activity: KVERT aviation code and KB GS RAS seismicity. No name — all elevated. One place or route: get_guardian_context.' },
-  search_accommodations: { title: 'Stays',                 lead: 'Use when the user asks about hotels or accommodation in Kamchatka, Russia: stays from platform partners. To send dates and guests to a stay owner use create_stay_request.' },
-  search_transfers:      { title: 'Transfers',             lead: 'Use when the user asks about Kamchatka transfers: whole-vehicle charters (vakhtovka, minibus, jeep), price per vehicle by destination or hour/day, not per seat. Request: request_charter.' },
-  search_car_rental:     { title: 'Car rental',            lead: 'Use when the user wants to rent a car, SUV, 4x4 or minibus in Kamchatka (car rental, car hire): self-drive, price per day, deposit. With a driver: search_transfers. Request: create_car_rental_request.' },
-  search_gear:           { title: 'Gear rental',           lead: 'Gear rental in Kamchatka from platform partners. An empty result is normal: the rental shelf may have no partners yet, and the answer says so — do not invent rental shops.' },
-  make_trip_plan:        { title: 'Trip plan',             lead: 'Day-by-day Kamchatka trip plan with live availability and season warnings; returns a plan ID for edit_trip_plan. No forecast: use get_weather.' },
-  edit_trip_plan:        { title: 'Edit trip plan',        lead: 'Edit a Kamchatka trip plan from make_trip_plan by its ID: add, remove, move or replace a day, change lodging or group, shift the whole trip, apply a flight delay; untouched days stay.' },
-  create_lead:           { title: 'Tour request',          lead: 'Tour-selection request for Kamchatka when no tour or date is chosen yet; human-confirmed, no payment. Sent by the person from a Vedar link. Whole-vehicle charter: request_charter.' },
-  create_booking_request: { title: 'Booking request',      lead: 'Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed, no payment. Sent by the person from a Vedar link. No tour yet — use create_lead.' },
-  create_stay_request:   { title: 'Stay request',          lead: 'Kamchatka stay request: dates and guests go to the owner, human-confirmed by the owner, no payment. Sent by the person from a Vedar link. For tours use create_booking_request.' },
-  create_car_rental_request: { title: 'Car rental request', lead: 'Kamchatka self-drive car rental request: car from the price list, dates, pickup; human-confirmed, no payment. Sent by the person from a Vedar link.' },
-  request_charter:       { title: 'Charter request',       lead: 'Whole-vehicle (vakhtovka, minibus) request to a Kamchatka charter carrier: destination, dates, group size; human-confirmed, no payment. Sent by the person from a Vedar link.' },
+  get_tours: {
+    title: 'Tour catalogue',
+    lead: 'Use when the user asks about Kamchatka (Russia) tours: operator tours with prices and dates; live availability via get_tour_availability. One tour in depth: get_tour_details.',
+    rules: 'Each tour names its company. The order is a platform rule stated in the reply (free seats on the nearest date first, the rest shuffled daily), not a recommendation.',
+  },
+  get_tour_details: {
+    title: 'Tour details',
+    lead: 'One Kamchatka tour in depth: program, what is included, what to bring, safety notes. A company or guide name returns a tour list and their page instead. To list or search tours use get_tours.',
+    rules: 'Always use it for questions about a specific tour (program, meeting point, pickup, what to bring); never invent these details. A generic or partial company name also lists other companies\' tours with those words. If only some words matched, the reply says so: do not call those tours a match.',
+  },
+  get_tour_availability: {
+    title: 'Tour availability',
+    lead: 'Use when the user asks if a Kamchatka tour has free seats: live availability by date, free seats and nearest open dates. Then booking via create_booking_request.',
+    rules: 'Never give dates or seats from memory, only from here. If the window has no seats, the reply names the nearest free date after it (within a year) and, when the window does not start today, before it.',
+  },
+  compare_tours: {
+    title: 'Compare tours',
+    lead: 'Side-by-side facts for 2-4 Kamchatka tours on what the user cares about: price or group total, duration, dates, inclusions, cancellation, pickup, operator. No ranking; one tour: get_tour_details.',
+    rules: 'One row per criterion, from the database; tours in the order the person named them. Rows say only same, differs or not comparable (not recorded): never name the best tour, the person chooses. A title shared by several companies, or a seller\'s name, returns IDs instead of a comparison: ask the person. Tours not on the showcase are not compared.',
+  },
+  get_guardian_context: {
+    title: 'Place safety',
+    lead: "Kamchatka safety context for a place or route: place status, hazards, active alerts; a catalog route with no place record gets today's go/caution/no call and park permit terms. Facts: get_place_info.",
+    rules: 'Also live KB GS RAS alerts, crowding and local knowledge. The route call (go / caution / not today) has its reason and matches the route card; permit terms are as recorded. With only a similar route name, it is named as an inexact match. Always use it for a specific place, volcano, lake, route or hot spring.',
+  },
+  get_place_info: {
+    title: 'Place info',
+    lead: 'Kamchatka place facts on record: type, coordinates, altitude, hazards, distance to medical help, satellite comms, MChS registration, tours by company. No live alerts — use get_guardian_context.',
+    rules: 'Gives the place page URL (share it when asked for a link or coordinates) and every tour offer with its company, ordered by the platform rule stated in the reply. No such place but a catalog route: the route, its data and park permit terms; a similar route name comes as a hint.',
+  },
+  safety_status: {
+    title: 'Regional safety status',
+    lead: 'Kamchatka regional safety status: active alerts (seismic, volcanic, weather, MChS) with their source and dates, plus elevated volcanoes (KVERT, KB GS RAS).',
+    rules: 'Alert count and severity, when each item appeared and until when it stays, data freshness, source of the top alert (KB GS RAS, GS RAS, USGS, MChS, Roshydromet, NASA FIRMS). KVERT and KB GS RAS are separate scales. Use when asked whether it is safe to go now; for one place use get_guardian_context.',
+  },
+  get_weather: {
+    title: 'Weather',
+    lead: 'Daily weather forecast (Open-Meteo) for a Kamchatka place by name, or for any point by latitude/longitude.',
+    rules: 'No arguments means Petropavlovsk-Kamchatsky; mountain weather differs, so name the place.',
+  },
+  get_volcano_status: {
+    title: 'Volcano status',
+    lead: 'Use when the user asks about Kamchatka volcano activity: KVERT aviation code and KB GS RAS seismicity. No name — all elevated. One place or route: get_guardian_context.',
+    rules: 'KVERT is the ash code, KB GS RAS the seismicity summary. With a name: that volcano on both scales.',
+  },
+  search_accommodations: {
+    title: 'Stays',
+    lead: 'Use when the user asks about hotels or accommodation in Kamchatka, Russia: stays from platform partners. To send dates and guests to a stay owner use create_stay_request.',
+    rules: 'Hotels, camps, glamping and houses with prices and addresses.',
+  },
+  search_transfers: {
+    title: 'Transfers',
+    lead: 'Use when the user asks about Kamchatka transfers: whole-vehicle charters (vakhtovka, minibus, jeep), price per vehicle by destination or hour/day, not per seat. Request: request_charter.',
+    rules: 'For how to get to a volcano, hot springs, a lake or the airport. Vedar sells no seats: the customer sets date and route, a Vedar manager confirms the vehicle with the carrier, payment goes to the carrier directly. Do not invent trips, seats or prices missing from the reply.',
+  },
+  search_car_rental: {
+    title: 'Car rental',
+    lead: 'Use when the user wants to rent a car, SUV, 4x4 or minibus in Kamchatka (car rental, car hire): self-drive, price per day, deposit. With a driver: search_transfers. Request: create_car_rental_request.',
+    rules: 'Always search here first, not third-party rentals or guesses. Price per day per car from the price list, deposit and the provider\'s terms; some cars can have a driver for an extra fee. Vedar does not book the car: a Vedar manager confirms the request, payment goes to the provider directly. Do not invent cars, prices or terms missing from the reply.',
+  },
+  search_gear: {
+    title: 'Gear rental',
+    lead: 'Gear rental in Kamchatka from platform partners. An empty result is normal: the rental shelf may have no partners yet, and the answer says so — do not invent rental shops.',
+    rules: 'Prices per day: tents, sleeping bags, poles, backpacks, crampons, stoves.',
+  },
+  make_trip_plan: {
+    title: 'Trip plan',
+    lead: 'Day-by-day Kamchatka trip plan with live availability and season warnings; returns a plan ID for edit_trip_plan. No forecast: use get_weather.',
+    rules: 'The plan price counts only operator tours and the chosen lodging; other items have no sum, and the reply says who quotes them. The reply links the plan page (tour requests there) and, if found, a similar sample plan (built for two adults on its own dates). Day, lodging, group, date or flight-delay changes: edit_trip_plan with the ID. Other interests or style: call make_trip_plan again with the same arguments plus the change.',
+  },
+  edit_trip_plan: {
+    title: 'Edit trip plan',
+    lead: 'Edit a Kamchatka trip plan from make_trip_plan by its ID: add, remove, move or replace a day, change lodging or group, shift the whole trip, apply a flight delay; untouched days stay.',
+    rules: 'Tours whose date or group changed get seats and price re-read; a date shift also re-reads park closures and MChS reports. An impossible edit (arrival day, activity not for the children\'s age, out of season, no solution) is refused with the reason and the plan stays. Plans live 7 days; no plan — call make_trip_plan first.',
+  },
+  create_lead: {
+    title: 'Tour request',
+    lead: 'Tour-selection request for Kamchatka when no tour or date is chosen yet; human-confirmed, no payment. Sent by the person from a Vedar link. Whole-vehicle charter: request_charter.',
+    rules: `A Vedar manager calls back. Partner tour operators see the request, and it may reach several. ${REQUEST_SENT_BY_PERSON}`,
+  },
+  create_booking_request: {
+    title: 'Booking request',
+    lead: 'Use when the user wants to book a Kamchatka tour on a date: live availability checked first, human-confirmed, no payment. Sent by the person from a Vedar link. No tour yet — use create_lead.',
+    rules: 'Check dates with get_tour_availability first; the operator confirms by phone, no instant booking. An ambiguous tour (several companies, a company or guide name, a partial match) creates nothing: the reply lists tour IDs, ask the person and retry with the ID. No seats: no request, the reply gives the nearest free dates. Sent to the operator as a query, seats not held: no schedule (pass the status link to the person), a group over the tour limit or an unlimited tour (one query for the whole group), a date closed by Vedar, not the operator (asks if they run that day). '
+      + REQUEST_SENT_BY_PERSON,
+  },
+  create_stay_request: {
+    title: 'Stay request',
+    lead: 'Kamchatka stay request: dates and guests go to the owner, human-confirmed by the owner, no payment. Sent by the person from a Vedar link. For tours use create_booking_request.',
+    rules: `Stay from search_accommodations (name or ID from its card link). The owner gets it by messenger, calls back and confirms dates and price; stays are not paid through Vedar. Only stays without own rooms on the platform or a booking site accept it; for others the reply says where to book. Name and phone go to the stay owner. ${REQUEST_SENT_BY_PERSON}`,
+  },
+  create_car_rental_request: {
+    title: 'Car rental request',
+    lead: 'Kamchatka self-drive car rental request: car from the price list, dates, pickup; human-confirmed, no payment. Sent by the person from a Vedar link.',
+    rules: `Cars and companies come from search_car_rental; name the car as in the price list. Vedar does not track car availability: a Vedar manager confirms with the rental company, payment goes to it directly. Name and phone go to the rental company. ${REQUEST_SENT_BY_PERSON}`,
+  },
+  request_charter: {
+    title: 'Charter request',
+    lead: 'Whole-vehicle (vakhtovka, minibus) request to a Kamchatka charter carrier: destination, dates, group size; human-confirmed, no payment. Sent by the person from a Vedar link.',
+    rules: `Prices and carriers: search_transfers. Carriers have no calendar, so availability is not checked: a Vedar manager agrees the trip with the carrier and confirms. Price per vehicle from the carrier list, by destination or per hour/day; a destination not on the list is accepted and the carrier quotes. Payment goes to the carrier directly. Name and phone go to the carrier. ${REQUEST_SENT_BY_PERSON}`,
+  },
   // Имена «search» и «fetch» — требование коннекторов ChatGPT (deep research
   // зовёт только их); форма ответа — по документации OpenAI.
-  search:                { title: 'Search (ChatGPT connector)', lead: 'Keyword search across Vedar Kamchatka: operator tours, places, stays, routes; returns up to 10 results with id for fetch, title and canonical url. For live seats use get_tour_availability.' },
-  fetch:                 { title: 'Fetch (ChatGPT connector)',  lead: 'Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts; route: dated go/caution/no call, permit terms. Published records only.' },
-  create_trip_request:   { title: 'Trip request',          lead: 'Whole Kamchatka trip in one request: tour + stay + charter vehicle under one trip id; each partner sees the rest. Human-confirmed, no payment. Sent by the person from a Vedar link.' },
-  get_request_status:    { title: 'Request status',        lead: 'Kamchatka request status by key from create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request, create_trip_request. No client name or phone.' },
-  change_request:        { title: 'Change request',        lead: 'Cancel or move a Kamchatka tour request by its status key when the person asks; the call returns a Vedar link, the person confirms there.' },
+  search: {
+    title: 'Search (ChatGPT connector)',
+    lead: 'Keyword search across Vedar Kamchatka: operator tours, places, stays, routes; returns up to 10 results with id for fetch, title and canonical url. For live seats use get_tour_availability.',
+    rules: 'Regional situation: safety_status. Day-by-day plans: make_trip_plan or vedarai.ru/planner, not search.',
+  },
+  fetch: {
+    title: 'Fetch (ChatGPT connector)',
+    lead: 'Full text of one Vedar Kamchatka record by id from search (tour, place, stay, route): description, price, program, safety facts; route: dated go/caution/no call, permit terms. Published records only.',
+    rules: 'A place lists every tour offer with its company, ordered by the platform rule stated in the reply. A route call holds for its stated date only; ask again after it. A record not on the showcase is refused with the reason.',
+  },
+  create_trip_request: {
+    title: 'Trip request',
+    lead: 'Whole Kamchatka trip in one request: tour + stay + charter vehicle under one trip id; each partner sees the rest. Human-confirmed, no payment. Sent by the person from a Vedar link.',
+    rules: `Pass at least one part: tour + tour_date, stay + check_in + check_out, or transfer_destination + transfer_date. Each part goes to its partner (tour operator, stay owner, manager with carrier); no carrier named — a Vedar manager picks one. ${REQUEST_SENT_BY_PERSON}`,
+  },
+  get_request_status: {
+    title: 'Request status',
+    lead: 'Kamchatka request status by key from create_lead, create_booking_request, create_stay_request, request_charter, create_car_rental_request, create_trip_request. No client name or phone.',
+    rules: 'A trip has a key per part. Each key lives 90 days; without it there is no status. page is the person\'s request page: they confirm consent there and see replies. ' + ANSWER_RELAY_RULE_EN + ' date is the current date, requested_date the one asked for; if they differ, the booking was moved. notify shows whether the notify_url subscription is alive.',
+  },
+  change_request: {
+    title: 'Change request',
+    lead: 'Cancel or move a Kamchatka tour request by its status key when the person asks; the call returns a Vedar link, the person confirms there.',
+    rules: 'Key from create_booking_request; call only when the person asked. The call changes nothing: give the person confirm_url; only their click on the Vedar page changes the request. Then: operator has not answered yet — cancelled or moved at once; already answered, booked or agreed — a request goes to the operator, who decides. A request is not a booking. A cancelled request cannot be restored. Moves only to a date with seats for everyone (get_tour_availability), at most three a day. A repeat-call key or another request\'s key cannot change it. Pass outcome, changed and told to the person as is.',
+  },
 };
 
 /**
@@ -439,13 +552,13 @@ const NAME_ASK_ENGLISH = 'ask the person.';
 
 /**
  * Английский слой для ПАРАМЕТРОВ — тем же правилом, что для описаний:
- * английская фраза впереди, русское описание Кузьмича следом целиком, схемы
- * Кузьмича не тронуты. Glama TDQS 18.09: Completeness 4/5 — параметры были
+ * с 26.11 наружу идёт только английская фраза (русский текст — источник
+ * для Кузьмича), схемы Кузьмича не тронуты. Glama TDQS 18.09: Completeness 4/5 — параметры были
  * только по-русски и без примеров. Пример даётся там, где формат однозначен
  * (дата, число, тип); текстовые поля без примера честнее, чем с выдуманным.
  */
 /** notify_url — одна английская фраза на четыре пишущих инструмента (29.10). Слов secret/token здесь нет: их запрещают сторожа OpenAPI и карточки A2A. */
-const NOTIFY_URL_ENGLISH = 'Optional HTTPS URL of your receiver (host name, port 443): a signed POST (Standard Webhooks) arrives when the request state, date, operator-offered date, tour or group size changes; the signing key is in the reply once. Not for stays. Leave empty if you have no receiver; do not invent one.';
+const NOTIFY_URL_ENGLISH = 'Optional HTTPS URL of your receiver (host name, port 443): a signed Standard Webhooks POST on changes of state, date, offered date, tour or group size; the signing key is shown once in the reply. Not for stays. No receiver — omit, never invent one.';
 
 export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; example?: string | boolean }>> = {
   // Пара коннекторов ChatGPT (ступень 2, 12.10) — схемы в lib/mcp/connector-schemas.
@@ -456,10 +569,10 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     id: { lead: 'Record id from search: tour:<id>, place:<slug>, stay:<uuid> or route:<slug>.', example: 'tour:12' },
   },
   get_request_status: {
-    key: { lead: 'Status key from the reply of the writing tool, as is.' },
+    key: { lead: `Status key from the reply of the writing tool, as is (${REQUEST_KEY_MIN_CHARS}–${REQUEST_KEY_MAX_CHARS} characters).` },
   },
   change_request: {
-    key: { lead: 'Status key from the create_booking_request reply that created the request, as is.' },
+    key: { lead: `Status key from the create_booking_request reply that created the request, as is (${REQUEST_KEY_MIN_CHARS}–${REQUEST_KEY_MAX_CHARS} characters).` },
     action: { lead: 'cancel to cancel the request; change_date to move it to the date in the date field.', example: 'cancel' },
     date: { lead: 'New tour date, YYYY-MM-DD; required for change_date.', example: '2027-07-18' },
     test: { lead: 'true for a dry run: the reply says what would happen; nothing is changed or sent.', example: false },
@@ -478,8 +591,8 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     people: { lead: 'Number of travellers, 1–30. When given, each date shows the full booking total — the same calculation the booking itself uses; if the window has no seats, the nearest date with seats for all of them.', example: '2' },
   },
   compare_tours: {
-    tours: { lead: 'Two to four tours in the order the user named them: numeric IDs separated by commas (most reliable) or titles separated by semicolons.', example: '61, 70' },
-    criteria: { lead: 'What matters to the user, comma-separated, Russian or English: price, duration, group, difficulty, season, program, included, not included, cancellation, pickup, operator, nearest date; empty means a short default set.', example: 'цена, отмена' },
+    tours: { lead: 'Two to four tours in the order the user named them: numeric IDs separated by commas (most reliable; from get_tours, get_place_info, get_tour_details) or titles separated by semicolons.', example: '61, 70' },
+    criteria: { lead: 'What matters to the user, comma-separated, Russian or English: price, duration, group, difficulty, season, program, included, not included, cancellation, pickup, operator, nearest date; empty — price, duration, nearest date, difficulty, pickup, cancellation, operator.', example: 'цена, отмена' },
     people: { lead: 'Number of travellers, 1-30: the price row then shows the full total for all of them, the same calculation as get_tour_availability, and the nearest-date row the first date with seats for all of them. The tool picks the date of the total and names it per tour: the first date with seats for all of them, or the first date open for a request (tours without a schedule); a total on a date the user named comes from get_tour_availability with date_from and people.', example: '2' },
   },
   get_guardian_context: {
@@ -489,8 +602,8 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
     name: { lead: 'Place name.', example: 'Курильское озеро' },
   },
   get_weather: {
-    place: { lead: 'Place name from the platform directory (Russian works best).', example: 'Мутновский' },
-    lat: { lead: 'Latitude in decimal degrees; use together with lng. Coordinates take precedence over place.', example: '52.45' },
+    place: { lead: 'Place name as the person said it, matched in the platform directory (Russian works best).', example: 'Мутновский' },
+    lat: { lead: 'Latitude in decimal degrees, from the question or another tool\'s reply; use together with lng. Coordinates take precedence over place.', example: '52.45' },
     lng: { lead: 'Longitude in decimal degrees; use together with lat.', example: '158.19' },
     days: { lead: 'Forecast days, 1–7; default 3.', example: '3' },
   },
@@ -499,15 +612,15 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
   },
   safety_status: {},
   search_accommodations: {
-    zone: { lead: 'Area or town name.', example: 'Паратунка' },
+    zone: { lead: 'Area: town, valley or resort, as the person said it.', example: 'Паратунка' },
     type: { lead: 'Stay type: hotel, hostel, guesthouse, glamping, apartment, cottage.', example: 'hotel' },
     price_max: { lead: 'Maximum price per night, RUB.', example: '8000' },
   },
   search_transfers: {
-    place: { lead: 'Destination or origin keyword; empty — the whole price list.', example: 'Горелый' },
+    place: { lead: 'Destination or origin word from the question (volcano, lake, river, village); empty — the whole price list.', example: 'Горелый' },
   },
   search_car_rental: {
-    query: { lead: 'A word about the car: body type (SUV, minibus, off-road truck), model, or "with driver"; empty — the whole price list.', example: 'внедорожник' },
+    query: { lead: 'A word about the car: body type (SUV, minibus, off-road truck), model, or "with driver"; empty — the whole price list. Words like "rent a car" may stay.', example: 'внедорожник' },
     type: { lead: 'Body type if known: car, suv (SUV/4x4), minibus, offroad_truck, vahtovka.', example: 'suv' },
     date_from: { lead: 'Rental start, YYYY-MM-DD: used to count days and the price-list total; the provider confirms availability.', example: '2026-11-10' },
     date_to: { lead: 'Rental end, YYYY-MM-DD.', example: '2026-11-14' },
@@ -519,8 +632,8 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
   },
   make_trip_plan: {
     days: { lead: 'Trip length in days, 3–21; default — the length of a date range in when (10–17 July is 8 days), otherwise 7.', example: '7' },
-    interests: { lead: 'Interests in free text.', example: 'вулканы и медведи' },
-    when: { lead: 'When the trip starts, by the Kamchatka calendar: a month or a day in Russian words, DD.MM.YYYY, a range of days (10–17 July) or YYYY-MM-DD; season decides what is possible in Kamchatka. Default is one month from today. Text that is not a date, or a day that does not exist (2027-02-30), is an error and no plan is built.', example: '2027-07-10' },
+    interests: { lead: 'Interests in the person\'s own words.', example: 'вулканы и медведи' },
+    when: { lead: 'When the trip starts, by the Kamchatka calendar: a month or a day in Russian words, DD.MM.YYYY, a range of days (10–17 July) or YYYY-MM-DD; today and tomorrow are Kamchatka time. Season decides what is possible: always pass the month or dates the person gave. Default is one month from today. Text that is not a date, or a day that does not exist (2027-02-30), is an error and no plan is built: ask the person.', example: '2027-07-10' },
     travel_style: { lead: 'How the traveller wants to go: self (no guide, only where our safety data allows), operator (operator tours) or mixed; default mixed.', example: 'self' },
     rest_days: { lead: 'Rest days to add, 0–14; a weather reserve day is added separately when needed.', example: '1' },
     adults: { lead: 'Number of adults, 1–30; default 2, and the answer says it was assumed.', example: '2' },
@@ -529,11 +642,11 @@ export const PARAM_ENGLISH: Record<string, Record<string, { lead: string; exampl
   },
   edit_trip_plan: {
     plan_id: { lead: 'Plan ID from the make_trip_plan answer.' },
-    action: { lead: 'add_day, remove_day, move_day, replace_day, set_lodging, set_party, shift_dates or flight_delay.', example: 'add_day' },
+    action: { lead: 'add_day (a day with an activity), remove_day, move_day, replace_day (another activity that day), set_lodging, set_party (group), shift_dates (the whole trip) or flight_delay (only when the person says the flight is delayed).', example: 'add_day' },
     day: { lead: 'Day number in the plan, for remove_day, move_day and replace_day.', example: '3' },
     to_day: { lead: 'New position of the day, for move_day.', example: '2' },
     interest: { lead: 'Activity for add_day and replace_day, free text (Russian works best).', example: 'рыбалка' },
-    lodging: { lead: 'Lodging level for set_lodging: economy, comfort or premium.', example: 'economy' },
+    lodging: { lead: 'Lodging level for set_lodging: economy (camps, hostels, tents), comfort (hotels, apartments) or premium (lodges).', example: 'economy' },
     delay_days: { lead: 'For flight_delay: how many days the arrival flight is delayed, 1–7.', example: '2' },
     keep_return: { lead: 'For flight_delay: yes keeps the return date and shortens the trip (default); no shifts the whole trip.', example: 'yes' },
     adults: { lead: 'For set_party: number of adults, 1–30; omitted keeps the current number.', example: '3' },
@@ -629,7 +742,10 @@ interface JsonSchemaLike {
   [k: string]: unknown;
 }
 
-/** Копия схемы с английским слоем у каждого параметра; исходная схема Кузьмича не мутируется. */
+/**
+ * Копия схемы с английским описанием у каждого параметра — вместо русского,
+ * а не перед ним (26.11, «Ужми описания»); исходная схема Кузьмича не мутируется.
+ */
 function withParamEnglish(name: string, schema: unknown): unknown {
   const en = PARAM_ENGLISH[name];
   if (!en || typeof schema !== 'object' || schema === null) return schema;
@@ -637,10 +753,17 @@ function withParamEnglish(name: string, schema: unknown): unknown {
   for (const [param, prop] of Object.entries(copy.properties ?? {})) {
     const p = en[param];
     if (!p) continue;
-    prop.description = prop.description ? `${p.lead} ${prop.description}` : p.lead;
+    prop.description = p.lead;
     if (p.example !== undefined) prop.examples = [p.example];
   }
   return copy;
+}
+
+/** Описание инструмента наружу: английская фраза и правила, без русского дубля. */
+export function englishToolDescription(name: string): string | undefined {
+  const en = TOOL_ENGLISH[name];
+  if (!en) return undefined;
+  return en.rules ? `${en.lead} ${en.rules}` : en.lead;
 }
 
 export interface PublicMcpTool {
@@ -661,7 +784,7 @@ function withAnnotations(tool: { name: string; description: string; inputSchema:
   // спеке все hint'ы необязательны; отсутствие честнее угаданного
   // `readOnlyHint: true`. Русское описание Кузьмича остаётся целиком.
   const described = en
-    ? { ...tool, title: en.title, description: `${en.lead} ${tool.description}`, inputSchema: withParamEnglish(tool.name, tool.inputSchema) }
+    ? { ...tool, title: en.title, description: englishToolDescription(tool.name) ?? tool.description, inputSchema: withParamEnglish(tool.name, tool.inputSchema) }
     : tool;
   return hints && en ? { ...described, annotations: { title: en.title, ...hints } } : described;
 }
@@ -675,10 +798,13 @@ const REGISTRY_OUTPUT_SCHEMAS: Readonly<Record<string, unknown>> = {
   get_guardian_context: GUARDIAN_OUTPUT_SCHEMA,
 };
 
-export const PUBLIC_MCP_TOOLS: PublicMcpTool[] = [
+type SourceTool = { name: string; description: string; inputSchema: unknown; outputSchema?: unknown };
+
+/** Инструменты, как их описывают Кузьмич и константы заявок, — по-русски. */
+const SOURCE_TOOLS: readonly SourceTool[] = [
   ...Object.values(TOOL_REGISTRY)
     .filter((t) => !EXCLUDED_TOOLS.has(t.definition.function.name))
-    .map((t) => withAnnotations({
+    .map((t) => ({
       name: t.definition.function.name,
       description: t.definition.function.description,
       // OpenAI-style parameters — это та же JSON-схема, что MCP inputSchema
@@ -690,21 +816,31 @@ export const PUBLIC_MCP_TOOLS: PublicMcpTool[] = [
   // Пара коннекторов ChatGPT (lib/mcp/connector-tools): не из реестра
   // Кузьмича — у чата свой поиск по словам ему не нужен, а ChatGPT без этих
   // двух имён сервер не подключает.
-  withAnnotations(SEARCH_TOOL),
-  withAnnotations(FETCH_TOOL),
+  SEARCH_TOOL,
+  FETCH_TOOL,
   // Состояние заявки по ключу (ступень 1 контура, 12.10): тоже не из реестра
   // Кузьмича — в чате заявку видно и так, ключ нужен внешнему агенту.
-  withAnnotations(GET_REQUEST_STATUS_TOOL),
+  GET_REQUEST_STATUS_TOOL,
   // Отмена и перенос заявки на тур по её ключу (12.11): тоже не из реестра
   // Кузьмича — у человека в чате для этого кнопки «Моей поездки».
-  withAnnotations(CHANGE_REQUEST_TOOL),
-  withAnnotations(CREATE_LEAD_TOOL),
-  withAnnotations(BOOKING_REQUEST_TOOL),
-  withAnnotations(STAY_REQUEST_TOOL),
-  withAnnotations(REQUEST_CHARTER_TOOL),
-  withAnnotations(CAR_RENTAL_REQUEST_TOOL),
-  withAnnotations(TRIP_REQUEST_TOOL),
+  CHANGE_REQUEST_TOOL,
+  CREATE_LEAD_TOOL,
+  BOOKING_REQUEST_TOOL,
+  STAY_REQUEST_TOOL,
+  REQUEST_CHARTER_TOOL,
+  CAR_RENTAL_REQUEST_TOOL,
+  TRIP_REQUEST_TOOL,
 ];
+
+export const PUBLIC_MCP_TOOLS: PublicMcpTool[] = SOURCE_TOOLS.map(withAnnotations);
+
+/**
+ * Русское описание каждого публичного инструмента — для страницы /mcp, которую
+ * читает человек по-русски. Агенту в tools/list идёт английское (26.11).
+ */
+export const PUBLIC_MCP_TOOL_DESCRIPTIONS_RU: Readonly<Record<string, string>> = Object.fromEntries(
+  SOURCE_TOOLS.map((t) => [t.name, t.description]),
+);
 
 export const PUBLIC_MCP_TOOL_NAMES = new Set(PUBLIC_MCP_TOOLS.map((t) => t.name));
 

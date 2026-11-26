@@ -879,10 +879,13 @@ describe('объявление notify_url', () => {
     expect(withField.sort()).toEqual([...NOTIFY_TOOL_NAMES].sort());
     for (const name of NOTIFY_TOOL_NAMES) {
       const t = PUBLIC_MCP_TOOLS.find((x) => x.name === name)!;
-      expect(t.description, name).toContain(NOTIFY_TOOL_PHRASE.trim());
+      // С 26.11 наружу — один английский текст поля, без повтора в описании
+      // инструмента; русские тексты остались источником для страницы /mcp.
+      expect(NOTIFY_TOOL_PHRASE).toMatch(/notify_url/);
       const prop = (t.inputSchema as { properties: Record<string, { type: string; description: string }> }).properties.notify_url;
       expect(prop.type).toBe(NOTIFY_URL_PROPERTY.type);
-      expect(prop.description).toContain(NOTIFY_URL_PROPERTY.description);
+      expect(prop.description).toBe(PARAM_ENGLISH[name]?.notify_url?.lead);
+      expect(prop.description).toMatch(/never invent one/);
       expect(PARAM_ENGLISH[name]?.notify_url?.lead, name).toMatch(/Standard Webhooks/);
       expect(PARAM_ENGLISH[name]?.notify_url?.lead, name).not.toMatch(/\b(secret|token|password)\b/i);
       // В обязательных поле не стоит: старые агенты не ломаются.
@@ -899,7 +902,7 @@ describe('объявление notify_url', () => {
     // undeliverable — «доставить не удалось», а не «приёмник не принимает»:
     // причина бывает и на нашем пути до приёмника (ревью 29.10).
     const notifyProp = (GET_REQUEST_STATUS_TOOL.outputSchema.properties as Record<string, { description?: string }>).notify;
-    expect(notifyProp?.description).toMatch(/undeliverable — доставить не удалось/);
+    expect(notifyProp?.description).toMatch(/undeliverable — delivery failed/);
     expect(notifyProp?.description).not.toMatch(/приёмник не принимает/);
     expect(NOTIFY_PUBLIC_REASONS).not.toContain('expired');
     expect(NOTIFY_PUBLIC_REASONS).not.toContain('address_refused');

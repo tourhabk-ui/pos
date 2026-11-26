@@ -78,30 +78,29 @@ export interface ChangeRequestResult {
 export const CHANGE_REQUEST_OUTPUT_SCHEMA = {
   type: 'object',
   properties: {
-    action: { type: 'string', enum: [...CHANGE_ACTIONS], description: 'Что просили: cancel — отмена, change_date — перенос' },
+    action: { type: 'string', enum: [...CHANGE_ACTIONS], description: 'Requested: cancel or change_date' },
     outcome: {
       type: 'string',
       enum: [...CHANGE_OUTCOMES],
-      description: 'Исход одним словом. cancelled — заявка отменена; cancel_requested — отменяет оператор, просьба передана (оператору или менеджеру Ведара), заявка действует; '
-        + 'cancel_request_undelivered — просьба никому не дошла, заявка действует, вызов можно повторить; date_changed — дата в заявке изменена; '
-        + 'date_change_requested — дату меняет оператор, просьба ему отправлена; date_change_request_undelivered — просьба оператору не дошла; '
-        + 'no_seats — на дату нет мест на число людей заявки; no_schedule — у тура нет расписания; daily_limit — за сутки по заявке уже три переноса или просьбы; '
-        + 'date_refused_by_operator — на эту дату оператор уже ответил «Нет мест»; closed, past, no_data — менять нечего; would_* — ответ пробного вызова; '
-        + 'confirm_on_page — заявка не изменена: человек подтверждает отмену или перенос сам по ссылке confirm_url',
+      description: 'One-word outcome. cancelled; cancel_requested — the operator cancels, request passed on, the request stands; '
+        + 'cancel_request_undelivered — reached nobody, the request stands, retry; date_changed; date_change_requested — the operator decides; '
+        + 'date_change_request_undelivered; no_seats — not enough seats on that date; no_schedule; daily_limit — three moves or requests today; '
+        + 'date_refused_by_operator — operator already said no seats; closed, past, no_data — nothing to change; would_* — dry run; '
+        + 'confirm_on_page — unchanged: the person confirms via confirm_url',
     },
-    changed: { type: 'boolean', description: 'true — заявка изменена этим вызовом (отменена или стоит новая дата). Просьба оператору заявку не меняет' },
-    test: { type: 'boolean', description: 'true — пробный вызов: ничего не записано и никому не отправлено' },
-    human: { type: 'string', description: 'Что сказать человеку' },
-    next: { type: 'string', description: 'Что делать дальше' },
+    changed: { type: 'boolean', description: 'true — this call changed the request; a request to the operator does not' },
+    test: { type: 'boolean', description: 'true — dry run: nothing stored or sent' },
+    human: { type: 'string', description: 'What to tell the person' },
+    next: { type: 'string', description: 'What to do next' },
     told: {
       type: ['string', 'null'],
       enum: [...CHANGE_TOLD, null],
-      description: 'Кто узнал на деле: operator — оператору ушло сообщение; manager — оператор не узнал, менеджер Ведара предупреждён; nobody — не узнал никто; null — сообщать было не о чем',
+      description: 'Who was actually told: operator; manager (operator not reached); nobody; null — nothing to tell',
     },
-    date: { type: ['string', 'null'], description: 'Действующая дата заявки после вызова, YYYY-MM-DD' },
+    date: { type: ['string', 'null'], description: 'Current request date after the call, YYYY-MM-DD' },
     confirm_url: {
       type: ['string', 'null'],
-      description: 'Страница Ведара, где человек сам подтверждает отмену или перенос; дайте её человеку как есть. null — подтверждать нечего',
+      description: 'Vedar page where the person confirms; give it as is. null — nothing to confirm',
     },
   },
   required: ['action', 'outcome', 'changed', 'test', 'human', 'next', 'told', 'date', 'confirm_url'],

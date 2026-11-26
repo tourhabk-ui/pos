@@ -15,22 +15,22 @@ export const PLACE_STATUS_PROPERTIES = {
   level: {
     type: 'string',
     enum: ['closed', 'red', 'yellow', 'green', 'unknown'],
-    description: 'Статус места для выхода на сегодня. closed — место отмечено закрытым; red, yellow, green — цвет пересчёта сводок края (green — не гарантия безопасности, предупреждения могут быть); unknown — цвета нет: пересчёт устарел или не было, место вне сводок края. unknown не значит «безопасно»',
+    description: 'Status for going out today: closed; red, yellow, green — regional-report colour (green is no safety guarantee); unknown — no colour, not «safe»',
   },
   color: {
     type: ['string', 'null'],
     enum: ['red', 'yellow', 'green', null],
-    description: 'Цвет пересчёта, и у закрытого места тоже; null — цвета нет',
+    description: 'Colour, also when closed; null — none',
   },
-  closed: { type: 'boolean', description: 'Место отмечено закрытым' },
-  stale: { type: 'boolean', description: 'Пересчёт старше 3 часов: цвет уже может быть не про сегодня и не показывается' },
-  outside_sources: { type: 'boolean', description: 'Место вне сводок края (Северные Курилы): зелёного там не бывает, «предупреждений нет» сказать нельзя' },
+  closed: { type: 'boolean', description: 'Marked closed' },
+  stale: { type: 'boolean', description: 'Over 3 hours old: colour hidden' },
+  outside_sources: { type: 'boolean', description: 'Outside regional reports (Northern Kurils): never green; «no warnings» cannot be said' },
   reason: {
     type: ['string', 'null'],
     enum: ['park_season', null],
-    description: 'Почему цвет такой, если это записано. park_season — жёлтый от закрытия троп парка на межсезонье: самостоятельно по маршрутам парка не ходят, а выезд оператора идёт по его календарю, и согласован ли он с дирекцией парка, подтверждает оператор. null — причина не записана',
+    description: 'park_season — yellow: park trails closed off-season, no independent hiking; the operator confirms park approval. null — not recorded',
   },
-  status_updated_at: { type: ['string', 'null'], description: 'Когда статус пересчитан, ISO 8601 UTC; null — не записано' },
+  status_updated_at: { type: ['string', 'null'], description: 'Computed at, ISO 8601 UTC; null — not recorded' },
 } as const;
 
 const PLACE_STATUS_REQUIRED = ['level', 'color', 'closed', 'stale', 'outside_sources', 'reason', 'status_updated_at'] as const;
@@ -97,43 +97,43 @@ const VERDICT_CODES: Record<VerdictReasonCode, true> = {
 export const GUARDIAN_OUTPUT_SCHEMA = {
   type: 'object',
   properties: {
-    found: { type: 'boolean', description: 'Место нашлось в справочнике Ведара. false — статуса места нет, и это не значит, что там безопасно; маршрут каталога с таким названием, если он есть, — в routes' },
+    found: { type: 'boolean', description: 'Place found in the Vedar directory. false — no status, which does not mean safe; a catalog route with that name, if any, is in routes' },
     places: {
       type: 'array',
-      description: 'Совпавшие места, до трёх. Полный ответ — в тексте: опасности, коды вулкана, маршруты, тревоги из сводок',
+      description: 'Matched places, up to three. Hazards, volcano codes, routes and alerts are in the text',
       items: {
         type: 'object',
         properties: {
           id: { type: ['string', 'null'] },
           name: { type: 'string' },
           location_type: { type: ['string', 'null'] },
-          match: { type: 'string', enum: ['high', 'low'], description: 'low — неточное совпадение с запросом: это может быть другое место, уточните у человека' },
+          match: { type: 'string', enum: ['high', 'low'], description: 'low — inexact match, may be another place: ask the person' },
           ...PLACE_STATUS_PROPERTIES,
-          alerts: { type: 'array', items: { type: 'string' }, description: 'Действующие предупреждения по месту' },
+          alerts: { type: 'array', items: { type: 'string' }, description: 'Active warnings for the place' },
         },
         required: ['id', 'name', 'location_type', 'match', ...PLACE_STATUS_REQUIRED, 'alerts'],
       },
     },
     routes: {
       type: 'array',
-      description: 'Маршруты каталога с таким названием — когда места с таким названием нет или совпадение с местом неточное; нет и маршрута по точным словам — до трёх маршрутов с похожим названием (match: low). У каждого оценка на сегодня по правилу его карточки; полный ответ — в тексте. Пустой список при найденном месте — не «маршрутов нет»: маршруты места названы в тексте',
+      description: 'Catalog routes with that name when no place or only an inexact one matched; otherwise up to three similar names (match: low). Each has today\'s call as on its card. Empty when a place is found does not mean no routes: they are in the text',
       items: {
         type: 'object',
         properties: {
-          id: { type: 'string', description: 'id карточки маршрута' },
+          id: { type: 'string', description: 'Route card id' },
           title: { type: 'string' },
-          url: { type: 'string', description: 'Адрес карточки маршрута на Ведаре' },
+          url: { type: 'string', description: 'Route card URL on Vedar' },
           today: {
             type: 'string',
             enum: ['go', 'caution', 'no'],
-            description: 'Оценка условий на сегодня: go — предупреждений, опасных кодов вулканов и закрытых точек не найдено (не гарантия безопасности); caution — есть причина для осторожности или данных мало; no — сегодня не идти. Это не официальный бюллетень',
+            description: 'Today\'s call: go — no warnings, dangerous volcano codes or closed points found (not a safety guarantee); caution — a reason for care or too little data; no — do not go today. Not an official bulletin',
           },
-          code: { type: 'string', enum: Object.keys(VERDICT_CODES), description: 'Код причины оценки: alert_ban — запрет в сводке; point_closed — точка пути закрыта; volcano_red и volcano_orange — код KVERT на маршруте; signals_unknown — не удалось узнать то, что способно скрыть запрет; alert_warning — действует предупреждение; out_of_season — вне сезона; clear — препятствий не найдено' },
-          reason: { type: 'string', description: 'Причина оценки одной строкой' },
-          unknown: { type: 'array', items: { type: 'string' }, description: 'Что прочитать не удалось: предупреждения, вулканы на маршруте, закрытые точки. Непустой список оценку go исключает' },
-          alerts: { type: ['array', 'null'], items: { type: 'string' }, description: 'Действующие предупреждения по маршруту; null — прочитать не удалось (не «предупреждений нет»)' },
-          park_name: { type: ['string', 'null'], description: 'Охраняемая территория маршрута, как записана в базе; условия посещения — у её дирекции' },
-          match: { type: 'string', enum: ['high', 'low'], description: 'high — маршрут назван запросом; low — название только похоже на запрос (другое число или падеж): это может быть другой маршрут, уточните название у человека' },
+          code: { type: 'string', enum: Object.keys(VERDICT_CODES), description: 'Reason code: alert_ban — ban in a report; point_closed — a route point closed; volcano_red, volcano_orange — KVERT code on the route; signals_unknown — could not read what may hide a ban; alert_warning — active warning; out_of_season; clear — nothing found' },
+          reason: { type: 'string', description: 'Reason in one line' },
+          unknown: { type: 'array', items: { type: 'string' }, description: 'What could not be read (warnings, volcanoes, closed points); non-empty rules out go' },
+          alerts: { type: ['array', 'null'], items: { type: 'string' }, description: 'Active route warnings; null — could not read (not «no warnings»)' },
+          park_name: { type: ['string', 'null'], description: 'Protected area of the route as recorded; its administration sets visit terms' },
+          match: { type: 'string', enum: ['high', 'low'], description: 'high — named by the query; low — only similar, may be another route: ask the person' },
         },
         required: ['id', 'title', 'url', 'today', 'code', 'reason', 'unknown', 'alerts', 'park_name', 'match'],
       },
@@ -155,18 +155,18 @@ export interface TourPlaceEntry {
 
 export const TOUR_PLACE_ENTRY_SCHEMA = {
   type: 'array',
-  description: 'Главное место тура и его статус на сегодня — у заявок на тур. Статус не останавливает заявку: состоится ли выезд на дату тура, подтверждает оператор; закрытое или красное место назовите человеку',
+  description: 'Main place of the tour and its status today (tour requests). It does not stop the request; the operator confirms the trip. Tell the person about a closed or red place',
   items: {
     type: 'object',
     properties: {
       tool: { type: 'string' },
       tour_id: { type: 'integer' },
-      read: { type: 'string', enum: ['ok', 'no_place', 'failed'], description: 'ok — статус прочитан; no_place — главное место у тура не записано; failed — прочитать не удалось (не «предупреждений нет»)' },
+      read: { type: 'string', enum: ['ok', 'no_place', 'failed'], description: 'ok — read; no_place — tour has no main place; failed — could not read (not «no warnings»)' },
       place: {
         type: ['object', 'null'],
         properties: {
           place_id: { type: 'string' },
-          place: { type: 'string', description: 'Название места' },
+          place: { type: 'string', description: 'Place name' },
           ...PLACE_STATUS_PROPERTIES,
         },
         required: ['place_id', 'place', ...PLACE_STATUS_REQUIRED],

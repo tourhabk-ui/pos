@@ -32,7 +32,7 @@ import {
   bookingState, buildRequestView, catalogTourOf, REQUEST_STATUS_BY_KEY_IDS_SQL, type StatusRow,
 } from '@/lib/mcp/request-status';
 import { BOOKING_STATUSES, LEAD_STATUSES } from '@/lib/types/statuses';
-import { REQUEST_STATES, REQUEST_KINDS, REQUEST_KEY_MIN_CHARS, CONSENT_PURPOSES, ADDRESSEE_WORDS, ANSWER_RELAY_RULE } from '@/lib/mcp/request-status-schema';
+import { REQUEST_STATES, REQUEST_KINDS, REQUEST_KEY_MIN_CHARS, CONSENT_PURPOSES, ADDRESSEE_WORDS, ANSWER_RELAY_RULE, ANSWER_RELAY_RULE_EN } from '@/lib/mcp/request-status-schema';
 import { NOTICE_ANSWERS } from '@/lib/requests/chat-answer';
 import {
   PUBLIC_MCP_TOOLS, TOOL_ANNOTATIONS, TOOL_ENGLISH, PARAM_ENGLISH, WRITE_TOOL_NAMES,
@@ -65,10 +65,9 @@ describe('объявление', () => {
   });
 
   it('описание называет все пять пишущих инструмента и срок ключа — иначе агент не знает, откуда ключ', () => {
-    // Судится то, что видит агент: описание наружу — «английская фраза +
-    // русский текст» (withAnnotations). Имена называет фраза; второй раз в
-    // русском тексте их нет — описание обязано помещаться в 1024 знака моста
-    // вместе с правилом доставки ответа (vedar-mcp-bridge.test.ts).
+    // Судится то, что видит агент: описание наружу — английская фраза и
+    // правила (withAnnotations, с 26.11). Описание обязано помещаться в 1024
+    // знака моста вместе с правилом доставки ответа (vedar-mcp-bridge.test.ts).
     const published = PUBLIC_MCP_TOOLS.find((t) => t.name === REQUEST_STATUS_TOOL_NAME)?.description ?? '';
     for (const w of WRITE_TOOL_NAMES) {
       expect(published, w).toContain(w);
@@ -863,7 +862,11 @@ describe('правило доставки ответа: слова агенту 
     // слов — доставка, о которой агент не знает; слова без отметки — обещание.
     expect(await marksAfter(ANSWERED, () => runRequestStatusTool({ key: KEY }))).toEqual([['77', 'agent_read']]);
     const tool = PUBLIC_MCP_TOOLS.find((t) => t.name === REQUEST_STATUS_TOOL_NAME);
-    expect(tool?.description).toContain(ANSWER_RELAY_RULE);
+    // Наружу (tools/list) правило идёт по-английски, у Кузьмича, A2A и llms.txt — по-русски.
+    expect(tool?.description).toContain(ANSWER_RELAY_RULE_EN);
+    expect(ANSWER_RELAY_RULE_EN).toContain('to the person yourself');
+    expect(ANSWER_RELAY_RULE_EN).toContain('counts as delivered');
+    expect(ANSWER_RELAY_RULE_EN).toContain('Vedar will not tell them again');
     expect(ANSWER_RELAY_RULE).toContain('передайте человеку сами');
     expect(ANSWER_RELAY_RULE).toContain('считается дошедшим');
     expect(ANSWER_RELAY_RULE).toContain('Ведар человеку о нём больше не сообщает');
@@ -911,6 +914,7 @@ describe('правило доставки ответа: слова агенту 
     // По заявке заведена бронь — говорит она, а не прежний отказ.
     expect(await vehicleMarks({ ...CHARTER, booking_status: 'confirmed' })).toEqual([]);
     for (const who of ['перевозчика', 'прокатчика']) expect(ANSWER_RELAY_RULE, who).toContain(who);
+    for (const who of ['carrier', 'rental company']) expect(ANSWER_RELAY_RULE_EN, who).toContain(who);
   });
 
   it('ключ повтора и чтение без читателя доставкой не считаются — оговорка о ключе в правиле не лишняя', async () => {
@@ -918,6 +922,7 @@ describe('правило доставки ответа: слова агенту 
     // Кузьмич по вставленному ключу: человек спросил сам.
     expect(await marksAfter(ANSWERED, () => readRequestStatus(KEY))).toEqual([]);
     expect(ANSWER_RELAY_RULE).toContain('по ключу, выданному при создании заявки');
+    expect(ANSWER_RELAY_RULE_EN).toContain('by the key from the request');
   });
 
   it('заявка ещё ждёт ответа — отмечать нечего', async () => {
@@ -928,10 +933,12 @@ describe('правило доставки ответа: слова агенту 
 describe('consent_purpose: описание называет каждого получателя из списка значений', () => {
   it('значение и слово получателя — у всех, прокатчик в том числе', () => {
     // До этой правки значений было четыре, а в описании — три: без rental.
+    // Описание схемы наружу — по-английски (26.11): слово получателя — английское.
     const d = GET_REQUEST_STATUS_TOOL.outputSchema.properties.consent_purpose.description;
+    const EN: Record<(typeof CONSENT_PURPOSES)[number], string> = { operator: 'tour operator', stay: 'stay owner', carrier: 'carrier', rental: 'rental company' };
     for (const p of CONSENT_PURPOSES) {
-      expect(d, p).toContain(`${p} — `);
-      expect(d, p).toContain(ADDRESSEE_WORDS[p].dat);
+      expect(d, p).toContain(`${p} — ${EN[p]}`);
+      expect(ADDRESSEE_WORDS[p].dat, p).toBeTruthy();
     }
   });
 });

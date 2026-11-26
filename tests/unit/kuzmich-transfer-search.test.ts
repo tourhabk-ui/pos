@@ -143,9 +143,12 @@ describe('схема инструмента', () => {
     expect(kuzmich.function.parameters.required).toEqual([]);
     const mcp = PUBLIC_MCP_TOOLS.find(t => t.name === 'search_transfers')!;
     expect(Object.keys((mcp.inputSchema as { properties: Record<string, unknown> }).properties)).toEqual(['place']);
+    expect(kuzmich.function.description).toMatch(/машин[аы] целиком/);
+    expect(kuzmich.function.description).toMatch(/не за место/);
+    // Наружу (tools/list) — по-английски с 26.11.
+    expect(mcp.description).toMatch(/whole-vehicle/);
+    expect(mcp.description).toMatch(/not per seat/);
     for (const description of [kuzmich.function.description, mcp.description]) {
-      expect(description).toMatch(/машин[аы] целиком/);
-      expect(description).toMatch(/не за место/);
       expect(description).not.toMatch(/свободные места|free seats|dated carrier trips|цена места/);
     }
   });

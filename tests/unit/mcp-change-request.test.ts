@@ -563,11 +563,16 @@ describe('объявление инструмента', () => {
     expect(tool.outputSchema).toBe(CHANGE_REQUEST_OUTPUT_SCHEMA);
     // Описание говорит главное: по просьбе человека, вызов не меняет — ссылка,
     // после подтверждения «зависит от ответа», необратимо.
-    expect(tool.description).toMatch(/только когда человек сам попросил/);
-    expect(tool.description).toMatch(/Вызов заявку не меняет.*confirm_url/);
-    expect(tool.description).toMatch(/После подтверждения: оператор ещё не ответил — заявка отменяется или дата меняется сразу/);
-    expect(tool.description).toMatch(/Заявка — не бронь/);
-    expect(tool.description).toMatch(/Отменённую заявку вернуть нельзя/);
+    // С 26.11 наружу — по-английски; русский источник остался для страницы /mcp.
+    expect(tool.description).toMatch(/only when the person asked/);
+    expect(tool.description).toMatch(/The call changes nothing: give the person confirm_url/);
+    expect(tool.description).toMatch(/Then: operator has not answered yet — cancelled or moved at once/);
+    expect(tool.description).toMatch(/A request is not a booking/);
+    expect(tool.description).toMatch(/A cancelled request cannot be restored/);
+    expect(CHANGE_REQUEST_TOOL.description).toMatch(/только когда человек сам попросил/);
+    expect(CHANGE_REQUEST_TOOL.description).toMatch(/Вызов заявку не меняет.*confirm_url/);
+    expect(CHANGE_REQUEST_TOOL.description).toMatch(/Заявка — не бронь/);
+    expect(CHANGE_REQUEST_TOOL.description).toMatch(/Отменённую заявку вернуть нельзя/);
     expect(CHANGE_REQUEST_RULE).toMatch(/только по просьбе человека/);
     expect(CHANGE_REQUEST_RULE).toMatch(/Вызов заявку не меняет: ответ даёт ссылку на страницу Ведара/);
   });

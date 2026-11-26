@@ -1,6 +1,6 @@
 /**
- * Сторож: наружу — английская первая фраза с «Kamchatka», внутри — русское
- * описание Кузьмича без изменений.
+ * Сторож: наружу — описание по-английски, одним языком; русское описание
+ * Кузьмича не тронуто и живёт на странице /mcp.
  *
  * ── Откуда ────────────────────────────────────────────────────────────────
  *
@@ -10,17 +10,24 @@
  * английский слой добавляется только в публичный реестр MCP, схемы Кузьмича
  * не трогаются; слова — по роли инструмента, без эссе.
  *
+ * 26.11 (слово владельца «Ужми описания»): описание наружу было английской
+ * фразой плюс русским описанием целиком, и каждое поле — тоже дважды;
+ * tools/list весил ~113 тыс. знаков. Теперь наружу — английская фраза и
+ * английские правила, у полей — только английское описание.
+ *
  * ── Что держится ──────────────────────────────────────────────────────────
  *
- * У каждого публичного инструмента: английская фраза впереди, «Kamchatka» в
- * ней, слова роли (safety/alerts, live availability, human-confirmed),
- * английский заголовок; русская часть равна описанию из реестра Кузьмича
- * (или константе заявки) символ в символ. Записей в TOOL_ENGLISH ровно
- * столько, сколько инструментов наружу.
+ * У каждого публичного инструмента: описание = английская фраза с
+ * «Kamchatka» и слова роли (safety/alerts, live availability,
+ * human-confirmed) + английские правила, без кириллицы; у каждого поля —
+ * английское описание без кириллицы; английский заголовок. Русское описание
+ * для страницы /mcp равно описанию из реестра Кузьмича (или константе заявки)
+ * символ в символ. Записей в TOOL_ENGLISH ровно столько, сколько
+ * инструментов наружу. Весь tools/list — не больше потолка.
  */
 import { describe, it, expect } from 'vitest';
 import {
-  PUBLIC_MCP_TOOLS, TOOL_ENGLISH, TOOL_ANNOTATIONS, EXCLUDED_TOOLS, PARAM_ENGLISH,
+  PUBLIC_MCP_TOOLS, PUBLIC_MCP_TOOL_DESCRIPTIONS_RU, TOOL_ENGLISH, TOOL_ANNOTATIONS, EXCLUDED_TOOLS, PARAM_ENGLISH,
   CREATE_LEAD_TOOL, BOOKING_REQUEST_TOOL, REQUEST_CHARTER_TOOL,
   CAR_RENTAL_REQUEST_TOOL, TRIP_REQUEST_TOOL, STAY_REQUEST_TOOL, CHANGE_REQUEST_TOOL,
 } from '@/lib/mcp/public-tools';
@@ -102,7 +109,12 @@ describe('английский слой наружу — у каждого ин�
         expect(en.lead.endsWith('.')).toBe(true);
       });
 
-      it('параметры: английская фраза впереди, русское описание Кузьмича следом; примеры — только заданные', () => {
+      it('описание — английская фраза и английские правила, без кириллицы', () => {
+        expect(t.description).toBe(en.rules ? `${en.lead} ${en.rules}` : en.lead);
+        expect(t.description).not.toMatch(CYRILLIC);
+      });
+
+      it('параметры: только английское описание; примеры — только заданные', () => {
         /**
          * Glama TDQS 18.09: Completeness 4/5 — параметры были только по-русски.
          * Слой накладывается на КОПИЮ схемы; исходная схема Кузьмича не меняется.
@@ -117,8 +129,7 @@ describe('английский слой наружу — у каждого ин�
           const prop = schema.properties![p];
           expect(en[p].lead, `${t.name}.${p}: кириллица в английской фразе`).not.toMatch(CYRILLIC);
           expect(en[p].lead.endsWith('.'), `${t.name}.${p}: фраза без точки`).toBe(true);
-          const ru = original.properties?.[p]?.description ?? '';
-          expect(prop.description, `${t.name}.${p}: описание не начинается с английской фразы`).toBe(ru ? `${en[p].lead} ${ru}` : en[p].lead);
+          expect(prop.description, `${t.name}.${p}: описание поля не английское`).toBe(en[p].lead);
           if (en[p].example !== undefined) expect(prop.examples).toEqual([en[p].example]);
           else expect(prop.examples).toBeUndefined();
           // Схема Кузьмича не тронута.
@@ -126,8 +137,8 @@ describe('английский слой наружу — у каждого ин�
         }
       });
 
-      it('русская часть — описание Кузьмича символ в символ', () => {
-        expect(t.description.slice(en.lead.length + 1)).toBe(kuzmichDescription(t.name));
+      it('русское описание для страницы /mcp — описание Кузьмича символ в символ', () => {
+        expect(PUBLIC_MCP_TOOL_DESCRIPTIONS_RU[t.name]).toBe(kuzmichDescription(t.name));
       });
 
       it('заголовок английский и стоит в аннотациях', () => {
@@ -151,6 +162,28 @@ describe('разграничение похожих инструментов —
       expect(TOOL_ENGLISH[tool].lead).toContain(neighbour);
     });
   }
+});
+
+describe('вес tools/list', () => {
+  it('не больше потолка: до 26.11 было ~113 тыс. знаков, после ужатия — ~80 тыс.', () => {
+    // Потолок с запасом под новый инструмент; рост сверх — повод ужать, а не поднять.
+    expect(JSON.stringify(PUBLIC_MCP_TOOLS).length).toBeLessThanOrEqual(88_000);
+  });
+
+  it('в описаниях схем результата нет кириллицы, кроме меток-заглушек в словах адресата', () => {
+    const texts: string[] = [];
+    const walk = (o: unknown): void => {
+      if (Array.isArray(o)) { o.forEach(walk); return; }
+      if (o && typeof o === 'object') {
+        for (const [k, v] of Object.entries(o)) {
+          if (k === 'description' && typeof v === 'string') texts.push(v);
+          else walk(v);
+        }
+      }
+    };
+    for (const t of PUBLIC_MCP_TOOLS) walk(t.outputSchema);
+    for (const d of texts) expect(d.replace(/\[(телефон|ссылка|ник|имя)\]/g, ''), d).not.toMatch(CYRILLIC);
+  });
 });
 
 describe('Кузьмич не задет', () => {
