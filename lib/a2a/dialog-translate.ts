@@ -26,6 +26,7 @@
 import { pool } from '@/lib/db-pool';
 import { logText } from '@/lib/log/log-text';
 import { TRANSLATE_MODEL_PATH, translateToRussian, type TranslationOutcome } from '@/lib/ai/translate-text';
+import { redactChatPD } from '@/lib/security/pii-redact';
 
 export type DialogFieldOutcome =
   | { status: 'translated' | 'stored'; text: string }
@@ -61,9 +62,18 @@ const freshText = (o: DialogFieldOutcome): string | null => (o.status === 'trans
  * Перевести строку журнала и записать перевод. Отказ базы бросается наружу
  * (роут ответит 503 и назовёт SQLSTATE в логе); отказ модели — исход поля.
  */
+/**
+ * Перевод журнала — с маской переписки (redactChatPD): до 26.11 строка шла в
+ * зарубежную модель через одну redactPII, и имя, ник и ссылка на профиль,
+ * которые чужой агент написал о человеке, уходили как есть (проверка
+ * безопасности ИИ-части, слово владельца «чини Карт бланш»). Маска та же, что
+ * у перевода переписки заявки (lib/requests/chat-translation).
+ */
+const translateMasked: Translate = (text) => translateToRussian(text, { mask: (t) => redactChatPD(t) });
+
 export async function translateDialog(
   id: number,
-  translate: Translate = translateToRussian,
+  translate: Translate = translateMasked,
 ): Promise<DialogTranslateResult> {
   const { rows } = await pool.query<DialogRow>(
     `SELECT id, question, answer, question_ru, answer_ru FROM a2a_dialogs WHERE id = $1::bigint`,

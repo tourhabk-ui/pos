@@ -25,6 +25,7 @@
 import { pool } from '@/lib/db-pool';
 import { isTechnicalHost } from '@/lib/config';
 import { escapeHtml } from '@/lib/text/escape-html';
+import { publicTourSql } from '@/lib/tours/public-visibility';
 
 // ── Уведомление владельцу ────────────────────────────────────────────────────
 
@@ -68,6 +69,12 @@ async function notifyOwner(text: string): Promise<boolean> {
  *
  * Пустая строка — честное «нечего показать»: Кузьмич не вставляет блок вовсе,
  * а не пишет «мест нет» (это разные утверждения).
+ *
+ * Туры — только с витрины (`publicTourSql`, §0). Блок идёт в промпт каждого
+ * хода Кузьмича — сайт, Telegram, MAX, A2A, — и до 26.11 он брал туры без
+ * шлюза: черновики, удалённые, тестовые и туры компаний на паузе могли
+ * попасть в ответ человеку или чужому агенту (проверка безопасности ИИ-части
+ * 26.11, слово владельца «чини Карт бланш»).
  */
 export async function searchOperatorAvailability(query: string): Promise<string> {
   if (!query || query.length < 3) return '';
@@ -86,6 +93,7 @@ export async function searchOperatorAvailability(query: string): Promise<string>
         WHERE ta.date >= CURRENT_DATE
           AND ta.available_slots > 0
           AND ta.is_cancelled = false
+          AND ${publicTourSql('ot')}
         ORDER BY ta.date ASC
         LIMIT 10`,
     );

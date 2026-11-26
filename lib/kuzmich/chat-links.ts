@@ -143,6 +143,23 @@ const TRAILING = /[.,;:!?)\]}»'"]+$/;
 const OWN_HOSTS = new Set(['vedarai.ru', 'www.vedarai.ru']);
 
 /**
+ * Свой путь: одна косая черта, за которой не косая и не обратная косая.
+ * Иначе браузер прочтёт адрес как чужой хост: «//evil.example» — адрес без
+ * схемы, а косую с обратной косой браузеры нормализуют в те же две косые.
+ * До 26.11 ссылка «[Оплата на vedarai.ru](/» + обратная косая + «evil.example)»
+ * проходила как своя и открывала чужой сайт под любой
+ * подписью — путь к фишингу «оплатите по ссылке» (проверка безопасности ИИ-части,
+ * слово владельца «чини Карт бланш»). Тот же обход — у своего хоста с путём
+ * «//…»: такой адрес остаётся полным, на нашем хосте.
+ */
+const OWN_PATH_RE = /^\/(?![\/\\])/;
+
+/** Адрес своего хоста: путь, если он свой; иначе полный адрес на нашем хосте. */
+function ownHostHref(url: URL): string {
+  return OWN_PATH_RE.test(url.pathname) ? `${url.pathname}${url.search}${url.hash}` : url.href;
+}
+
+/**
  * Ссылка «[текст](адрес)» — так сервер подписывает туры в ответе ссылкой на
  * их страницу (21.11, тест планировщика). Адрес — свой путь «/…» или http(s);
  * прочие схемы остаются текстом.
@@ -157,14 +174,16 @@ export function chatLinkChunks(text: string): ChatChunk[] {
     const label = m[1];
     const target = m[2];
     let chunk: ChatChunk | null = null;
-    if (target.startsWith('/') && !target.startsWith('//')) {
-      chunk = { text: label, href: target };
+    if (target.startsWith('/')) {
+      // Две косые или косая с обратной косой — не свой путь: ссылкой не
+      // становятся, остаются текстом.
+      chunk = OWN_PATH_RE.test(target) ? { text: label, href: target } : null;
     } else {
       try {
         const url = new URL(target);
         if (url.protocol === 'https:' || url.protocol === 'http:') {
           chunk = OWN_HOSTS.has(url.hostname.toLowerCase())
-            ? { text: label, href: `${url.pathname}${url.search}${url.hash}` || '/' }
+            ? { text: label, href: ownHostHref(url) }
             : { text: label, href: url.href, external: true };
         }
       } catch { chunk = null; }
@@ -196,7 +215,7 @@ function plainLinkChunks(text: string): ChatChunk[] {
     if (start > last) out.push({ text: text.slice(last, start) });
     const own = OWN_HOSTS.has(url.hostname.toLowerCase());
     out.push(own
-      ? { text: raw, href: `${url.pathname}${url.search}${url.hash}` || '/' }
+      ? { text: raw, href: ownHostHref(url) }
       : { text: raw, href: url.href, external: true });
     last = start + raw.length;
   }

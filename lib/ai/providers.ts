@@ -58,6 +58,7 @@ import { openRouterAttribution } from '@/lib/ai/attribution';
 import { isFreeQuotaExhausted, markFreeQuotaExhausted, isMarkedExhausted, exhaustedModels, freeQuotaSiblings, firstUnexhausted } from '@/lib/ai/qwen-free-quota';
 import { isQwenRetired } from '@/lib/ai/qwen-retired';
 import { assertDailyLlmBudget } from '@/lib/ai/daily-spend-gate';
+import { stripImageMetadata } from '@/lib/images/strip-metadata';
 
 // ── Региональный релей (обход гео-блокировок RU) ──────────────────────────
 // Timeweb-хостинг в РФ: openrouter.ai и api.anthropic.com гео-блокируют РФ-IP,
@@ -4440,12 +4441,26 @@ function visionChatBody(model: string, imageBase64: string, mimeType: string, pr
  * возврат — на первом непустом ответе.
  */
 export async function callVisionDetailed(
-  imageBase64: string,
-  mimeType: string,
+  rawImageBase64: string,
+  /** Тип, который назвал вызывающий; в модель идёт тип по байтам снимка. */
+  _claimedMimeType: string,
   prompt: string,
   opts: VisionOptions = {},
 ): Promise<VisionResult> {
   const legs: VisionLeg[] = [];
+  // Метаданные места съёмки (EXIF, XMP, IPTC) снимаются ДО любой ступени:
+  // все модели зрения зарубежные, а GPS снимка из похода — точное место
+  // человека (152-ФЗ; проверка безопасности ИИ-части 26.11). Формат, который
+  // очистить нечем, в модель не уходит — отказ с причиной, а не снимок как есть.
+  // Тип берётся по байтам: клиент мог назвать PNG «image/jpeg».
+  const clean = stripImageMetadata(rawImageBase64);
+  if (!clean.ok) {
+    legs.push({ provider: 'metadata_strip', model: null, outcome: 'refused', detail: clean.reason, ms: 0 });
+    recordAiLegFailure('vision_metadata_strip', clean.reason);
+    return { text: null, legs };
+  }
+  const imageBase64 = clean.base64;
+  const mimeType = `image/${clean.format}`;
   const add = (
     provider: string,
     model: string | null,

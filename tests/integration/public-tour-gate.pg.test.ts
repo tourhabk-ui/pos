@@ -203,6 +203,31 @@ withPg('витрина туров: снятый тур не в плане и н�
     expect(two).not.toContain('W2PT тур unpublished');
   });
 
+  it('блок «свободные места» в промпте Кузьмича — только туры с витрины (26.11)', async () => {
+    // Проверка безопасности ИИ-части 26.11: блок идёт в промпт каждого хода
+    // (сайт, Telegram, MAX, A2A) и брал туры без шлюза витрины.
+    const added: string[] = [];
+    try {
+      for (const s of STATES) {
+        const { rows } = await pool.query<{ id: string }>(
+          `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+           VALUES ($1, CURRENT_DATE, 5, FALSE) RETURNING id::text`,
+          [id[s]],
+        );
+        added.push(rows[0].id);
+      }
+      const { searchOperatorAvailability } = await import('@/lib/telegram/operator-availability');
+      const block = await searchOperatorAvailability('свободные места');
+      expect(block).toContain('W2PT тур live —');
+      expect(block).toContain('W2PT тур live2 —');
+      for (const s of ['deleted', 'inactive', 'unpublished'] as const) {
+        expect(block, `в блоке тур «${s}»`).not.toContain(`W2PT тур ${s} —`);
+      }
+    } finally {
+      await pool.query(`DELETE FROM tour_availability WHERE id::text = ANY($1::text[])`, [added]);
+    }
+  });
+
   it('каталог и его сводка после снятия второго канона: те же два живых тура', async () => {
     const { queryMarketplaceTours, queryCatalogSummary, MarketplaceToursQuerySchema } = await import('@/lib/search/tour-search');
     const r = await queryMarketplaceTours(MarketplaceToursQuerySchema.parse({ limit: 100 }));

@@ -311,7 +311,34 @@ export function redactPII(text: string | null | undefined, opts: RedactOptions =
  * границы: им телефон нужен, и модели они его не передают.
  */
 export function redactUserTurns<T extends { role: string; content: string }>(turns: readonly T[]): T[] {
-  return turns.map((m) => (m.role === 'user' ? { ...m, content: redactPII(m.content) } : m));
+  return turns.map((m) => (m.role === 'user' ? { ...m, content: redactTurnPD(m.content) } : m));
+}
+
+/**
+ * Реплика человека перед зарубежной моделью: телефон и почта (redactPII), а
+ * ещё имя, которым человек представился явно, ссылки на профили соцсетей и
+ * @ники (проверка безопасности ИИ-части 26.11, слово владельца «чини Карт
+ * бланш»). До этого дня из реплики уходили только телефон и почта, а заявка
+ * в чате — «Меня зовут Иван Петров, +7…, согласен» — оставалась в истории и
+ * на следующих ходах несла имя в модель.
+ *
+ * Строже redactChatPD нарочно не сделано. Правила «Это X.» и «Я X.» здесь нет:
+ * в разговоре о поле «Мы на вулкане. Это Горелый.» — место, а не имя, и
+ * Кузьмич, потерявший место, хуже, чем Кузьмич, узнавший имя. Ссылки на свой
+ * сайт и на любые страницы, кроме профилей соцсетей, остаются: в них нет
+ * человека, а модели они нужны.
+ */
+export function redactTurnPD(text: string | null | undefined): string {
+  if (!text) return '';
+  let out = text;
+  out = out.replace(/\b(?:https?:\/\/)?(?:www\.|m\.)?(?:vk\.com|vk\.ru|t\.me|telegram\.me|instagram\.com|ok\.ru|wa\.me|max\.ru)\/\S+/gi, '[ссылка]');
+  // Почта — раньше ников: «a@b.ru» не должен стать «a[ник]».
+  out = out.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[email]');
+  out = out.replace(/(^|[^\w@])@[A-Za-z0-9_]{3,32}\b/g, '$1[ник]');
+  const NAME = '[А-ЯЁA-Z][а-яёa-z]+(?:[ -][А-ЯЁA-Z][а-яёa-z]+){0,2}';
+  out = out.replace(new RegExp(`([Мм]еня\\s+зовут|[Мм]о[её]\\s+имя|[Mm]y\\s+name\\s+is|(?:^|[^\\p{L}])[Ии]мя\\s*:|(?:^|[^\\p{L}])[Nn]ame\\s*:)(\\s*[—–-]?\\s*)(${NAME})`, 'gu'), '$1$2[имя]');
+  out = out.replace(new RegExp(`(с\\s+уважением,?\\s*)(${NAME})\\s*$`, 'iu'), '$1[имя]');
+  return redactPII(out);
 }
 
 /** Есть ли в тексте детектируемые ПД (телефон/email). */
