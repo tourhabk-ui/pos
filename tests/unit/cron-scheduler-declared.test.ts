@@ -74,6 +74,9 @@ function workflowDriven(): Set<string> {
     const src = readFileSync(join(WF_DIR, f), 'utf8');
     addFrom(src);
     for (const m of src.matchAll(/scripts\/[A-Za-z0-9._/-]+/g)) {
+      // Реестр зон перечисляет пути файлов, а не вызывает адреса: его
+      // `app/api/cron/payouts/**` — не запуск выплат по расписанию.
+      if (m[0] === 'scripts/protected-zones.mjs') continue;
       const p = join(process.cwd(), m[0]);
       if (existsSync(p) && statSync(p).isFile()) addFrom(readFileSync(p, 'utf8'));
     }
