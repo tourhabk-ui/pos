@@ -97,7 +97,7 @@ BEGIN
      SET position = o.new_pos,
          created_at = CASE WHEN o.new_pos <> o.old_pos THEN NOW() ELSE g.created_at END
     FROM _order1515 o
-   WHERE g.id = o.id;
+   WHERE g.id::text = o.id::text;
 
   RAISE NOTICE '[1515] зимний снимок озера поставлен первым, кадров у места: %',
     (SELECT count(*) FROM _order1515);
