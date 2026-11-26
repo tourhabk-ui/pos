@@ -8,26 +8,24 @@
  * tests/integration/pricing-rule-moderation.pg.test.ts.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PRICING_RULE_STATUSES, livePricingRuleSql } from '@/lib/tours/pricing-rule-live';
+import { repoCodeFiles } from '../helpers/repo-code';
+import { insertsInto, readsFrom, writesTo } from '../helpers/sql-table';
 
 const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf-8');
 
-function walk(dir: string, out: string[] = []): string[] {
-  for (const name of readdirSync(join(ROOT, dir))) {
-    if (name === 'node_modules' || name.startsWith('.')) continue;
-    const rel = `${dir}/${name}`;
-    if (statSync(join(ROOT, rel)).isDirectory()) walk(rel, out);
-    else if (/\.(ts|tsx|js|mjs)$/.test(name)) out.push(rel);
-  }
-  return out;
-}
-
-const SOURCES = [...walk('app'), ...walk('lib'), ...walk('scripts')];
-const READS = /\b(FROM|JOIN)\s+tour_pricing_rules\b/;
-const INSERTS = /\bINSERT\s+INTO\s+tour_pricing_rules\b/;
+// Весь репозиторий и запрос в любой форме, которую принимает PostgreSQL:
+// перепись, которая смотрит три каталога и слова заглавными, молчит о писателе
+// в `components/` или о `update only public."tour_pricing_rules"` (ревью
+// безопасности PR #3804).
+const SOURCES = repoCodeFiles(ROOT);
+const TABLE = 'tour_pricing_rules';
+const READS = readsFrom(TABLE);
+const INSERTS = insertsInto(TABLE);
+const WRITES = writesTo(TABLE);
 
 type Kind =
   /** Считает цену, которую видит и платит турист: только общим условием. */
@@ -70,7 +68,7 @@ describe('условие «правило действует» — одно', ()
 
 describe('перепись читателей и писателей правил цены', () => {
   it('каждый, кто читает правила, назван; названные всё ещё читают', () => {
-    const found = SOURCES.filter((f) => READS.test(read(f))).sort();
+    const found = SOURCES.filter((f) => READS.test(read(f)));
     expect(found).toEqual(Object.keys(READERS).sort());
     for (const [file, r] of Object.entries(READERS)) expect(r.why.length, file).toBeGreaterThan(5);
   });
@@ -81,22 +79,45 @@ describe('перепись читателей и писателей правил
       const src = read(file);
       expect(src, `${file}: цена считается мимо общего условия`).toMatch(/livePricingRuleSql\(/);
       // Свой `is_active = TRUE` рядом с таблицей правил пропустил бы правило «на проверке».
-      const own = [...src.matchAll(/\b(?:FROM|JOIN)\s+tour_pricing_rules\b[\s\S]{0,200}/g)].map((m) => m[0]);
+      const own = [...src.matchAll(readsFrom(TABLE, 'gi'))].map((m) => src.slice(m.index, m.index + 240));
       for (const chunk of own) expect(chunk, file).not.toMatch(/is_active\s*=\s*TRUE/i);
     }
   });
 
-  it('правило не пишут, не назвав статус проверки', () => {
-    const writers = SOURCES.filter((f) => INSERTS.test(read(f))).sort();
+  it('каждый, кто пишет в таблицу правил, назван — вставка, правка, удаление', () => {
+    // Запись в любой форме: UPDATE, INSERT, DELETE, MERGE, COPY; имя таблицы в
+    // кавычках, со схемой, с ONLY; слова в любом регистре.
+    for (const q of [
+      'UPDATE tour_pricing_rules SET is_active = FALSE',
+      'update only public."tour_pricing_rules" set multiplier = $1',
+      'Insert Into "tour_pricing_rules" (rule_type) VALUES ($1)',
+      'DELETE FROM tour_pricing_rules WHERE id = $1',
+      'MERGE INTO tour_pricing_rules t USING s ON t.id = s.id',
+    ]) expect(WRITES.test(q), q).toBe(true);
+    for (const q of ['SELECT 1 FROM tour_pricing_rules', 'UPDATE tour_pricing_rules_log SET x = 1']) expect(WRITES.test(q), q).toBe(false);
+    expect(READS.test('select 1 from public.tour_pricing_rules pr')).toBe(true);
+    expect(READS.test('LEFT JOIN "tour_pricing_rules" pr ON pr.operator_tour_id = t.id')).toBe(true);
+
+    const writers = SOURCES.filter((f) => WRITES.test(read(f)));
     expect(writers).toEqual([
       'app/api/admin/pricing-rules/route.ts',
       'app/api/hub/operator/pricing-rules/route.ts',
       'lib/tours/operator-markup.ts',
     ]);
-    for (const file of writers) {
+  });
+
+  it('правило не пишут, не назвав статус проверки', () => {
+    const inserters = SOURCES.filter((f) => INSERTS.test(read(f)));
+    expect(inserters).toEqual([
+      'app/api/admin/pricing-rules/route.ts',
+      'app/api/hub/operator/pricing-rules/route.ts',
+      'lib/tours/operator-markup.ts',
+    ]);
+    for (const file of inserters) {
       const src = read(file);
-      for (const m of src.matchAll(/\bINSERT\s+INTO\s+tour_pricing_rules\b[\s\S]{0,400}/g)) {
-        expect(m[0], `${file}: правило пишется без статуса — оно молча осталось бы «на проверке»`).toMatch(/moderation_status/);
+      for (const m of src.matchAll(insertsInto(TABLE, 'gi'))) {
+        const insert = src.slice(m.index, m.index + 420);
+        expect(insert, `${file}: правило пишется без статуса — оно молча осталось бы «на проверке»`).toMatch(/moderation_status/);
       }
     }
   });
