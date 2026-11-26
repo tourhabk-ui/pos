@@ -106,6 +106,7 @@ describe('перепись читателей и писателей правил
       'app/api/admin/pricing-rules/route.ts',
       'app/api/hub/operator/pricing-rules/route.ts',
       'lib/tours/operator-markup.ts',
+      'lib/tours/pricing-rule-review.ts', // решение администратора: статус правила и снятие
     ]);
   });
 
