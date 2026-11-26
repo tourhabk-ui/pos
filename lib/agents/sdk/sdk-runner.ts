@@ -21,6 +21,7 @@
 
 import { getOpenRouterKey } from '@/lib/ai/provider-config';
 import { pool } from '@/lib/db-pool';
+import { wrapUntrustedBlock } from '@/lib/ai/untrusted';
 import { openRouterAttribution } from '@/lib/ai/attribution';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -196,11 +197,14 @@ export async function runSDKAgent(config: SDKRunnerConfig): Promise<SDKRunResult
         }
       }
 
+      // Вывод инструмента — данные, а не указания (проверка безопасности
+      // 26.11): в нём бывает текст туриста (пожелания к брони), и без обёртки
+      // он читался моделью как часть разговора с оператором.
       messages.push({
         role:         'tool',
         tool_call_id: call.id,
         name:         toolName,
-        content:      result,
+        content:      wrapUntrustedBlock('tool_output', toolName, result, { extra: 'trust="untrusted"' }),
       });
     }
   }

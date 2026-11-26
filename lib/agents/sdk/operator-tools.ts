@@ -27,6 +27,54 @@ import { redactPII } from '@/lib/security/pii-redact';
  * законно исполняется снова. Без seed ключа нет — и это честнее ключа,
  * выдуманного на месте.
  */
+/**
+ * Слова самого оператора в этом запросе (проверка безопасности ИИ-части 26.11,
+ * слово владельца «чини Карт бланш»). Инструменты помощника читают данные, в
+ * которые пишут туристы (пожелания к брони, сообщения), и текст туриста мог
+ * велеть модели снять туры с публикации или поменять цену — а флаг «оператор
+ * подтвердил» (`confirm_large_move`) ставила сама модель. Теперь подтверждение
+ * читает код: из сообщения оператора, которое роут передаёт доверенным полем
+ * `_operatorMessage`, а не из аргументов модели.
+ */
+function operatorMessageOf(args: Record<string, unknown>): string {
+  return typeof args._operatorMessage === 'string' ? args._operatorMessage : '';
+}
+
+/** Написал ли оператор в своём сообщении именно эту цену (пробелы между разрядами — любые). */
+export function priceStatedByOperator(message: string, price: number): boolean {
+  if (!Number.isFinite(price) || price <= 0) return false;
+  const digits = message.replace(/(\d)[\s\u00a0\u202f.]+(?=\d{3}(?!\d))/g, '$1');
+  const want = String(Math.round(price));
+  return new RegExp(`(^|[^\\d])${want}([^\\d]|$)`).test(digits);
+}
+
+/**
+ * Глаголы целым словом и без отрицания перед ними: «не подтверждаю» — не
+ * подтверждение, «снимок» — не «сними», а «сними с публикации» — не просьба
+ * опубликовать (слово «публикации» в ней есть).
+ */
+const NOT_NEGATED = '(?<!не\\s)(?<!не\\sнадо\\s)(?<!нельзя\\s)(?<![\\p{L}])';
+const WORD_END = '(?![\\p{L}])';
+const CONFIRM_RE = new RegExp(`${NOT_NEGATED}(подтверждаю|подтверждаем)${WORD_END}`, 'iu');
+const PUBLISH_RE = new RegExp(
+  `${NOT_NEGATED}(опубликуй|опубликуйте|опубликовать|опубликуем|верни(?:те)?\\s+на\\s+(?:сайт|витрину)|покажи(?:те)?\\s+на\\s+сайте|publish)${WORD_END}`,
+  'iu',
+);
+const UNPUBLISH_RE = new RegExp(
+  `${NOT_NEGATED}(сними|снимите|снять|снимем|скрой|скройте|скрыть|убери|уберите|убрать|отключи|отключите|отключить|unpublish|hide)${WORD_END}`,
+  'iu',
+);
+
+/** Слово подтверждения хода цены больше 50% — в сообщении оператора. */
+export function operatorConfirmed(message: string): boolean {
+  return CONFIRM_RE.test(message);
+}
+
+/** Просит ли оператор в своём сообщении снять тур (false) или опубликовать его (true). */
+export function operatorAsksPublish(message: string, published: boolean): boolean {
+  return (published ? PUBLISH_RE : UNPUBLISH_RE).test(message);
+}
+
 function invocationKey(args: Record<string, unknown>, tool: string): string | undefined {
   const seed = typeof args._invocationSeed === 'string' ? args._invocationSeed : null;
   if (!seed) return undefined;
@@ -241,13 +289,12 @@ const revenue: SDKTool = {
 
 const updatePrice: SDKTool = {
   name: 'update_tour_price',
-  description: 'Обновить цену тура. Только для туров этого оператора. Нужен ID тура и новая цена. Ход цены больше 50% от текущей требует явного подтверждения оператора (confirm_large_move=true) — иначе отказ с названным процентом. Цена тура, который уже на сайте, меняется после проверки администратором: если в ответе pending_review — скажи оператору, что цена отправлена на проверку и на сайте пока прежняя.',
+  description: 'Обновить цену тура. Только для туров этого оператора. Нужен ID тура и новая цена. Цена меняется только на число, которое оператор сам написал в сообщении; ход цены больше 50% — ещё и со словом «подтверждаю» в том же сообщении. Иначе отказ — передай его оператору. Цена тура, который уже на сайте, меняется после проверки администратором: если в ответе pending_review — скажи оператору, что цена отправлена на проверку и на сайте пока прежняя.',
   parameters: {
     type: 'object',
     properties: {
       tour_id: { type: 'string', description: 'ID тура (число)' },
       new_price: { type: 'string', description: 'Новая цена в рублях (число)' },
-      confirm_large_move: { type: 'string', description: '"true", если оператор ЯВНО подтвердил ход цены больше 50% (иначе не передавать)' },
     },
     required: ['tour_id', 'new_price'],
   },
@@ -274,9 +321,13 @@ const updatePrice: SDKTool = {
 
     // Величина хода — guardrail ядра, ДО постановки действия: право менять
     // цену не отменяет того, что «12000 вместо 120000» — опечатка. Подтвердить
-    // большой ход может только человек, явным аргументом; модель сама его
-    // не выставляет (см. описание инструмента).
-    const move = checkPriceMove(oldPrice, newPrice, args.confirm_large_move === 'true' || args.confirm_large_move === true);
+    // большой ход может только оператор словом «подтверждаю» в своём
+    // сообщении — код читает его сам (26.11); аргумента модели больше нет.
+    const said = operatorMessageOf(args);
+    if (!priceStatedByOperator(said, newPrice)) {
+      return JSON.stringify({ error: `Изменение не выполнено: цену помощник ставит только ту, что оператор написал в этом сообщении. Пусть оператор напишет: «поставь цену ${Math.round(newPrice)} на тур ${tourId}».` });
+    }
+    const move = checkPriceMove(oldPrice, newPrice, operatorConfirmed(said));
     if (!move.ok) {
       return JSON.stringify({ error: `Изменение не выполнено: ${move.reason}`, move_pct: move.move_pct, old_price: oldPrice, new_price: newPrice });
     }
@@ -361,6 +412,11 @@ const setPublished: SDKTool = {
       return JSON.stringify({ error: 'Параметр published обязан быть true или false' });
     }
     const published = args.published;
+    if (!operatorAsksPublish(operatorMessageOf(args), published)) {
+      return JSON.stringify({ error: published
+        ? 'Не выполнено: опубликовать тур помощник просит только по прямой просьбе оператора в этом сообщении («опубликуй тур …»).'
+        : 'Не выполнено: снять тур с публикации помощник может только по прямой просьбе оператора в этом сообщении («сними тур … с публикации»).' });
+    }
 
     // Текущая версия строки — для optimistic concurrency (см. update_price).
     const cur = await pool.query<{ updated_at: Date }>(
@@ -487,13 +543,20 @@ const tourStats: SDKTool = {
 
 // ── Export ─────────────────────────────────────────────────────
 
-export function getOperatorTools(operatorId: string, invocationSeed?: string): SDKTool[] {
+export function getOperatorTools(operatorId: string, invocationSeed?: string, operatorMessage?: string): SDKTool[] {
   const tools = [myTours, tourBookings, revenue, updatePrice, setPublished, tourStats];
-  // operatorId и seed инвокации инжектируются ЗДЕСЬ, из доверенного
-  // контекста вызывающего роута — модель их не задаёт и не подделает.
+  // operatorId, seed инвокации и сообщение оператора инжектируются ЗДЕСЬ, из
+  // доверенного контекста вызывающего роута, и стоят ПОСЛЕ аргументов модели —
+  // модель их не задаёт и не подделает. Без сообщения пишущие инструменты
+  // отказывают: подтверждать нечем.
   return tools.map(t => ({
     ...t,
     execute: (args: Record<string, unknown>) =>
-      t.execute({ ...args, _operatorId: operatorId, ...(invocationSeed ? { _invocationSeed: invocationSeed } : {}) }),
+      t.execute({
+        ...args,
+        _operatorId: operatorId,
+        _operatorMessage: operatorMessage ?? '',
+        ...(invocationSeed ? { _invocationSeed: invocationSeed } : {}),
+      }),
   }));
 }
