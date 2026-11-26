@@ -82,7 +82,10 @@ const A = 'https://vedarai.ru/api/places/aaaaaaaa';
 const HIDDEN = 'https://vedarai.ru/api/places/c23dd150';
 const B = 'https://vedarai.ru/api/places/bbbbbbbb';
 
-describe('probe-url: gone — 404 как искомый ответ', () => {
+// Шагу пробы дано 30 с (spawnSync выше), а тесту по умолчанию — 5: предел
+// теста был короче предела процесса, который он ждёт. 26.11 на загруженном
+// раннере CI первый тест упал по времени на PR, который пробу не трогал.
+describe('probe-url: gone — 404 как искомый ответ', { timeout: 40_000 }, () => {
   it('скрытый адрес отвечает 404 сразу — без повторов, проба зелёная и идёт дальше', () => {
     const r = runProbe({ urls: [A, HIDDEN, B], gone: [HIDDEN], retries: 5 }, { [A]: [200], [HIDDEN]: [404], [B]: [200] });
     expect(r.status, r.out).toBe(0);

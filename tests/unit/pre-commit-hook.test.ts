@@ -60,7 +60,11 @@ function runHook(files: Record<string, string>): { code: number | null; out: str
   }
 }
 
-describe('хук pre-commit (#2451)', () => {
+// Каждый тест запускает три дочерних процесса: git init, git add и сам хук.
+// Локально это доли секунды, но на загруженном раннере CI одного предела по
+// умолчанию (5 с) не хватило: 26.11 «вызов через водопад проходит» упал по
+// времени на PR, который хук не трогал. Предел назван явно.
+describe('хук pre-commit (#2451)', { timeout: 30_000 }, () => {
   it('прямой вызов провайдера в новом файле останавливает коммит и называет водопад', () => {
     const r = runHook({ 'lib/new-feature.ts': 'export async function f(m: string[]) {\n  return await callDeepSeek(m);\n}\n' });
     expect(r.code).toBe(1);
