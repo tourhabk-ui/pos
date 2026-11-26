@@ -75,6 +75,7 @@ const CASES = [
 const [MESTECHKO, VOLCANOESLAND] = CASES;
 const M1431 = readFileSync(join(process.cwd(), 'migrations/1431_place_gallery_partner_consent.sql'), 'utf-8');
 const M1436 = readFileSync(join(process.cwd(), 'migrations/1436_partner_tour_photos_on_bare_places.sql'), 'utf-8');
+const M1513 = readFileSync(join(process.cwd(), 'migrations/1513_zelenovskie_ozerki_zaporozhets_photos.sql'), 'utf-8');
 const SLUGS = { 'Местечко Камчатка': 'mestechko', 'Край Вулканов': 'volcanoesland' } as const;
 
 const S3 = 'https://s3.example.test/bucket';
@@ -538,6 +539,62 @@ withPg('снимки партнёров без согласия: спрятан�
       // согласия (SET NULL показал бы кадр всем).
       await pool.query(`DELETE FROM partners WHERE id = $1`, [zapId]);
       expect((await rows()).map((r) => r.s3_key)).toEqual(['photos/mestechko/vulkan-gorelyy-05.jpg']);
+    });
+
+    it('1513: два снимка озера Андрея Запорожца ложатся на карточку Зеленовских озерков следом за кадром тура; повтор ничего не добавляет', async () => {
+      // Место заводят миграции (918): в базе теста оно уже есть, со своим ark_id.
+      const place = await pool.query<{ id: string; ark: string }>(
+        `SELECT id::text, ark_id::text AS ark FROM places WHERE slug = 'zelenovskie-ozerki' AND merged_into_id IS NULL`);
+      expect(place.rows, 'место «Зеленовские озерки» заводит миграция 918').toHaveLength(1);
+      const OZERKI = place.rows[0]!;
+      await pool.query(`UPDATE places SET is_visible = TRUE WHERE id::text = $1`, [OZERKI.id]);
+      const rows = async () => (await pool.query<{ position: number; s3_key: string; author: string; partner_id: string | null; width: number; height: number; mime_type: string; has_bytes: boolean }>(
+        `SELECT position, s3_key, author, partner_id::text, width, height, mime_type, image_data IS NOT NULL AS has_bytes
+           FROM place_gallery_photos WHERE ark_id = $1 ORDER BY position`, [OZERKI.ark])).rows;
+
+      // Сцена как на проде: у места один кадр — обложка тура другого партнёра (1436).
+      await pool.query(`DELETE FROM place_gallery_photos WHERE ark_id = $1`, [OZERKI.ark]);
+      await pool.query(
+        `INSERT INTO place_gallery_photos (ark_id, position, image_data, mime_type, width, height, caption, author, s3_key, partner_id)
+         VALUES ($1, 1, NULL, 'image/jpeg', 1600, 1195, 'Обложка тура', $2, 'photos/laguna-expedition/zelenovskie-ozerki-cover.jpg', $3)`,
+        [OZERKI.ark, VOLCANOESLAND.partner, partnerIds[VOLCANOESLAND.partner]],
+      );
+
+      // Карточки автора нет — снимков нет: без партнёра кадр не ложится, и миграция не падает.
+      await pool.query(`DELETE FROM partners WHERE slug = 'andrey-zaporozhets'`);
+      await pool.query(M1513);
+      expect((await rows()).map((r) => r.position)).toEqual([1]);
+
+      const zapId = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug, is_public) VALUES ('Андрей Запорожец', 'guide', '{}', 'andrey-zaporozhets', TRUE) RETURNING id::text`,
+      )).rows[0]!.id;
+
+      await pool.query(M1513);
+      const once = await rows();
+      expect(once.slice(1)).toEqual([
+        { position: 2, s3_key: 'photos/zaporozhets/zelenovskie-ozerki-ozero-letom.jpg', author: 'Андрей Запорожец', partner_id: zapId, width: 720, height: 539, mime_type: 'image/jpeg', has_bytes: false },
+        { position: 3, s3_key: 'photos/zaporozhets/zelenovskie-ozerki-ozero-zimoy.jpg', author: 'Андрей Запорожец', partner_id: zapId, width: 580, height: 1290, mime_type: 'image/jpeg', has_bytes: false },
+      ]);
+      // Прежний кадр на месте и на своём месте.
+      expect(once[0]).toMatchObject({ position: 1, s3_key: 'photos/laguna-expedition/zelenovskie-ozerki-cover.jpg' });
+      await pool.query(M1513);
+      expect(await rows()).toEqual(once);
+
+      // Карточка: три кадра, у снимков озера подпись — имя партнёра.
+      const c = await card(OZERKI.id);
+      expect(c.images.filter((u) => u.includes('/place-gallery/')).map((u) => u.split('?')[0])).toEqual([
+        `/api/images/place-gallery/${OZERKI.ark}/1`, `/api/images/place-gallery/${OZERKI.ark}/2`, `/api/images/place-gallery/${OZERKI.ark}/3`,
+      ]);
+      const credits = Object.entries(c.photoCredits).filter(([u]) => /place-gallery\/[0-9a-f-]+\/[23]\?/.test(u)).map(([, who]) => who);
+      expect(credits).toEqual(['Андрей Запорожец', 'Андрей Запорожец']);
+
+      // Файлы под ключами лежат в репозитории и стоят в маркере заливки: ключ без объекта — пустая рамка на карточке.
+      const marker = JSON.parse(readFileSync(join(process.cwd(), '.github/triggers/media-to-s3.json'), 'utf-8')) as { items: Array<{ file: string; key: string }> };
+      for (const r of once.slice(1)) {
+        const item = marker.items.find((i) => i.key === r.s3_key);
+        expect(item?.file, r.s3_key).toBe(`media/s3/${r.s3_key}`);
+        expect(readFileSync(join(process.cwd(), item!.file)).length, r.s3_key).toBeGreaterThan(50_000);
+      }
     });
   });
 
