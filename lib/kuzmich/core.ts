@@ -2874,9 +2874,17 @@ export interface ToolSurface {
   onStructured?: (data: Record<string, unknown>) => void;
 }
 
+/** Ответ инструмента веб-поиска внешнему агенту и MCP: поиска нет, отвечаем из базы. */
+export const AGENT_NO_WEB_SEARCH =
+  'Веб-поиска для внешних агентов нет: он платный. Отвечай только по данным Ведара из других инструментов; чего в них нет — так и скажи.';
+
 async function executeTool(name: string, args: Record<string, string>, opts: ToolSurface = {}): Promise<string> {
   try {
     if (name === 'search_kamchatka') {
+      // Внешнему агенту (A2A) веб-поиска нет, как и на MCP: он платный
+      // (Tavily/Brave), в книгу трат не входит, и анонимный вопрос не должен
+      // жечь его квоты (проверка безопасности ИИ-части 26.11).
+      if (opts.agent || opts.surface === 'mcp') return AGENT_NO_WEB_SEARCH;
       const result = await searchWeb(args.query ?? '');
       return result || 'Поиск не дал результатов.';
     }
@@ -2940,7 +2948,7 @@ async function executeTool(name: string, args: Record<string, string>, opts: Too
       if (info) return info;
       // На публичном MCP веб-поиска нет: он платный (Tavily/Brave), а шапка
       // роута обещает, что квоты анонимный вызов не жжёт (проверка MCP 29.09).
-      if (opts.surface === 'mcp') return noPlaceInBase(placeName);
+      if (opts.surface === 'mcp' || opts.agent) return noPlaceInBase(placeName);
       const web = await searchWeb(placeName);
       // Чужой текст подписан как чужой: без подписи сниппет с сайта
       // турагентства читался как справка из базы Ведара.

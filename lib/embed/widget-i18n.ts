@@ -50,6 +50,11 @@ export interface WidgetTexts {
   loading: string;
   /** Чат не найден или выключен (404) — не то же, что «не загрузился». */
   notFound: string;
+  /**
+   * Дневной предел вопросов с одного адреса (lib/ai/anon-chat-guard,
+   * проверка безопасности 26.11): отвечает вместо модели, без неё.
+   */
+  ipDailyLimit: string;
   loadFailed: string;
   sendFailed: string;
   /** Кнопка заявки в окне чата; её же имя модель называет в ответе. */
@@ -113,6 +118,7 @@ export interface WidgetTexts {
 const RU: WidgetTexts = {
   loading: 'Загрузка...',
   notFound: 'Чат этого партнёра не найден или выключен.',
+  ipDailyLimit: 'С этого адреса сегодня задано много вопросов. Оставьте заявку кнопкой ниже — компания ответит сама. Если вы в опасности — звоните 112.',
   loadFailed: 'Чат не загрузился — проверьте связь и обновите страницу. Экстренно — 112.',
   sendFailed: 'Не получилось получить ответ — попробуйте ещё раз. Экстренно — 112.',
   leadButton: 'Оставить заявку',
@@ -168,6 +174,7 @@ const RU: WidgetTexts = {
 const EN: WidgetTexts = {
   loading: 'Loading...',
   notFound: 'This partner’s chat was not found or is turned off.',
+  ipDailyLimit: 'Many questions have been asked from this address today. Leave a request with the button below and the company will reply. In an emergency, call 112.',
   loadFailed: 'The chat did not load — check your connection and reload the page. Emergency — 112.',
   sendFailed: 'Could not get a reply — please try again. Emergency — 112.',
   leadButton: 'Leave a request',
@@ -223,6 +230,7 @@ const EN: WidgetTexts = {
 const ZH: WidgetTexts = {
   loading: '加载中...',
   notFound: '未找到该合作方的聊天，或聊天已关闭。',
+  ipDailyLimit: '今天从此地址提出的问题过多。请点击下方按钮提交申请，公司会直接回复您。紧急情况请拨打 112。',
   loadFailed: '聊天未能加载——请检查网络并刷新页面。紧急求助 — 112。',
   sendFailed: '未能获得回复——请重试。紧急求助 — 112。',
   leadButton: '留下申请',

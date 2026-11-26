@@ -48,6 +48,7 @@ import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { catalogToolRuns } from '@/lib/kuzmich/offer-claim-guard';
 import { withUntrustedRun, wrapUntrusted } from '@/lib/ai/untrusted';
 import { isDailyLlmBudgetStopped, isDailyBudgetStopped, KUZMICH_DAILY_REST_TEXT } from '@/lib/ai/daily-spend-gate';
+import { widgetChatGuard } from '@/lib/ai/anon-chat-guard';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
 import { getPublicBaseUrl } from '@/lib/config';
 import { logText } from '@/lib/log/log-text';
@@ -117,6 +118,16 @@ function widgetChatSchema(t: WidgetTexts) {
 function requestLang(body: unknown): WidgetLang {
   const raw = body && typeof body === 'object' ? (body as { lang?: unknown }).lang : undefined;
   return isWidgetLang(raw) ? raw : 'ru';
+}
+
+/**
+ * Ответ по пределу или стопу без вызова модели. Вопрос о беде получает блок
+ * 112 и советы на языке окна (ревью безопасности PR #3837): пределы держат и
+ * его, но человек в беде не уходит с одним «на сегодня всё».
+ */
+function limitAnswer(refusal: string, message: string, lang: WidgetLang): { answer: string; emergency?: true } {
+  const sos = withSosBlock(refusal, message, lang);
+  return sos.emergency ? { answer: sos.text, emergency: true } : { answer: refusal };
 }
 
 interface PartnerRow extends WidgetPartner {
@@ -203,10 +214,25 @@ export async function POST(request: NextRequest) {
     const corsHeaders = getCorsHeaders(origin, partner.widget_domains ?? []);
 
     if (await isDailyLlmBudgetStopped()) {
-      return NextResponse.json({ success: true, data: { answer: KUZMICH_DAILY_REST_TEXT, dailyStop: true } }, { headers: corsHeaders });
+      return NextResponse.json({ success: true, data: { ...limitAnswer(KUZMICH_DAILY_REST_TEXT, message, lang), dailyStop: true } }, { headers: corsHeaders });
     }
 
     const emergency = detectEmergency(message).detected;
+
+    // Сутки и доля бюджета (lib/ai/anon-chat-guard, проверка безопасности
+    // 26.11): окно на чужом сайте анонимно, и до этого дня один посетитель мог
+    // спрашивать сутки напролёт по 15 раз в минуту, пока общий стоп не
+    // закрывал Кузьмича всем. Пределы держат и вопрос о беде: признак беды —
+    // слова, которые пишет сам посетитель, и «sos» в вопросе выключал бы счёт
+    // (ревью безопасности PR #3837). Сверх предела вопрос о беде получает
+    // готовый блок 112 и советы на языке окна, без вызова модели.
+    if (await widgetChatGuard.dailyStopped()) {
+      return NextResponse.json({ success: true, data: { ...limitAnswer(KUZMICH_DAILY_REST_TEXT, message, lang), dailyStop: true } }, { headers: corsHeaders });
+    }
+    if (!widgetChatGuard.takeIpSlot(ip)) {
+      return NextResponse.json({ success: true, data: { ...limitAnswer(t.ipDailyLimit, message, lang), limitReached: true } }, { headers: corsHeaders });
+    }
+    widgetChatGuard.countAnonCall();
 
     // Три источника данных порознь: отказ одного не отменяет ответ, но
     // называется — в логе и в промпте («не загрузился», а не «нет»).

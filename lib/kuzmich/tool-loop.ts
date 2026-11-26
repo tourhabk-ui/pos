@@ -22,11 +22,24 @@ export interface ToolRunOutcome {
   content: string;
   executed: boolean; // false = дубль, short-circuit (реальный вызов не делался)
   /** Почему не исполнен: повтор уже сделанного вызова или отвергнутые аргументы. */
-  skipped?: 'duplicate' | 'invalid_args';
+  skipped?: 'duplicate' | 'invalid_args' | 'over_limit';
 }
 
 const DUP_NOTICE = 'Этот запрос уже выполнялся выше — используй полученные данные, не повторяй вызов.';
 const INVALID_ARGS_NOTICE = 'Аргументы этого вызова некорректны — повтори с правильными аргументами.';
+
+/**
+ * Вызовов инструментов за один ход модели — не больше этого (проверка
+ * безопасности ИИ-части 26.11, слово владельца «чини Карт бланш»). Предела не
+ * было: текст человека или чужого агента мог попросить двадцать поисков разом,
+ * и каждый шёл в базу, а веб-поиск — в платные Tavily и Brave. Ходов в цикле
+ * четыре, значит за вопрос — не больше 4 × 6 вызовов. Лишние вызовы не
+ * выбрасываются: протокол требует ответа на каждый, и модель получает
+ * объяснение вместо данных.
+ */
+export const MAX_TOOL_CALLS_PER_TURN = 6;
+const OVER_LIMIT_NOTICE =
+  `За один ход выполняется не больше ${MAX_TOOL_CALLS_PER_TURN} вызовов инструментов — этот не выполнен. Ответь по уже полученным данным или сузь запрос.`;
 
 export type ToolArgsValidator = (
   name: string,
@@ -71,7 +84,7 @@ export async function runTurnTools(
   validate?: ToolArgsValidator,
 ): Promise<ToolRunOutcome[]> {
   return Promise.all(
-    toolCalls.map(async (tc): Promise<ToolRunOutcome> => {
+    toolCalls.map(async (tc, index): Promise<ToolRunOutcome> => {
       let args: Record<string, string> = {};
       try {
         args = JSON.parse(tc.function.arguments) as Record<string, string>;
@@ -80,6 +93,10 @@ export async function runTurnTools(
         // назван, но без текста ошибки: JSON.parse цитирует вход, а в
         // аргументах бывает телефон туриста.
         logSwallowedFailure('kuzmich/tool-loop', `разбор аргументов инструмента ${tc.function.name}`, new Error('аргументы не JSON'));
+      }
+
+      if (index >= MAX_TOOL_CALLS_PER_TURN) {
+        return { id: tc.id, name: tc.function.name, args, content: OVER_LIMIT_NOTICE, executed: false, skipped: 'over_limit' };
       }
 
       const sig = toolSignature(tc);

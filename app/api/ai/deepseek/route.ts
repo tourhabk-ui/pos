@@ -1,158 +1,33 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { resolveDeepSeekModel } from '@/lib/ai/providers';
-import { z } from 'zod';
-import { createRateLimiter, getClientIp } from '@/lib/rate-limit';
-import { pool } from '@/lib/db-pool';
+/**
+ * /api/ai/deepseek — выведен из употребления 26.11.2026 (проверка безопасности
+ * ИИ-части, слово владельца «чини Карт бланш»).
+ *
+ * Это был ранний помощник «AI.Kam» со своим промптом. Интерфейс его не звал
+ * ни разу, Кузьмич отвечает через /api/ai/chat. А пускал он любого вошедшего
+ * (вход выдаётся сразу после регистрации) и:
+ *
+ * 1. Звал DeepSeek напрямую, мимо суточного стопа (`assertDailyLlmBudget`):
+ *    десять запросов в минуту с адреса, сутки напролёт.
+ * 2. Не ограничивал длину сообщения: каждый вызов мог нести контекст модели
+ *    целиком — сотни долларов в сутки при бюджете $5.
+ * 3. Слал текст в зарубежную модель без `redactPII`: телефон и почта человека
+ *    уходили как есть (152-ФЗ).
+ * 4. Отдавал наружу сырой ответ провайдера при ошибке и, по GET, есть ли ключ
+ *    и какая модель.
+ *
+ * 410, а не удаление файла: 404 неотличим от опечатки в пути (как /api/ai/health).
+ */
 
-// DeepSeek-chat pricing ($/1M tokens, June 2026)
-const PRICE_INPUT_PER_M  = 0.14;
-const PRICE_OUTPUT_PER_M = 0.28;
+import { NextResponse } from 'next/server';
 
-const deepseekLimiter = createRateLimiter({ windowMs: 60_000, max: 10 });
+export const dynamic = 'force-dynamic';
 
-interface DeepSeekMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
+const RETIRED = 'Адрес снят. Кузьмич отвечает в чате на сайте — /kuzmich.';
+
+export async function POST() {
+  return NextResponse.json({ success: false, error: RETIRED }, { status: 410 });
 }
 
-interface DeepSeekRequest {
-  model: string;
-  messages: DeepSeekMessage[];
-  temperature?: number;
-  max_tokens?: number;
-  stream?: boolean;
-}
-
-const DeepSeekChatSchema = z.object({
-  message: z.string().min(1, 'Сообщение обязательно'),
-  context: z.string().optional(),
-});
-
-// POST /api/ai/deepseek - Chat с DeepSeek AI
-// AUTH: Public — AI assistant for visitors
-export async function POST(request: NextRequest) {
-  const ip = getClientIp(request.headers);
-  if (!deepseekLimiter.check(ip)) {
-    return NextResponse.json(
-      { error: 'Слишком много запросов. Попробуйте позже.' },
-      { status: 429 }
-    );
-  }
-  try {
-    const body = await request.json();
-    const parsed = DeepSeekChatSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { success: false, error: parsed.error.issues[0]?.message || 'Некорректные данные' },
-        { status: 400 }
-      );
-    }
-    const { message, context } = parsed.data;
-
-    // DeepSeek API Key (добавьте в .env)
-    const apiKey = process.env.DEEPSEEK_API_KEY || '';
-
-    if (!apiKey) {
-      return NextResponse.json({
-        success: false,
-        error: 'DeepSeek API key not configured',
-      }, { status: 500 });
-    }
-
-    // Системный промпт для AI.Kam
-    const systemPrompt = `Ты AI.Kam - умный помощник по Камчатке. 
-
-Твоя роль:
-- Помогать туристам узнать о Камчатке
-- Рекомендовать туры, достопримечательности, активности
-- Давать советы по безопасности и подготовке
-- Отвечать на вопросы о погоде, транспорте, размещении
-- Быть дружелюбным и информативным
-
-Информация о Камчатке:
-- Вулканы: Авачинский (2751м), Корякский (3456м), Мутновский, Толбачик
-- Долина гейзеров - уникальное место с 90+ гейзерами
-- Курильское озеро - место нереста лосося и обитания медведей
-- Халактырский пляж - черный вулканический песок
-- Лучшее время: июль-сентябрь
-- Рыбалка: лосось, кижуч, чавыча, голец
-- Горячие источники: Паратунка, Верхне-Паратунские
-
-Отвечай кратко, по-русски, с эмодзи для наглядности.`;
-
-    const messages: DeepSeekMessage[] = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: message }
-    ];
-
-    // Запрос к DeepSeek API
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: await resolveDeepSeekModel(),
-        messages,
-        temperature: 0.7,
-        max_tokens: 500,
-        stream: false,
-      } as DeepSeekRequest),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.text();
-      
-      return NextResponse.json({
-        success: false,
-        error: 'Failed to get response from AI',
-        details: errorData,
-      }, { status: response.status });
-    }
-
-    const data = await response.json();
-
-    const aiMessage = data.choices[0]?.message?.content || 'Извините, не смог обработать запрос.';
-
-    const usage = data.usage as { prompt_tokens: number; completion_tokens: number; total_tokens: number } | undefined;
-    if (usage) {
-      const cost = (usage.prompt_tokens * PRICE_INPUT_PER_M + usage.completion_tokens * PRICE_OUTPUT_PER_M) / 1_000_000;
-      pool.query(
-        `INSERT INTO llm_usage_log (route, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd)
-         VALUES ($1, $2, $3, $4, $5)`,
-        ['/api/ai/deepseek', usage.prompt_tokens, usage.completion_tokens, usage.total_tokens, cost],
-      ).catch(() => {});
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        message: aiMessage,
-        model: data.model,
-        usage: data.usage,
-      },
-    });
-
-  } catch (error) {
-    return NextResponse.json({
-      success: false,
-      error: 'Internal server error',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    }, { status: 500 });
-  }
-}
-
-// GET /api/ai/deepseek/status - Проверка статуса API
-export async function GET(request: NextRequest) {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  
-  return NextResponse.json({
-    success: true,
-    data: {
-      configured: !!apiKey,
-      model: await resolveDeepSeekModel(),
-      endpoint: 'https://api.deepseek.com/v1/chat/completions',
-    },
-  });
+export async function GET() {
+  return NextResponse.json({ success: false, error: RETIRED }, { status: 410 });
 }

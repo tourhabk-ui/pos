@@ -14,7 +14,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { runPublicTool } from '@/app/api/mcp/route';
-import { answerAgentMessage } from '@/lib/a2a/chat';
+import { answerAgentMessage, withEmergencyBlock, A2A_IP_DAILY_LIMIT_TEXT, A2A_DOORS_STOP_TEXT } from '@/lib/a2a/chat';
+import { a2aChatGuard } from '@/lib/ai/anon-chat-guard';
 import type { A2AExecutors, A2AResult } from '@/lib/a2a/handle';
 import { logA2aRequest, sendMessageFacts, type A2aBinding, type A2aJournalOp } from '@/lib/a2a/journal';
 import { logA2aDialog } from '@/lib/a2a/dialog-log';
@@ -42,6 +43,20 @@ export function buildExecutors(request: NextRequest): A2AExecutors {
       // Отказ по лимиту — без записи в журнал общения: он виден в журнале
       // запросов, а его текст дал бы спамеру писать в базу без предела.
       if (!chatLimiter.check(`a2a-chat:${ip}`)) return { ok: false, text: CHAT_RATE_LIMITED_TEXT, rejected: true };
+      // Сутки и доля бюджета (lib/ai/anon-chat-guard, проверка безопасности
+      // 26.11): разговор агента молчит раньше общего стопа, и один адрес не
+      // съедает день. Пределы держат и вопрос о беде: признак беды — слова в
+      // тексте, а текст пишет сам клиент, и «sos» в конце вопроса выключал бы
+      // счёт (ревью безопасности PR #3837). Сверх предела вопрос о беде
+      // получает готовый блок 112 и советы без вызова модели. Отказы — без
+      // записи в журнал общения.
+      if (await a2aChatGuard.dailyStopped()) return { ok: true, text: withEmergencyBlock(A2A_DOORS_STOP_TEXT, text) };
+      if (!a2aChatGuard.takeIpSlot(ip)) {
+        const sos = withEmergencyBlock(A2A_IP_DAILY_LIMIT_TEXT, text);
+        if (sos !== A2A_IP_DAILY_LIMIT_TEXT) return { ok: true, text: sos };
+        return { ok: false, text: A2A_IP_DAILY_LIMIT_TEXT, rejected: true, reason: 'daily_limit' };
+      }
+      a2aChatGuard.countAnonCall();
       const startedAt = Date.now();
       const answer = await answerAgentMessage(text, history, { conversationKey: contextId ?? null, self });
       // Журнал общения (решение владельца 13.10): что спросили и что ответили,

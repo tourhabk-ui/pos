@@ -24,6 +24,8 @@ import { aiChatAgentLoop, KUZMICH_SYSTEM, isAIErrorResponse, kuzmichTurnFacts, k
 import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { withUntrustedRun } from '@/lib/ai/untrusted';
 import { assertDailyLlmBudget, isDailyBudgetStopped, KUZMICH_DAILY_REST_TEXT } from '@/lib/ai/daily-spend-gate';
+import { MAX_MESSAGE_CHARS, trimHistory } from '@/lib/ai/anon-chat-guard';
+import { detectEmergency, buildSosBlock } from '@/lib/safety/sos-detector';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { newLoopTiming, answerTokens } from '@/lib/kuzmich/answer-ceiling';
 import { answerStall } from '@/lib/kuzmich/loop-stall';
@@ -48,7 +50,42 @@ export const A2A_CHAT_FAILED_TEXT =
  * `rejected` у отказа — это не сбой, а «не сейчас» (лимит на адрес): в A2A
  * он становится состоянием rejected, сбой модели — failed.
  */
-export type AgentAnswer = { ok: true; text: string } | { ok: false; text: string; rejected?: boolean };
+/** Код отказа текстовому вопросу — в metadata.reason задачи и в журнале (lib/a2a/reject-reason). */
+export type ChatRejectReason = 'rate_limited' | 'too_long' | 'daily_limit';
+export type AgentAnswer = { ok: true; text: string } | { ok: false; text: string; rejected?: boolean; reason?: ChatRejectReason };
+
+/**
+ * Пределы свободного разговора чужого агента (проверка безопасности ИИ-части
+ * 26.11, слово владельца «чини Карт бланш»). До этого дня вопрос шёл в модель
+ * любой длины — до 16 частей по 8000 знаков — с историей разговора без
+ * обрезки, и единственным пределом были 10 вопросов в минуту с адреса.
+ * Дневной предел на адрес и доля бюджета — в app/api/a2a/_shared
+ * (`a2aChatGuard`), здесь — размер одного вопроса и истории.
+ */
+export const A2A_TOO_LONG_TEXT =
+  `Вопрос длиннее ${MAX_MESSAGE_CHARS} знаков — сократите его или разбейте на несколько. ` +
+  `The question is longer than ${MAX_MESSAGE_CHARS} characters — please shorten or split it.`;
+
+export const A2A_IP_DAILY_LIMIT_TEXT =
+  'С этого адреса сегодня уже задано много вопросов текстом. Инструменты (DataPart, MCP) этим пределом не ограничены. Экстренный вызов — 112. ' +
+  'Too many free-text questions from this address today. Structured tools (DataPart, MCP) are not limited by this. Emergency: 112.';
+
+export const A2A_DOORS_STOP_TEXT =
+  'На сегодня ответы Кузьмича текстом для агентов закончились: у Ведара дневной лимит расходов на ИИ. Инструменты (DataPart, MCP) работают как обычно. Экстренный вызов — 112. ' +
+  'Kuzmich\'s free-text answers for agents are paused for today (daily AI budget). Structured tools (DataPart, MCP) still work. Emergency: 112.';
+
+/**
+ * Отказ по пределу для вопроса о беде (ревью безопасности PR #3837, 26.11).
+ * Признак беды — слова в тексте, а текст пишет сам агент, поэтому пределы
+ * держат и такой вопрос. Сверх предела модель не зовётся, но вопрос о беде
+ * получает готовый блок 112 и советы — по-русски и по-английски: язык
+ * чужого агента неизвестен. Обычный вопрос получает отказ как есть.
+ */
+export function withEmergencyBlock(refusal: string, question: string): string {
+  const detection = detectEmergency(question);
+  if (!detection.detected) return refusal;
+  return `${buildSosBlock(detection.categories, 'ru')}\n\n${buildSosBlock(detection.categories, 'en')}\n\n${refusal}`;
+}
 
 export interface AgentAnswerOptions {
   /** Ключ разговора (contextId A2A): грейдер хэширует его сам. */
@@ -72,6 +109,8 @@ export async function answerAgentMessage(
   // без времени и источника. Визитка называет входы MCP/A2A/OpenAPI,
   // ограничения и одно проверяемое действие (lib/kuzmich/agent-handshake).
   if (agentHandshake(text)) return { ok: true, text: handshakeReply(text) };
+  // Размер — до модели и до стопа: длинный вопрос не тратит ни денег, ни места.
+  if (text.length > MAX_MESSAGE_CHARS) return { ok: false, text: A2A_TOO_LONG_TEXT, rejected: true, reason: 'too_long' };
   try {
     await assertDailyLlmBudget();
   } catch (err) {
@@ -97,7 +136,9 @@ export async function answerAgentMessage(
     answer = await aiChatAgentLoop(
       text,
       system,
-      history.map((t) => ({ role: t.role, content: t.content })),
+      // История — под теми же потолками, что у гостя (trimHistory): память
+      // разговора хранит реплики целиком, а модель получает их в каждом ходе.
+      trimHistory(history.map((t) => ({ role: t.role, content: t.content }))),
       [{ role: 'user', content: text }],
       toolRuns,
       provenance,
