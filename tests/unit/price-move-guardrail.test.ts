@@ -77,47 +77,80 @@ describe('проводка в инструмент оператора', () => {
 });
 
 describe('слова оператора — вызовом', () => {
-  it('цена — только число из сообщения оператора, разряды через пробел тоже', async () => {
+  const T5 = { id: 5, title: 'Дух Камчатки' };
+
+  it('цена — только число из сообщения оператора рядом с туром, разряды через пробел тоже', async () => {
     const { priceStatedByOperator } = await import('@/lib/agents/sdk/operator-tools');
-    expect(priceStatedByOperator('поставь цену 12 000 на тур 5', 12000)).toBe(true);
-    expect(priceStatedByOperator('цена 12000', 12000)).toBe(true);
-    expect(priceStatedByOperator('цена 120000', 12000)).toBe(false);
-    expect(priceStatedByOperator('покажи брони', 12000)).toBe(false);
-    expect(priceStatedByOperator('тур 12000', 1200)).toBe(false);
+    expect(priceStatedByOperator('поставь цену 12 000 на тур 5', 12000, T5)).toBe(true);
+    expect(priceStatedByOperator('цена «Дух Камчатки» — 12000', 12000, T5)).toBe(true);
+    expect(priceStatedByOperator('цена 12000', 12000, T5)).toBe(false);
+    expect(priceStatedByOperator('цена 120000 на тур 5', 12000, T5)).toBe(false);
+    expect(priceStatedByOperator('покажи брони', 12000, T5)).toBe(false);
+    expect(priceStatedByOperator('тур 12000', 1200, { id: 12000 })).toBe(false);
+    // Цена у другого тура: «поставь цену 12000 на тур 6» не открывает тур 5.
+    expect(priceStatedByOperator('поставь цену 12000 на тур 6. Тур 5 не трогай', 12000, T5)).toBe(false);
   });
 
-  it('подтверждение и просьба о публикации — по словам оператора', async () => {
+  it('подтверждение — рядом с ценой; просьба о публикации — рядом с туром', async () => {
     const { operatorConfirmed, operatorAsksPublish } = await import('@/lib/agents/sdk/operator-tools');
-    expect(operatorConfirmed('подтверждаю цену 30000')).toBe(true);
-    expect(operatorConfirmed('поставь цену 30000')).toBe(false);
-    expect(operatorAsksPublish('сними тур 5 с публикации', false)).toBe(true);
-    expect(operatorAsksPublish('скрой тур', false)).toBe(true);
-    expect(operatorAsksPublish('покажи брони на неделю', false)).toBe(false);
-    expect(operatorAsksPublish('опубликуй тур 5', true)).toBe(true);
-    expect(operatorAsksPublish('покажи брони', true)).toBe(false);
+    expect(operatorConfirmed('подтверждаю цену 30000', 30000)).toBe(true);
+    expect(operatorConfirmed('поставь цену 30000', 30000)).toBe(false);
+    expect(operatorConfirmed('подтверждаю. Цена 30000', 30000)).toBe(false);
+    expect(operatorAsksPublish('сними тур 5 с публикации', false, T5)).toBe(true);
+    expect(operatorAsksPublish('скрой «Дух Камчатки»', false, T5)).toBe(true);
+    expect(operatorAsksPublish('скрой тур', false, T5)).toBe(false);
+    expect(operatorAsksPublish('покажи брони на неделю', false, T5)).toBe(false);
+    expect(operatorAsksPublish('опубликуй тур 5', true, T5)).toBe(true);
+    expect(operatorAsksPublish('покажи брони', true, T5)).toBe(false);
+  });
+
+  // Ревью безопасности PR #3843: глагол без тура открывал любой тур оператора.
+  it('глагол без этого тура в той же фразе запись не открывает', async () => {
+    const { operatorAsksPublish, operatorAsksPublishAny } = await import('@/lib/agents/sdk/operator-tools');
+    // Оператор просит скрыть отменённые брони — турист в пожеланиях просит снять туры 6 и 7.
+    expect(operatorAsksPublishAny('покажи брони и скрой отменённые', false)).toBe(true);
+    for (const id of [5, 6, 7]) {
+      expect(operatorAsksPublish('покажи брони и скрой отменённые', false, { id, title: `Тур ${id}` }), String(id)).toBe(false);
+    }
+    // Названный тур — только он.
+    expect(operatorAsksPublish('сними тур 5 с публикации', false, { id: 6 })).toBe(false);
+    expect(operatorAsksPublish('опубликуй тур 5', true, { id: 6 })).toBe(false);
+    // Тур назван в другой фразе, глагол — в этой: не просьба.
+    expect(operatorAsksPublish('Тур 6 хороший. Скрой отменённые брони', false, { id: 6 })).toBe(false);
   });
 
   it('слово целиком и без отрицания: «снимок», «сними с публикации», «не подтверждаю» не открывают запись', async () => {
     const { operatorConfirmed, operatorAsksPublish } = await import('@/lib/agents/sdk/operator-tools');
     // «публикации» в просьбе снять — не просьба опубликовать.
-    expect(operatorAsksPublish('сними тур 5 с публикации', true)).toBe(false);
-    expect(operatorAsksPublish('почему тур не опубликован?', true)).toBe(false);
-    expect(operatorAsksPublish('не опубликуй пока', true)).toBe(false);
-    expect(operatorAsksPublish('верните на сайт тур 6', true)).toBe(true);
+    expect(operatorAsksPublish('сними тур 5 с публикации', true, T5)).toBe(false);
+    expect(operatorAsksPublish('почему тур 5 не опубликован?', true, T5)).toBe(false);
+    expect(operatorAsksPublish('не опубликуй пока тур 5', true, T5)).toBe(false);
+    expect(operatorAsksPublish('верните на сайт тур 5', true, T5)).toBe(true);
     // «снимок», «убережёт», «скрытый» — не просьба снять.
-    expect(operatorAsksPublish('добавлю снимок к туру 5', false)).toBe(false);
-    expect(operatorAsksPublish('шлем убережёт от камней', false)).toBe(false);
-    expect(operatorAsksPublish('в описании скрытый текст?', false)).toBe(false);
-    expect(operatorAsksPublish('не надо снять тур 5', false)).toBe(false);
-    expect(operatorAsksPublish('Сними тур 5', false)).toBe(true);
-    expect(operatorAsksPublish('unpublish tour 5', true)).toBe(false);
-    expect(operatorAsksPublish('unpublish tour 5', false)).toBe(true);
-    expect(operatorConfirmed('не подтверждаю цену 30000')).toBe(false);
-    expect(operatorConfirmed('подтверждение пришло?')).toBe(false);
-    expect(operatorConfirmed('Подтверждаю цену 30000')).toBe(true);
+    expect(operatorAsksPublish('добавлю снимок к туру 5', false, T5)).toBe(false);
+    expect(operatorAsksPublish('шлем убережёт от камней на туре 5', false, T5)).toBe(false);
+    expect(operatorAsksPublish('в описании тура 5 скрытый текст?', false, T5)).toBe(false);
+    expect(operatorAsksPublish('Сними тур 5', false, T5)).toBe(true);
+    expect(operatorAsksPublish('unpublish tour 5', true, T5)).toBe(false);
+    expect(operatorAsksPublish('unpublish tour 5', false, T5)).toBe(true);
+    expect(operatorConfirmed('подтверждение пришло? цена 30000', 30000)).toBe(false);
+    expect(operatorConfirmed('Подтверждаю цену 30000', 30000)).toBe(true);
     // Слово целиком: «подтверждающий» и «published» — не подтверждение и не просьба.
-    expect(operatorConfirmed('пришлю подтверждающий документ')).toBe(false);
-    expect(operatorAsksPublish('is tour 5 published?', true)).toBe(false);
+    expect(operatorConfirmed('пришлю подтверждающий документ на 30000', 30000)).toBe(false);
+    expect(operatorAsksPublish('is tour 5 published?', true, T5)).toBe(false);
+  });
+
+  // Ревью безопасности PR #3843: отрицание стояло не вплотную к глаголу.
+  it('отрицание в трёх словах перед глаголом', async () => {
+    const { operatorConfirmed, operatorAsksPublish } = await import('@/lib/agents/sdk/operator-tools');
+    for (const text of ['не снимай тур 5', 'не надо снять тур 5', 'не надо бы снять тур 5', 'нельзя снять тур 5', "don't hide tour 5"]) {
+      expect(operatorAsksPublish(text, false, T5), text).toBe(false);
+    }
+    expect(operatorConfirmed('не подтверждаю цену 30000', 30000)).toBe(false);
+    expect(operatorConfirmed('не совсем подтверждаю цену 30000', 30000)).toBe(false);
+    // Отрицание в соседней части фразы или далеко от глагола — не отрицание просьбы.
+    expect(operatorAsksPublish('не забудь, пожалуйста: сними тур 5', false, T5)).toBe(true);
+    expect(operatorAsksPublish('не забыть потом пожалуйста сними тур 5', false, T5)).toBe(true);
   });
 });
 
