@@ -167,6 +167,14 @@ export const PROTECTED_ZONES = Object.freeze([
       'lib/payments/release-eligibility.ts',
       'app/api/admin/finance/refunds/**',
       'app/api/admin/finance/payouts/**',
+      // Ревью PR 3833 (второй проход): кто решает, какой возврат считать
+      // (флаг «отменил оператор» → 100%), и автоматический релиз денег
+      // оператору по cron — вторая дверь выплаты рядом с админской.
+      'lib/bookings/booking.service.ts',
+      'lib/bookings/owner-status.ts',
+      'app/api/bookings/[id]/route.ts',
+      'app/api/bookings/[id]/cancel/**',
+      'app/api/cron/payouts/**',
     ],
     reason:
       'Приёмники оплаты: комиссия только recordCommissionFromBooking, строка tour_payments только holdTourPayment. §7 называет три живых приёмника — третий, CloudPayments кабинета оператора, лежит вне app/api/payments. Выключатель PLATFORM_ACCEPTS_PAYMENTS открывает приём денег для всех трёх разом.',

@@ -583,6 +583,11 @@ describe('вход, роли, комиссия и холд — в зонах (с
       'lib/payments/release-eligibility.ts': 'payments',
       'app/api/admin/finance/refunds/route.ts': 'payments',
       'app/api/admin/finance/payouts/route.ts': 'payments',
+      'lib/bookings/booking.service.ts': 'payments',
+      'lib/bookings/owner-status.ts': 'payments',
+      'app/api/bookings/[id]/route.ts': 'payments',
+      'app/api/bookings/[id]/cancel/route.ts': 'payments',
+      'app/api/cron/payouts/route.ts': 'payments',
     };
     for (const [file, zone] of Object.entries(expected)) {
       expect(existsSync(join(ROOT, file)), `нет файла ${file}`).toBe(true);
@@ -666,6 +671,30 @@ describe('вход, роли, комиссия и холд — в зонах (с
     expect(hits).not.toContain('app/api/user/delete/route.ts');
     const outside = hits.filter((f) => !ids(f).some((z) => z === 'auth-doors' || z === 'lib-auth'));
     expect(outside, 'выдаёт вход вне зоны').toEqual([]);
+  });
+
+  /**
+   * Денежный путь узнаётся по делу, а не по имени функции (ревью PR 3833):
+   * файл, который зовёт расчёт возврата или пишет строку оплаты / выплаты
+   * оператору, лежит в зоне платежей — иначе правка вызова (флаг «отменил
+   * оператор», срок удержания) проходит без слова владельца.
+   */
+  it('каждый файл, который считает возврат или двигает деньги в tour_payments / operator_payouts, — в зоне платежей', () => {
+    const MONEY = /\brecordRefundDue\(|\bcomputeTourRefund\(|UPDATE\s+tour_payments\b|(INSERT\s+INTO|UPDATE)\s+operator_payouts\b/;
+    const hits: string[] = [];
+    const walk = (rel: string) => {
+      for (const e of readdirSync(join(ROOT, rel), { withFileTypes: true })) {
+        const p = `${rel}/${e.name}`;
+        if (e.isDirectory()) walk(p);
+        else if (/\.tsx?$/.test(e.name) && MONEY.test(read(p))) hits.push(p);
+      }
+    };
+    walk('lib');
+    walk('app');
+    expect(hits).toContain('app/api/cron/payouts/route.ts');
+    expect(hits).toContain('lib/bookings/booking.service.ts');
+    const outside = hits.filter((f) => !ids(f).includes('payments'));
+    expect(outside, 'денежный путь вне зоны').toEqual([]);
   });
 
   it('правка проверки токена без слова владельца — красный', () => {
