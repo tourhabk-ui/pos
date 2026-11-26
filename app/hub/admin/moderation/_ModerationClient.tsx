@@ -35,7 +35,7 @@ export default function ModerationClient() {
   const [tourEditsError, setTourEditsError] = useState('');
   const [actingTourEdit, setActingTourEdit] = useState<string | null>(null);
   const [tourEditActionError, setTourEditActionError] = useState('');
-  // Скидки и наценки туров (1513): правило меняет цену только после одобрения.
+  // Скидки и наценки туров (1514): правило меняет цену только после одобрения.
   const [pricingRules, setPricingRules] = useState<PricingRuleCard[]>([]);
   const [pricingRulesLoading, setPricingRulesLoading] = useState(true);
   const [pricingRulesError, setPricingRulesError] = useState('');
