@@ -19,15 +19,21 @@
  * - прежний массив возвращается целиком и служит откатом;
  * - дубли не добавляются: повтор прогона не размножает одно фото.
  *
+ * СВОЕЙ ЗАПИСИ В ТУР ЗДЕСЬ НЕТ (слово владельца 23.11: «Автоматы (кроны
+ * описаний и фото, импортёры) пишут в туры только через очередь проверки,
+ * своих обходных путей у них нет»). Снимки уходят дверью правки
+ * (lib/tours/photos-door): у тура на сайте они ждут проверки администратора,
+ * и до одобрения туристы видят прежнюю галерею.
+ *
  * Bearer CRON_SECRET.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
 import { photoKeyOf } from '@/lib/images/photo-key';
+import { proposeTourPhotos } from '@/lib/tours/photos-door';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 30;
@@ -73,52 +79,42 @@ export async function POST(req: NextRequest) {
     const msg = err instanceof z.ZodError
       ? err.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
       : 'Тело запроса не разобрано';
-    return NextResponse.json({ probe: 'tour_photos_v1', error: msg }, { status: 400 });
+    return NextResponse.json({ probe: 'tour_photos_v2', error: msg }, { status: 400 });
   }
 
   try {
-    const { rows } = await pool.query<{ id: number; title: string; photos: string[] | null }>(
-      `SELECT id, title, photos FROM operator_tours WHERE id = $1 AND deleted_at IS NULL`,
-      [body.tour_id],
-    );
-    const tour = rows[0];
-    if (!tour) {
+    const r = await proposeTourPhotos(String(body.tour_id), body.add, { dryRun: body.dry_run });
+    if (r.status === 'not_found') {
       return NextResponse.json({
-        probe: 'tour_photos_v1', dry_run: body.dry_run,
+        probe: 'tour_photos_v2', dry_run: body.dry_run,
         status: 'not_found', tour_id: body.tour_id,
       }, { status: 404 });
     }
 
-    const was = tour.photos ?? [];
-    const fresh = body.add.filter((p) => !was.includes(p));
-    const now = [...was, ...fresh];
-
-    if (!body.dry_run && fresh.length > 0) {
-      await pool.query(
-        `UPDATE operator_tours SET photos = $1::text[], updated_at = NOW() WHERE id = $2`,
-        [now, tour.id],
-      );
-    }
-
     return NextResponse.json({
-      probe: 'tour_photos_v1',
+      probe: 'tour_photos_v2',
       dry_run: body.dry_run,
       source: body.source,
       why: body.why,
-      tour_id: tour.id,
-      title: tour.title,
-      // Прежний массив целиком — это откат, а не украшение отчёта.
-      was,
-      now: body.dry_run ? now : now,
-      added: fresh.length,
+      tour_id: body.tour_id,
+      title: r.title,
+      // Исход назван: «на проверке» — не «на сайте», пропуск — не успех.
+      status: r.status,
+      // Прежний массив целиком (витрина плюс правка на проверке) — это откат.
+      was: r.was,
+      now: r.now,
+      added: r.added,
       // Повтор прогона добавит ноль — и это НЕ отказ, это идемпотентность.
-      already_present: body.add.length - fresh.length,
-      changed: body.dry_run ? 0 : fresh.length,
+      already_present: r.alreadyPresent,
+      // На сайте этих снимков ещё нет: они ждут проверки администратора.
+      staged_for_review: r.status === 'staged' ? r.added : 0,
+      // Тур, которого туристы не видят: снимки записаны в строку.
+      written_not_on_site: r.status === 'written' ? r.added : 0,
     });
 
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Ошибка';
     console.error('[tour-photos] правка не удалась:', msg);
-    return NextResponse.json({ probe: 'tour_photos_v1', error: msg }, { status: 500 });
+    return NextResponse.json({ probe: 'tour_photos_v2', error: msg }, { status: 500 });
   }
 }

@@ -51,7 +51,7 @@ export const TOUR_PATCH_COLUMNS = [
   'included', 'not_included', 'what_to_bring',
   'program', 'safety_notes',
   'cancellation_policy',
-  'pickup_type', 'pickup_details',
+  'pickup_type', 'pickup_details', 'meeting_point',
   'photos', 'tour_image', 'video_clips',
   'available_slots', 'next_available_date',
 ] as const;

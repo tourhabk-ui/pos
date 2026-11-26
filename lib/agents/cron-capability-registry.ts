@@ -410,9 +410,13 @@ export const CRON_CAPABILITIES: Record<string, readonly Capability[]> = {
   // запись лежит глубже обхода переписи. Писать крон не перестал: у тура на
   // сайте он кладёт правку на проверку (`writes: true` в cron-schedulers).
   'tour-describe': ['db_read'],
-  'tour-photos': ['db_read', 'db_write'],
+  // 'db_write' снят 23.11 у обоих кронов ниже по той же причине, что у
+  // tour-describe: снимки и точка сбора уходят дверью автомата
+  // (lib/tours/photos-door → lib/tours/tour-change), своей записи в тур у
+  // роутов нет. Писать они не перестали (`writes: true` в cron-schedulers).
+  'tour-photos': ['db_read'],
   'tour-photos-census': ['db_read', 'net_out'],
-  'tour-pickup': ['db_read', 'db_write'],
+  'tour-pickup': ['db_read'],
   'tour-reminder': ['db_read', 'db_write', 'net_out', 'telegram', 'ai', 'pd_direct'],
   'tour-review-request': ['db_read', 'db_write', 'net_out', 'telegram', 'pd_direct'],
   // 13.10: завершает подтверждённые брони после даты тура и начисляет баллы — только база.

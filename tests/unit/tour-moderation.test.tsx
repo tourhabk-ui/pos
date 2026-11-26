@@ -18,6 +18,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
+import ts from 'typescript';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
@@ -62,6 +63,7 @@ import {
 import { LIVE_CONTENT_COLUMNS } from '@/lib/tours/moderation-store';
 import { loadPlaceNames } from '@/lib/tours/moderation-read';
 import { TOUR_PATCH_COLUMNS } from '@/lib/tours/tour-write';
+import { repoCodeFiles } from '../helpers/repo-code';
 import { TourEditQueue, type TourEditCard } from '@/components/admin/TourEditQueue';
 import { TourModerationStatus, type TourModerationView } from '@/components/tours/TourModerationStatus';
 import { OwnTourCard, OwnTourForm } from '@/components/guide/OwnToursManager';
@@ -952,6 +954,41 @@ describe('отзыв правки гидом: DELETE /api/guide/own/tours/[id]/e
 
 // ─── Запреты ──────────────────────────────────────────────────────────────────
 
+/** Называет ли строка модуль общей записи тура (с расширением или без). */
+const NAMES_TOUR_WRITE = /(?:^|\/)tour-write(?:\.[cm]?[jt]sx?)?$/;
+
+/**
+ * Сколько раз файл называет модуль общей записи строковым литералом ВНЕ
+ * импорта одних типов. Комментарии строковыми литералами не являются.
+ */
+function tourWriteValueRefs(file: string, code: string): number {
+  // Дешёвый отсев до разбора: без имени модуля в тексте назвать его нельзя.
+  if (!code.includes('tour-write')) return 0;
+  const source = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true);
+  const typesOnly = (node: ts.Node): boolean => {
+    const parent = node.parent;
+    if (ts.isImportDeclaration(parent)) {
+      const clause = parent.importClause;
+      if (!clause) return false; // import '…' — подключение ради побочного эффекта
+      if (clause.isTypeOnly) return true;
+      const named = clause.namedBindings;
+      return !clause.name && named !== undefined && ts.isNamedImports(named)
+        && named.elements.length > 0 && named.elements.every((el) => el.isTypeOnly);
+    }
+    if (ts.isExportDeclaration(parent)) return parent.isTypeOnly;
+    // typeof import('…') в позиции типа
+    return ts.isLiteralTypeNode(parent) && ts.isImportTypeNode(parent.parent);
+  };
+  let count = 0;
+  const visit = (node: ts.Node): void => {
+    const literal = ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateTail(node);
+    if (literal && NAMES_TOUR_WRITE.test(node.text) && !typesOnly(node)) count += 1;
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return count;
+}
+
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(join(ROOT, dir))) {
     const rel = `${dir}/${name}`;
@@ -969,6 +1006,51 @@ describe('запреты', () => {
   it('общую запись тура зовут только единая дверь и одобрение — владелец мимо них не пишет', () => {
     const callers = SOURCES.filter((f) => /\bwriteTourPatch\(/.test(read(f)));
     expect(callers.sort()).toEqual(['lib/tours/moderation-review.ts', 'lib/tours/tour-change.ts', 'lib/tours/tour-write.ts']);
+  });
+
+  it('модуль общей записи подключают только дверь и одобрение — во всём репозитории и под любым именем', () => {
+    // Сторож выше ищет вызов по имени и только в app, lib и components: импорт
+    // под другим именем («writeTourPatch as w») или из scripts он бы не увидел
+    // (ревью безопасности PR #3804, 25.11). Здесь судится само подключение
+    // модуля: без него функцию не позвать ни под каким именем.
+    //
+    // Разбор — парсером TypeScript, а не регуляркой: регулярка первой редакции
+    // зависела от пробелов («import{…}from'…'», «require ('…')», комментарий
+    // между from и строкой — мимо; третий круг того же ревью). Правило простое:
+    // строковый литерал, называющий модуль, законен только как адрес импорта
+    // ОДНИХ ТИПОВ. Любое другое место — импорт значения, переэкспорт, require,
+    // динамический import, путь в переменной — считается подключением.
+    const refs = (code: string, file = 'x.ts') => tourWriteValueRefs(file, code);
+    for (const code of [
+      "import { writeTourPatch } from '@/lib/tours/tour-write';",
+      "import { writeTourPatch as w, type TourPatchInput } from './tour-write';",
+      "import{writeTourPatch as applyPatch}from'@/lib/tours/tour-write';",
+      "import { writeTourPatch } from /* why */ '@/lib/tours/tour-write';",
+      "import * as tw from '../lib/tours/tour-write';",
+      "import tw from '../lib/tours/tour-write.ts';",
+      "import '@/lib/tours/tour-write';",
+      "export { writeTourPatch } from '@/lib/tours/tour-write';",
+      "export * from './tour-write';",
+      "const { writeTourPatch } = require('../lib/tours/tour-write');",
+      "const { writeTourPatch } = require ('@/lib/tours/tour-write');",
+      "const m = await import('@/lib/tours/tour-write');",
+      "const m = await import ('@/lib/tours/tour-write');",
+      'const m = await import(`@/lib/tours/tour-write`);',
+      'const m = await import(`${root}/tours/tour-write`);',
+      "const where = '@/lib/tours/tour-write'; const m = require(where);",
+      "import tw = require('./tour-write');",
+    ]) expect(refs(code), code).toBe(1);
+    expect(refs("module.exports = require ('./lib/tours/tour-write');", 'x.js')).toBe(1);
+    for (const code of [
+      "import type { TourPatchInput } from '@/lib/tours/tour-write';",
+      "import { type TourPatchInput, type TourProgramStep } from '@/lib/tours/tour-write';",
+      "export type { TourPatchInput } from '@/lib/tours/tour-write';",
+      "type W = typeof import('@/lib/tours/tour-write');",
+      "// writeTourPatch (lib/tours/tour-write) — общая запись\nexport const a = 1;",
+      "import { x } from '@/lib/tours/tour-write-notes';",
+    ]) expect(refs(code), code).toBe(0);
+    const importers = repoCodeFiles(ROOT).filter((f) => tourWriteValueRefs(f, read(f)) > 0);
+    expect(importers).toEqual(['lib/tours/moderation-review.ts', 'lib/tours/tour-change.ts']);
   });
 
   it('в дверях владельца нет своего UPDATE содержания тура и своей публикации', () => {
@@ -1013,7 +1095,7 @@ describe('запреты', () => {
     // своим входом: дверью человека автомат прошёл бы без пометки «кто
     // предложил», а с пустой карточкой тура — как администратор, мимо очереди.
     const automata = outside.filter((f) => /proposeTourChange/.test(read(f)));
-    expect(automata).toEqual(['lib/tours/describe-door.ts']);
+    expect(automata).toEqual(['lib/tours/describe-door.ts', 'lib/tours/photos-door.ts']);
     for (const f of automata) {
       const src = read(f);
       expect(src, `${f}: автомат зовёт дверь человека`).not.toMatch(/saveTourChange|stageTourEdit|writeTourPatch/);

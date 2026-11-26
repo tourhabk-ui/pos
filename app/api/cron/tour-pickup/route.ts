@@ -18,14 +18,20 @@
  * - партия не больше десяти;
  * - прежнее значение возвращается в ответе и служит откатом.
  *
+ * СВОЕЙ ЗАПИСИ В ТУР ЗДЕСЬ НЕТ (слово владельца 23.11: «Автоматы … пишут в
+ * туры только через очередь проверки, своих обходных путей у них нет»).
+ * Точка сбора уходит дверью правки (lib/tours/photos-door): у тура на сайте
+ * она ждёт проверки администратора, и до одобрения карточка показывает
+ * прежнее.
+ *
  * Bearer CRON_SECRET.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { pool } from '@/lib/db-pool';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { getCronSecret } from '@/lib/auth/cron';
+import { proposeTourPickup } from '@/lib/tours/photos-door';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 30;
@@ -62,52 +68,41 @@ export async function POST(req: NextRequest) {
       : 'Тело запроса не разобрано';
     // Маркер сборки есть и в отказе: иначе настоящая ошибка неотличима от
     // невыкаченного кода (урок пробы 107).
-    return NextResponse.json({ probe: 'tour_pickup_v1', error: msg }, { status: 400 });
+    return NextResponse.json({ probe: 'tour_pickup_v2', error: msg }, { status: 400 });
   }
 
   const results: Array<Record<string, unknown>> = [];
 
   try {
     for (const item of parsed.items) {
-      const { rows } = await pool.query<{ id: number; title: string; meeting_point: string | null }>(
-        `SELECT id, title, meeting_point FROM operator_tours WHERE id = $1 AND deleted_at IS NULL`,
-        [item.id],
-      );
-      const tour = rows[0];
-      if (!tour) {
+      const r = await proposeTourPickup(String(item.id), item.pickup, { dryRun: parsed.dry_run });
+      if (r.status === 'not_found') {
         // «Тура нет» — это отказ по строке, а не молчаливый пропуск.
         results.push({ id: item.id, status: 'not_found' });
         continue;
       }
-
-      if (parsed.dry_run) {
-        results.push({
-          id: tour.id, title: tour.title, status: 'would_set',
-          was: tour.meeting_point, now: item.pickup, why: item.why,
-        });
-        continue;
-      }
-
-      await pool.query(
-        `UPDATE operator_tours SET meeting_point = $1, updated_at = NOW() WHERE id = $2`,
-        [item.pickup, tour.id],
-      );
       results.push({
-        id: tour.id, title: tour.title, status: 'set',
-        // Прежнее значение — это откат. Возвращается всегда, в том числе null:
-        // «было пусто» надо уметь вернуть так же, как «было вот это».
-        was: tour.meeting_point, now: item.pickup, why: item.why,
+        id: item.id, title: r.title, status: r.status,
+        // Прежнее значение (витрина плюс правка на проверке) — это откат.
+        // Возвращается всегда, в том числе null: «было пусто» надо уметь
+        // вернуть так же, как «было вот это».
+        was: r.was, now: r.now, why: item.why,
       });
     }
 
-    const changed = results.filter((r) => r.status === 'set').length;
+    const count = (status: string) => results.filter((r) => r.status === status).length;
     return NextResponse.json({
-      probe: 'tour_pickup_v1',
+      probe: 'tour_pickup_v2',
       dry_run: parsed.dry_run,
       source: parsed.source,
       asked: parsed.items.length,
-      changed,
-      not_found: results.filter((r) => r.status === 'not_found').length,
+      // На сайте этих правок ещё нет: они ждут проверки администратора.
+      staged_for_review: count('staged'),
+      // Туры, которых туристы не видят: записано в строку.
+      written_not_on_site: count('written'),
+      skipped_owner_pending: count('skipped_owner_pending'),
+      nothing_new: count('nothing_new'),
+      not_found: count('not_found'),
       // Разобрано ноль при ненулевом входе — отказ, а не успех.
       meaningful: results.some((r) => r.status !== 'not_found'),
       results,
@@ -116,6 +111,6 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Ошибка';
     console.error('[tour-pickup] правка не удалась:', msg);
-    return NextResponse.json({ probe: 'tour_pickup_v1', error: msg, results }, { status: 500 });
+    return NextResponse.json({ probe: 'tour_pickup_v2', error: msg, results }, { status: 500 });
   }
 }
