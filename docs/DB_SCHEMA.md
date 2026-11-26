@@ -1,6 +1,6 @@
 # Схема базы данных Ведара
 
-> Снято 2026-11-24 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+5): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1511_operator_tour_edits_proposed_by.sql`.
+> Снято 2026-11-26 с настоящего PostgreSQL 18.7 (Debian 18.7-1.pgdg13+5): baseline прода (`lib/database/baseline/schema-baseline.sql`, снимок 2026-08-15) + миграции новее него, накатанные штатным раннером. Последняя миграция в снимке: `1513_zelenovskie_ozerki_zaporozhets_photos.sql`.
 > Файл порождён `scripts/gen-db-schema.ts` (`npm run db:schema-doc`); править руками бессмысленно — следующий прогон перепишет.
 > Что здесь НЕ учтено: дрейф прода после baseline, не отражённый миграциями. Судья дрейфа — `GET /api/cron/schema-drift` на проде (`lib/db/schema-drift.ts`). Значений данных в файле нет — только имена и типы.
 
