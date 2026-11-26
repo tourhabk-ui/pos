@@ -48,6 +48,7 @@ import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { catalogToolRuns } from '@/lib/kuzmich/offer-claim-guard';
 import { withUntrustedRun, wrapUntrusted } from '@/lib/ai/untrusted';
 import { isDailyLlmBudgetStopped, isDailyBudgetStopped, KUZMICH_DAILY_REST_TEXT } from '@/lib/ai/daily-spend-gate';
+import { widgetChatGuard } from '@/lib/ai/anon-chat-guard';
 import { detectEmergency, withSosBlock } from '@/lib/safety/sos-detector';
 import { getPublicBaseUrl } from '@/lib/config';
 import { logText } from '@/lib/log/log-text';
@@ -207,6 +208,20 @@ export async function POST(request: NextRequest) {
     }
 
     const emergency = detectEmergency(message).detected;
+
+    // Сутки и доля бюджета (lib/ai/anon-chat-guard, проверка безопасности
+    // 26.11): окно на чужом сайте анонимно, и до этого дня один посетитель мог
+    // спрашивать сутки напролёт по 15 раз в минуту, пока общий стоп не
+    // закрывал Кузьмича всем. Вопрос о беде идёт мимо пределов.
+    if (!emergency) {
+      if (await widgetChatGuard.dailyStopped()) {
+        return NextResponse.json({ success: true, data: { answer: KUZMICH_DAILY_REST_TEXT, dailyStop: true } }, { headers: corsHeaders });
+      }
+      if (!widgetChatGuard.takeIpSlot(ip)) {
+        return NextResponse.json({ success: true, data: { answer: t.ipDailyLimit, limitReached: true } }, { headers: corsHeaders });
+      }
+      widgetChatGuard.countAnonCall();
+    }
 
     // Три источника данных порознь: отказ одного не отменяет ответ, но
     // называется — в логе и в промпте («не загрузился», а не «нет»).

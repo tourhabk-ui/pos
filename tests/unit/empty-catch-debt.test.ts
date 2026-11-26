@@ -61,7 +61,6 @@ const KNOWN_EMPTY_CATCHES: Record<string, number> = {
   'app/api/admin/operators/create/route.ts': 1,
   'app/api/admin/photos/upload/route.ts': 1,
   'app/api/agents/rescue-briefing/route.ts': 1,
-  'app/api/ai/deepseek/route.ts': 1,
   'app/api/ai/judge-rag/route.ts': 1,
   'app/api/auth/max/start/route.ts': 1,
   'app/api/auth/register-operator/route.ts': 3,

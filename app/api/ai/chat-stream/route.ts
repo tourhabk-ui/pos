@@ -47,6 +47,7 @@ import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { catalogToolRuns } from '@/lib/kuzmich/offer-claim-guard';
 import { createUntrustedMark, runWithUntrustedMark } from '@/lib/ai/untrusted';
 import { isDailyLlmBudgetStopped, isDailyBudgetStopped, KUZMICH_DAILY_REST_TEXT } from '@/lib/ai/daily-spend-gate';
+import { trimHistory } from '@/lib/ai/anon-chat-guard';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { saveChatSession } from '@/lib/kuzmich/chat-session-save';
 import { newLoopTiming, answerTokens } from '@/lib/kuzmich/answer-ceiling';
@@ -65,10 +66,20 @@ const FREE_MESSAGE_LIMIT = 3;
 
 const streamLimiter = createRateLimiter({ windowMs: 60_000, max: 30 });
 
+// Потолок одной реплики истории, которую присылает клиент (проверка
+// безопасности 26.11): до этого дня длина не ограничивалась, и десять реплик
+// по сорок тысяч знаков уходили в модель на каждом из четырёх ходов. В модель
+// история идёт ещё и через trimHistory — те же потолки, что у гостя.
+const CLIENT_HISTORY_ITEM_MAX = 20_000;
 const ChatMessageSchema = z.object({
   role: z.enum(['user', 'assistant']),
-  content: z.string(),
+  content: z.string().max(CLIENT_HISTORY_ITEM_MAX),
 });
+
+/** История для модели: только реплики человека и Кузьмича, под потолками гостя. */
+function historyForModel(history: ChatMessage[]): ChatMessage[] {
+  return trimHistory(history.filter((m): m is ChatMessage & { role: 'user' | 'assistant' } => m.role === 'user' || m.role === 'assistant'));
+}
 
 const Schema = z.object({
   message: z.string().min(1).max(1000),
@@ -252,7 +263,7 @@ export async function POST(request: NextRequest) {
     ]);
     const mchsBlock = turnFacts?.mchsBlock ?? '';
     const systemPrompt = [basePrompt, turnFacts?.modules ?? '', mchsBlock, turnFacts?.facts ?? '', geoContext, ragContext, memContext, agentInsights].filter(Boolean).join('\n\n');
-    const messagesForAI = buildMessageHistory(systemPrompt, history, 10);
+    const messagesForAI = buildMessageHistory(systemPrompt, historyForModel(history), 10);
     // Мозг Кузьмича для туристов — та же связка, что в /api/ai/chat:
     // KUZMICH_SYSTEM (обязательный get_guardian_context) + данные хода; место
     // человека, память и предупреждения агентов — своё у этой поверхности.
@@ -346,7 +357,7 @@ export async function POST(request: NextRequest) {
           let loopAnswered = false;
           if (safeRole === 'tourist' && !commercialHit) {
             try {
-              fullAnswer = (await aiChatAgentLoop(message.trim(), kuzmichSystem, history.slice(-10), [], streamToolRuns, streamProvenance, streamTiming)) ?? '';
+              fullAnswer = (await aiChatAgentLoop(message.trim(), kuzmichSystem, historyForModel(history), [], streamToolRuns, streamProvenance, streamTiming)) ?? '';
               loopAnswered = Boolean(fullAnswer.trim());
             } catch (err) {
               if (isDailyBudgetStopped(err)) throw err;

@@ -179,3 +179,59 @@ export const anonChatGuard: AnonGuard = createAnonGuard({ readSpendToday: readLl
 
 /** Срок окна в мс — для пояснений и тестов. */
 export const ANON_WINDOW_MS = DAY_MS;
+
+/* ─── Анонимные двери кроме гостевого чата (26.11) ─────────────────────────
+ *
+ * Проверка безопасности ИИ-части 26.11 (слово владельца «чини Карт бланш»):
+ * у свободного разговора чужого агента по A2A и у чата виджета на сайтах
+ * партнёров не было ни дневного предела на адрес, ни своей доли бюджета —
+ * только 10–15 вопросов в минуту. Один посетитель за минуты доводил траты до
+ * общего суточного стопа, и Кузьмич замолкал для всех: на сайте, в Telegram
+ * и MAX.
+ *
+ * Те же три линии, что у гостя, и ещё одна: эти двери останавливаются на
+ * доле бюджета (ANON_DOORS_BUDGET_SHARE), а не на всём. Остаток дня остаётся
+ * сайту и мессенджерам, где отвечают людям, а не неизвестному клиенту.
+ * Вопрос о беде (sos-detector) двери пропускают мимо пределов — это решает
+ * вызывающий, не охрана.
+ */
+
+/** Доля суточного бюджета, после которой A2A-разговор и виджет молчат. */
+export const ANON_DOORS_BUDGET_SHARE = 0.5;
+/** Вопросов текстом с одного адреса за сутки — как у гостя. */
+export const A2A_PER_IP_DAILY = ANON_PER_IP_DAILY;
+export const WIDGET_PER_IP_DAILY = ANON_PER_IP_DAILY;
+export const DEFAULT_A2A_DAILY_MAX = 300;
+export const DEFAULT_WIDGET_DAILY_MAX = 400;
+
+function positiveIntOr(raw: string | undefined, fallback: number): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+export function a2aDailyMax(raw: string | undefined = process.env.AI_A2A_DAILY_MAX): number {
+  return positiveIntOr(raw, DEFAULT_A2A_DAILY_MAX);
+}
+
+export function widgetDailyMax(raw: string | undefined = process.env.AI_WIDGET_DAILY_MAX): number {
+  return positiveIntOr(raw, DEFAULT_WIDGET_DAILY_MAX);
+}
+
+/** Порог трат для анонимных дверей: доля дневного бюджета. */
+export function anonDoorsBudgetUsd(): number {
+  return dailyBudgetUsd() * ANON_DOORS_BUDGET_SHARE;
+}
+
+export const a2aChatGuard: AnonGuard = createAnonGuard({
+  readSpendToday: readLlmSpendToday,
+  budgetUsd: anonDoorsBudgetUsd,
+  dailyMax: () => a2aDailyMax(),
+  perIpDaily: A2A_PER_IP_DAILY,
+});
+
+export const widgetChatGuard: AnonGuard = createAnonGuard({
+  readSpendToday: readLlmSpendToday,
+  budgetUsd: anonDoorsBudgetUsd,
+  dailyMax: () => widgetDailyMax(),
+  perIpDaily: WIDGET_PER_IP_DAILY,
+});

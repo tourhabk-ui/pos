@@ -84,6 +84,32 @@ beforeEach(() => {
   callAIWithModelDirectMock.mockResolvedValue('LEGACY_ANSWER');
 });
 
+// Проверка безопасности ИИ-части 26.11: длина реплик присланной истории не
+// ограничивалась, и десять реплик по сорок тысяч знаков шли в модель на
+// каждом ходе цикла. Теперь у реплики потолок, а в модель история идёт
+// через trimHistory — те же потолки, что у гостя.
+describe('POST /api/ai/chat-stream — история под потолками', () => {
+  it('длинная история клиента доходит до цикла обрезанной, вопрос — последним', async () => {
+    aiChatAgentLoopMock.mockResolvedValue('Ответ');
+    const history = Array.from({ length: 20 }, (_, i) => ({
+      role: i % 2 === 0 ? 'user' : 'assistant',
+      content: `реплика ${i} ` + 'х'.repeat(15_000),
+    }));
+    const res = await POST(postReq({ message: 'А погода?', history }));
+    await readSSE(res);
+    const [, , sent] = aiChatAgentLoopMock.mock.calls[0] as [string, string, Array<{ role: string; content: string }>];
+    expect(sent.length).toBeLessThanOrEqual(10);
+    expect(sent.reduce((n, m) => n + m.content.length, 0)).toBeLessThanOrEqual(12_000);
+    expect(sent[sent.length - 1]).toMatchObject({ role: 'user', content: 'А погода?' });
+  });
+
+  it('реплика истории длиннее 20 000 знаков — запрос отклоняется до модели', async () => {
+    const res = await POST(postReq({ message: 'Привет', history: [{ role: 'user', content: 'х'.repeat(20_001) }] }));
+    expect(res.status).toBe(400);
+    expect(aiChatAgentLoopMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('POST /api/ai/chat-stream — мозг Кузьмича', () => {
   it('турист → loop с KUZMICH_SYSTEM, ответ по словам, финал в end-событии', async () => {
     aiChatAgentLoopMock.mockResolvedValue('Мутновский сейчас в жёлтом статусе');

@@ -58,6 +58,7 @@ import { POST } from '@/app/api/widget/chat/route';
 import { DELIVERY_HONEST_LINE } from '@/lib/kuzmich/delivery-claim-guard';
 import { CONTRADICTED_ALL_CLEAR_NOTE, UNCHECKED_ALL_CLEAR_NOTE } from '@/lib/kuzmich/safety-claim-guard';
 import { WIDGET_TEXTS } from '@/lib/embed/widget-i18n';
+import { widgetChatGuard, WIDGET_PER_IP_DAILY, ANON_DOORS_BUDGET_SHARE } from '@/lib/ai/anon-chat-guard';
 import { buildSosBlock, detectEmergency } from '@/lib/safety/sos-detector';
 import {
   WIDGET_HISTORY_MAX_ITEMS,
@@ -116,6 +117,7 @@ let errSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  widgetChatGuard.reset();
   toursFail = false;
   partnersFail = false;
   routeDb();
@@ -143,6 +145,54 @@ describe('лид чат не создаёт', () => {
     const system = sentToModel()[0].content;
     expect(system).toContain('«Оставить заявку»');
     expect(system).toContain('Телефон в чате не проси');
+  });
+});
+
+// Проверка безопасности ИИ-части 26.11: у окна на чужом сайте был только
+// предел 15 вопросов в минуту, дневного не было (lib/ai/anon-chat-guard).
+describe('пределы окна: сутки на адрес и своя доля бюджета', () => {
+  const IP = '203.0.113.7'; // адрес, который отдаёт подменённый getClientIp
+
+  it(`после ${WIDGET_PER_IP_DAILY} вопросов с адреса — ответ без модели, на языке окна`, async () => {
+    for (let i = 0; i < WIDGET_PER_IP_DAILY; i++) widgetChatGuard.takeIpSlot(IP);
+    const res = await call({ partnerId: 'mestechko', sessionId: 's9', message: 'Какие туры есть?', lang: 'en' });
+    const body = await res.json() as { data: { answer: string; limitReached?: boolean } };
+    expect(body.data.limitReached).toBe(true);
+    expect(body.data.answer).toBe(WIDGET_TEXTS.en.ipDailyLimit);
+    expect(waterfall).not.toHaveBeenCalled();
+  });
+
+  it('вопрос о беде идёт мимо предела адреса', async () => {
+    for (let i = 0; i < WIDGET_PER_IP_DAILY; i++) widgetChatGuard.takeIpSlot(IP);
+    const res = await call({ partnerId: 'mestechko', sessionId: 's9', message: 'Мы заблудились на Авачинском, у друга сломана нога' });
+    const body = await res.json() as { data: { emergency: boolean; answer: string } };
+    expect(body.data.emergency).toBe(true);
+    expect(waterfall).toHaveBeenCalled();
+  });
+
+  it('траты сайта дошли до доли бюджета — окно отдыхает, модель не зовётся', async () => {
+    vi.stubEnv('AI_DAILY_BUDGET_USD', '5');
+    dbQuery.mockImplementation(async (sql: string, params: unknown[] = []) => {
+      if (/FROM llm_usage_log/.test(sql)) return { rows: [{ spent: String(5 * ANON_DOORS_BUDGET_SHARE) }] };
+      if (/FROM partners/.test(sql)) {
+        return params[0] === 'mestechko'
+          ? { rows: [{ id: PARTNER_ID, name: 'Местечко Камчатка', category: 'operator', description: null, widget_domains: [] }] }
+          : { rows: [] };
+      }
+      return { rows: [] };
+    });
+    try {
+      const res = await call({ partnerId: 'mestechko', sessionId: 's9', message: 'Какие туры есть?' });
+      const body = await res.json() as { data: { dailyStop?: boolean } };
+      expect(body.data.dailyStop).toBe(true);
+      expect(waterfall).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('текст предела есть на каждом языке окна и называет 112', () => {
+    for (const t of Object.values(WIDGET_TEXTS)) expect(t.ipDailyLimit).toMatch(/112/);
   });
 });
 

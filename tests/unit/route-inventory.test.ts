@@ -53,7 +53,8 @@ const NEEDS_REVIEW_FROZEN = [
   // Вычеркнуть можно будет, когда появится настоящая проверка вызывающего.
   '/api/affiliate/link',
   '/api/ai',
-  '/api/ai/deepseek',
+  // '/api/ai/deepseek' — вычеркнут 26.11: роут снят, отвечает 410
+  // (проверка безопасности ИИ-части, tests/unit/ai-deepseek-retired.test.ts).
   '/api/ai/smart-search',
   '/api/ai/vision',
   // '/api/docs' — вычеркнут 12.10 вместе с удалением роута: swagger-jsdoc без

@@ -213,7 +213,7 @@ async function sendMessage(params: unknown, ctx: A2AContext, deps: Deps): Promis
   // Отказ текстовому вопросу один — лимит на адрес (app/api/a2a/_shared).
   const task = answer.ok
     ? makeTask({ ids, now, id: taskId, contextId, state: 'completed', text: answer.text, metadata })
-    : makeTask({ ids, now, id: taskId, contextId, state: answer.rejected ? 'rejected' : 'failed', text: answer.text, metadata: answer.rejected ? { ...metadata, reason: 'rate_limited' } : metadata });
+    : makeTask({ ids, now, id: taskId, contextId, state: answer.rejected ? 'rejected' : 'failed', text: answer.text, metadata: answer.rejected ? { ...metadata, reason: answer.reason ?? 'rate_limited' } : metadata });
   if (answer.ok) await deps.store.remember(contextId, [{ role: 'user', content: text }, { role: 'assistant', content: answer.text }]);
   await deps.store.put(task);
   return { ok: true, result: encodeSendMessageResult(task, ctx.version, historyLength) };
