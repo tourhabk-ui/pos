@@ -59,6 +59,32 @@ describe('маска реплики человека', () => {
     expect(out).toContain('[имя]');
   });
 
+  // Ревью безопасности PR #3840: регистр, двоеточие и лишние пробелы.
+  it('имя скрыто в любом регистре, после двоеточия и через два пробела', () => {
+    const cases: Array<[string, string[]]> = [
+      ['меня зовут иван петров, я потерялся', ['иван', 'петров']],
+      ['МЕНЯ ЗОВУТ ИВАН ПЕТРОВ', ['ИВАН', 'ПЕТРОВ']],
+      ['Меня зовут: Иван Петров, я потерялся в районе Мутновского', ['Иван', 'Петров']],
+      ['Меня зовут Иван  Петров', ['Иван', 'Петров']],
+      ['Меня зовут Иван\tПетрович Сидоров', ['Иван', 'Петрович', 'Сидоров']],
+      ['My name is: John Smith', ['John', 'Smith']],
+      ['my name is john', ['john']],
+      ['Нас зовут Анна, едем вдвоём', ['Анна']],
+      ['Имя:  Мария', ['Мария']],
+      ["Hi, I'm John. Is the trail open?", ['John']],
+    ];
+    for (const [text, leaks] of cases) {
+      const out = redactTurnPD(text);
+      for (const leak of leaks) expect(out, `${text} → ${out}`).not.toMatch(new RegExp(`(^|[^\\p{L}])${leak}(?![\\p{L}])`, 'u'));
+      expect(out, text).toContain('[имя]');
+    }
+  });
+
+  it('строчное имя не съедает фразу: вулкан после имени остаётся', () => {
+    expect(redactTurnPD('меня зовут иван и я хочу на Мутновский')).toBe('меня зовут [имя] и я хочу на Мутновский');
+    expect(redactTurnPD("I'm at the crater, is it safe?")).toBe("I'm at the crater, is it safe?");
+  });
+
   it('место в разговоре о поле и свои ссылки остаются', () => {
     const text = 'Мы на вулкане. Это Горелый. Я на тропе у Авачинского, вот тур https://vedarai.ru/catalog/tours/12';
     expect(redactTurnPD(text)).toBe(text);

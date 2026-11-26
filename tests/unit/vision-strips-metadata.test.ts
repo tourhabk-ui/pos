@@ -74,6 +74,32 @@ function webpWithGps(): Buffer {
   return Buffer.concat([head, body]);
 }
 
+/** Голый JPEG: SOI, таблица, скан с данными и конец кадра. */
+function bareJpeg(data: number[] = [0xab, 0xcd, 0xef]): Buffer {
+  return Buffer.concat([
+    Buffer.from([0xff, 0xd8]),
+    jpegSegment(0xdb, Buffer.alloc(65, 1)),
+    Buffer.from([0xff, 0xda, 0x00, 0x08, 1, 2, 3, 4, 5, 6, ...data, 0xff, 0xd9]),
+  ]);
+}
+
+function gifWithXmp(): Buffer {
+  const sub = (b: Buffer) => Buffer.concat([Buffer.from([b.length]), b]);
+  return Buffer.concat([
+    Buffer.from('GIF89a', 'latin1'),
+    Buffer.from([1, 0, 1, 0, 0x80, 0, 0]), // 1×1, глобальная палитра на 2 цвета
+    Buffer.from([0, 0, 0, 255, 255, 255]),
+    Buffer.from([0x21, 0xff]), sub(Buffer.from('NETSCAPE2.0', 'latin1')), sub(Buffer.from([1, 0, 0])), Buffer.from([0]),
+    Buffer.from([0x21, 0xff]), sub(Buffer.from('XMP DataXMP', 'latin1')), sub(Buffer.from(`<x:xmpmeta>${GPS}</x:xmpmeta>`, 'latin1')), Buffer.from([0]),
+    Buffer.from([0x21, 0xfe]), sub(Buffer.from(`снято в ${GPS}`, 'utf8')), Buffer.from([0]),
+    Buffer.from([0x21, 0xf9, 4, 0, 10, 0, 0, 0]),
+    Buffer.from([0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0]),
+    Buffer.from([2, 2, 0x44, 0x01, 0]),
+    Buffer.from([0x3b]),
+    Buffer.from(`хвост ${GPS}`, 'utf8'),
+  ]);
+}
+
 const decoded = (b64: string) => Buffer.from(b64, 'base64');
 
 describe('очистка снимка', () => {
@@ -125,6 +151,104 @@ describe('очистка снимка', () => {
   });
 });
 
+// Ревью безопасности PR #3840: хвост за концом кадра и форматы, которые шли
+// как есть, несли координаты мимо очистки.
+describe('очистка снимка: то, что идёт мимо заголовка', () => {
+  it('JPEG: EXIF, приписанный после конца кадра, отброшен; файл кончается FF D9', () => {
+    const tail = jpegSegment(0xe1, Buffer.from(`Exif\0\0${GPS}`, 'latin1'));
+    const r = stripImageMetadata(Buffer.concat([bareJpeg(), tail]).toString('base64'));
+    expect(r).toMatchObject({ ok: true, format: 'jpeg', removed: 1 });
+    if (!r.ok) return;
+    const out = decoded(r.base64);
+    expect(out.toString('latin1')).not.toContain('GPSLatitude');
+    expect(out.equals(bareJpeg())).toBe(true);
+  });
+
+  it('JPEG: второй кадр со своим EXIF (MPO, «живое фото») отброшен', () => {
+    const second = Buffer.concat([Buffer.from([0xff, 0xd8]), jpegSegment(0xe1, Buffer.from(`Exif\0\0${GPS}`, 'latin1')), bareJpeg().subarray(2)]);
+    const r = stripImageMetadata(Buffer.concat([bareJpeg(), second]).toString('base64'));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(decoded(r.base64).toString('latin1')).not.toContain('GPSLatitude');
+  });
+
+  it('JPEG прогрессивный: FF 00 и перезапуски внутри данных, второй скан и таблица между сканами — на месте; APP1 между сканами снят', () => {
+    const scan1 = [0x11, 0xff, 0x00, 0x22, 0xff, 0xd3, 0x33, 0xff, 0xff, 0xd4, 0x44];
+    const img = Buffer.concat([
+      Buffer.from([0xff, 0xd8]),
+      jpegSegment(0xdb, Buffer.alloc(65, 1)),
+      Buffer.from([0xff, 0xda, 0x00, 0x08, 1, 2, 3, 4, 5, 6, ...scan1]),
+      jpegSegment(0xc4, Buffer.alloc(20, 7)),
+      jpegSegment(0xe1, Buffer.from(`Exif\0\0${GPS}`, 'latin1')),
+      Buffer.from([0xff, 0xda, 0x00, 0x08, 6, 5, 4, 3, 2, 1, 0x55, 0x66, 0xff, 0xd9]),
+    ]);
+    const r = stripImageMetadata(img.toString('base64'));
+    expect(r).toMatchObject({ ok: true, removed: 1 });
+    if (!r.ok) return;
+    const out = decoded(r.base64);
+    expect(out.toString('latin1')).not.toContain('GPSLatitude');
+    expect(out.includes(Buffer.from(scan1))).toBe(true);
+    expect(out.includes(jpegSegment(0xc4, Buffer.alloc(20, 7)))).toBe(true);
+    expect(out.subarray(-4).equals(Buffer.from([0x55, 0x66, 0xff, 0xd9]))).toBe(true);
+  });
+
+  it('JPEG: незнакомые APPn и JFXX сняты, JFIF остался; без конца кадра — отказ', () => {
+    const img = Buffer.concat([
+      Buffer.from([0xff, 0xd8]),
+      jpegSegment(0xe0, Buffer.from('JFIF\0\x01\x01', 'latin1')),
+      jpegSegment(0xe0, Buffer.from(`JFXX\0${GPS}`, 'latin1')),
+      jpegSegment(0xe3, Buffer.from(`Meta\0${GPS}`, 'latin1')),
+      jpegSegment(0xec, Buffer.from(`Ducky${GPS}`, 'latin1')),
+      bareJpeg().subarray(2),
+    ]);
+    const r = stripImageMetadata(img.toString('base64'));
+    expect(r).toMatchObject({ ok: true, removed: 3 });
+    if (r.ok) {
+      expect(decoded(r.base64).toString('latin1')).not.toContain('GPSLatitude');
+      expect(decoded(r.base64).toString('latin1')).toContain('JFIF');
+    }
+    expect(stripImageMetadata(bareJpeg().subarray(0, -2).toString('base64')).ok).toBe(false);
+    // Оборван после заголовка: ни данных изображения, ни конца кадра.
+    const headerOnly = Buffer.concat([Buffer.from([0xff, 0xd8]), jpegSegment(0xdb, Buffer.alloc(65, 1))]);
+    expect(stripImageMetadata(headerOnly.toString('base64')).ok).toBe(false);
+  });
+
+  it('GIF: XMP и комментарий сняты, повтор анимации, управление кадром и кадр — на месте, хвост за концом отброшен', () => {
+    const r = stripImageMetadata(gifWithXmp().toString('base64'));
+    expect(r).toMatchObject({ ok: true, format: 'gif', removed: 3 });
+    if (!r.ok) return;
+    const out = decoded(r.base64);
+    expect(out.toString('latin1')).not.toContain('GPSLatitude');
+    expect(out.toString('latin1')).toContain('NETSCAPE2.0');
+    expect(out.includes(Buffer.from([0x21, 0xf9, 4, 0, 10, 0, 0, 0]))).toBe(true);
+    expect(out.subarray(-6).equals(Buffer.from([2, 2, 0x44, 0x01, 0, 0x3b]))).toBe(true);
+  });
+
+  it('GIF без конца файла — отказ', () => {
+    expect(stripImageMetadata(gifWithXmp().subarray(0, 40).toString('base64')).ok).toBe(false);
+  });
+
+  it('PNG и WebP: незнакомый блок снят, хвост за IEND отброшен', () => {
+    const png = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      pngChunk('IHDR', Buffer.alloc(13, 1)),
+      pngChunk('caBX', Buffer.from(GPS, 'latin1')),
+      pngChunk('IDAT', Buffer.from('ДАННЫЕ', 'utf8')),
+      pngChunk('IEND', Buffer.alloc(0)),
+      Buffer.from(`хвост ${GPS}`, 'latin1'),
+    ]);
+    const p = stripImageMetadata(png.toString('base64'));
+    expect(p).toMatchObject({ ok: true, removed: 1 });
+    if (p.ok) expect(decoded(p.base64).toString('latin1')).not.toContain('GPSLatitude');
+
+    const body = Buffer.concat([webpChunk('VP8 ', Buffer.from('ДАННЫЕ', 'utf8')), webpChunk('c2pa', Buffer.from(GPS, 'latin1'))]);
+    const head = Buffer.alloc(12);
+    head.write('RIFF', 0, 'latin1'); head.writeUInt32LE(4 + body.length, 4); head.write('WEBP', 8, 'latin1');
+    const w = stripImageMetadata(Buffer.concat([head, body]).toString('base64'));
+    expect(w).toMatchObject({ ok: true, removed: 1 });
+    if (w.ok) expect(decoded(w.base64).toString('latin1')).not.toContain('GPSLatitude');
+  });
+});
+
 describe('вход зрения: в модель уходит очищенный снимок', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -156,4 +280,40 @@ describe('вход зрения: в модель уходит очищенный
     expect(r.legs[0]).toMatchObject({ provider: 'metadata_strip', outcome: 'refused' });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+});
+
+// Настоящие кодировщики, а не собранные руками байты: очищенный снимок
+// декодируется в те же пиксели, что исходный, а EXIF с GPS из него ушёл.
+describe('очистка снимка: настоящие файлы из sharp', () => {
+  async function source() {
+    const sharp = (await import('sharp')).default;
+    const raw = Buffer.alloc(48 * 32 * 3);
+    for (let k = 0; k < raw.length; k++) raw[k] = (k * 37) % 251;
+    return { sharp, base: sharp(raw, { raw: { width: 48, height: 32, channels: 3 } }) };
+  }
+  const exif = { IFD0: { ImageDescription: GPS, Copyright: GPS } };
+
+  for (const kind of ['jpeg', 'jpeg-progressive', 'png', 'webp', 'gif'] as const) {
+    it(`${kind}: пиксели те же, метаданных нет`, async () => {
+      const { sharp, base } = await source();
+      let pipe = base.clone().withExif(exif);
+      if (kind === 'jpeg') pipe = pipe.jpeg({ quality: 90 });
+      if (kind === 'jpeg-progressive') pipe = pipe.jpeg({ quality: 90, progressive: true, optimiseScans: true });
+      if (kind === 'png') pipe = pipe.png();
+      if (kind === 'webp') pipe = pipe.webp({ lossless: true });
+      if (kind === 'gif') pipe = pipe.gif();
+      const file = await pipe.toBuffer();
+      // GIF у sharp EXIF не пишет — его метаданные проверены сборкой выше.
+      if (kind !== 'gif') expect(file.toString('latin1'), `${kind}: в исходнике нет EXIF`).toContain('GPSLatitude');
+      const r = stripImageMetadata(file.toString('base64'));
+      expect(r.ok, kind).toBe(true);
+      if (!r.ok) return;
+      const out = decoded(r.base64);
+      expect(out.toString('latin1')).not.toContain('GPSLatitude');
+      const [a, b] = await Promise.all([sharp(file).raw().toBuffer(), sharp(out).raw().toBuffer()]);
+      expect(b.equals(a), `${kind}: пиксели разошлись`).toBe(true);
+      const meta = await sharp(out).metadata();
+      expect(meta.exif, `${kind}: EXIF остался`).toBeUndefined();
+    });
+  }
 });
