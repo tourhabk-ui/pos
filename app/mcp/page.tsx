@@ -15,7 +15,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Header } from '@/components/layout/Header';
 import { JsonLd } from '@/components/seo/JsonLd';
-import { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO, MCP_READ_PER_MINUTE } from '@/lib/mcp/public-tools';
+import { PUBLIC_MCP_TOOLS, MCP_SERVER_INFO, MCP_READ_PER_MINUTE, PUBLIC_MCP_TOOL_DESCRIPTIONS_RU } from '@/lib/mcp/public-tools';
 import { CHANGE_REQUEST_RULE } from '@/lib/mcp/change-request-schema';
 import { DATE_CHANGE_DAILY_LIMIT } from '@/lib/requests/date-change-limit';
 import { NOTIFY_TOOL_NAMES, NOTIFY_HOW_TO_VERIFY, NOTIFY_RESPONSE_RULES } from '@/lib/mcp/request-notify-schema';
@@ -236,7 +236,7 @@ export default function McpLandingPage() {
                     <code>{t.name}</code>
                   </p>
                   <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-                    {t.description}
+                    {PUBLIC_MCP_TOOL_DESCRIPTIONS_RU[t.name] ?? t.description}
                   </p>
                 </div>
               ))}

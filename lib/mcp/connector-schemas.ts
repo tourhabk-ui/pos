@@ -29,9 +29,9 @@ export const FETCH_TEXT_MAX = 12_000;
 const RESULT_ITEM_SCHEMA = {
   type: 'object',
   properties: {
-    id: { type: 'string', description: 'Идентификатор документа для fetch: tour:<id>, place:<slug>, stay:<uuid>, route:<slug>' },
-    title: { type: 'string', description: 'Название для человека' },
-    url: { type: 'string', description: 'Каноническая страница на vedarai.ru — для цитаты' },
+    id: { type: 'string', description: 'Document id for fetch: tour:<id>, place:<slug>, stay:<uuid>, route:<slug>' },
+    title: { type: 'string', description: 'Title for the person' },
+    url: { type: 'string', description: 'Canonical vedarai.ru page, for citation' },
   },
   required: ['id', 'title', 'url'],
 } as const;
@@ -80,9 +80,9 @@ export const FETCH_TOOL = {
     properties: {
       id: { type: 'string' },
       title: { type: 'string' },
-      text: { type: 'string', description: 'Полный текст записи' },
-      url: { type: 'string', description: 'Каноническая страница на vedarai.ru' },
-      metadata: { type: 'object', description: 'Род записи и факты: kind, price, duration, season…' },
+      text: { type: 'string', description: 'Full record text' },
+      url: { type: 'string', description: 'Canonical vedarai.ru page' },
+      metadata: { type: 'object', description: 'Record kind and facts: kind, price, duration, season…' },
     },
     required: ['id', 'title', 'text', 'url'],
   },

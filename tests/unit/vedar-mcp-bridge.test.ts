@@ -20,7 +20,7 @@ import { PUBLIC_MCP_TOOLS, WRITE_TOOL_NAMES, CHANGE_TOOL_NAMES } from '@/lib/mcp
 import { chinaClientFamily, clientRegion, CHINA_REGION_LABEL } from '@/lib/mcp/china-clients';
 import { externalBinary } from '../helpers/external-binary';
 import { buildServerInstructions } from '@/lib/mcp/server-instructions';
-import { ANSWER_RELAY_RULE } from '@/lib/mcp/request-status-schema';
+import { ANSWER_RELAY_RULE_EN } from '@/lib/mcp/request-status-schema';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
@@ -252,28 +252,29 @@ describe('notify_url модели не отдаётся (29.10)', () => {
     expect(built).not.toMatch(/notify_url/);
     // Фраза о согласии на ПД не отрезана обрезкой в 1024 знака.
     const booking = (JSON.parse(built) as Array<{ function: { name: string; description: string } }>).find((t) => t.function.name === 'create_booking_request');
-    // С 15.11 последним стоит правило «заявку отправляет сам человек по ссылке» (#3399, п. 4).
-    expect(booking?.function.description).toMatch(/на странице Ведара он сам нажмёт «Отправить»\.$/);
+    // С 15.11 последним стоит правило «заявку отправляет сам человек по ссылке» (#3399, п. 4);
+    // с 26.11 описания наружу — по-английски.
+    expect(booking?.function.description).toMatch(/they press Send on the Vedar page themselves\.$/);
     // Отмена и перенос: описание помещается целиком (последняя фраза — о том, что передать человеку),
     // а поле пробы модели не показано — мост говорит с живым человеком.
     const change = (JSON.parse(built) as Array<{ function: { name: string; description: string; parameters: { properties: Record<string, unknown> } } }>).find((t) => t.function.name === 'change_request');
     expect(change?.function.description.length).toBeLessThanOrEqual(1024);
-    expect(change?.function.description).toMatch(/кто узнал на деле \(told\) — передайте человеку как есть\.$/);
+    expect(change?.function.description).toMatch(/Pass outcome, changed and told to the person as is\.$/);
     expect(Object.keys(change?.function.parameters.properties ?? {}).sort()).toEqual(['action', 'date', 'key']);
     // Правило доставки ответа (план «после отказа», 2б) не отрезано тоже: в
     // первой редакции описание статуса вышло за 1024 знака, и мост обрывал
     // правило на «передайте человеку». Описание статуса помещается целиком —
     // кончается точкой своего последнего предложения, а не обрывом.
     const status = (JSON.parse(built) as Array<{ function: { name: string; description: string } }>).find((t) => t.function.name === 'get_request_status');
-    expect(status?.function.description).toContain(ANSWER_RELAY_RULE);
+    expect(status?.function.description).toContain(ANSWER_RELAY_RULE_EN);
     expect(status?.function.description.length).toBeLessThan(1024);
-    expect(status?.function.description).toMatch(/бронь перенесена или заведена на другую дату\.$/);
+    expect(status?.function.description).toMatch(/if they differ, the booking was moved\.$/);
     // Заявка на прокат (12.11): описание кончалось обрывом «Никогда не с» —
     // ровно 1024 знака посреди правила о согласии. С 17.11 прокат идёт тем же
     // путём /confirm, и последним стоит то же правило, что у брони.
     const rental = (JSON.parse(built) as Array<{ function: { name: string; description: string } }>).find((t) => t.function.name === 'create_car_rental_request');
     expect(rental?.function.description.length).toBeLessThan(1024);
-    expect(rental?.function.description).toMatch(/на странице Ведара он сам нажмёт «Отправить»\.$/);
+    expect(rental?.function.description).toMatch(/they press Send on the Vedar page themselves\.$/);
   });
 
   it('ни одно описание в снимке не кончается обрывом фразы', () => {

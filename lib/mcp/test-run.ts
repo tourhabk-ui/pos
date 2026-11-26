@@ -121,11 +121,11 @@ export function writeStructured(
 
 const NOTIFY_SCHEMA = {
   type: ['object', 'null'],
-  description: 'Подписка на уведомления по notify_url: active=true — номер подписки и ключ подписи (показан один раз); active=false — не заведена, reason — почему; null — адрес не передавали',
+  description: 'notify_url subscription: active=true — ref and signing key (shown once); false — see reason; null — no URL',
   properties: {
     active: { type: 'boolean' },
-    ref: { type: 'string', description: 'Номер подписки (nr_…)' },
-    signing_secret: { type: 'string', description: 'Ключ подписи вебхука (whsec_…), Standard Webhooks; сохраните, не публикуйте' },
+    ref: { type: 'string', description: 'Subscription ref (nr_…)' },
+    signing_secret: { type: 'string', description: 'Webhook signing key (whsec_…), Standard Webhooks; store it, never publish' },
     reason: { type: 'string' },
   },
   required: ['active'],
@@ -135,18 +135,18 @@ const NOTIFY_SCHEMA = {
 export const WRITE_OUTPUT_SCHEMA = {
   type: 'object',
   properties: {
-    test: { type: 'boolean', description: 'Пробный прогон (test: true): ничего не записано и не передано' },
-    accepted: { type: 'integer', description: 'Сколько заявок принято этим вызовом; 0 — ни одной (причина — в тексте ответа)' },
+    test: { type: 'boolean', description: 'Dry run (test: true): nothing stored or sent' },
+    accepted: { type: 'integer', description: 'Requests accepted by this call; 0 — none (reason in the text)' },
     requests: {
       type: 'array',
-      description: 'Заявки этого вызова: у поездки целиком — по частям. Повтор того же вызова за сутки второй заявки не создаёт: ключ выдаётся новый, к той же заявке',
+      description: 'Requests of this call; a trip, per part. Repeating the call within a day creates no second request: a new key to the same one',
       items: {
         type: 'object',
         properties: {
-          tool: { type: 'string', description: 'Инструмент, создавший заявку' },
+          tool: { type: 'string', description: 'Tool that created the request' },
           outcome: { type: 'string', enum: ['accepted', 'test'] },
-          status_key: { type: ['string', 'null'], description: 'Ключ для get_request_status; null — ключ не выдан (сбой записи ключа)' },
-          status_page: { type: ['string', 'null'], description: 'Страница заявки для человека; дайте её человеку, не публикуйте' },
+          status_key: { type: ['string', 'null'], description: 'Key for get_request_status; null — not issued (key write failed)' },
+          status_page: { type: ['string', 'null'], description: 'Request page: give it to the person, never publish' },
           notify: NOTIFY_SCHEMA,
         },
         required: ['tool', 'outcome', 'status_key', 'status_page', 'notify'],
@@ -155,22 +155,22 @@ export const WRITE_OUTPUT_SCHEMA = {
     place_status: TOUR_PLACE_ENTRY_SCHEMA,
     group: {
       type: 'object',
-      description: 'Заявка на группу больше, чем тур берёт на выезд: ушла оператору запросом на всю группу, места не закреплены; откажет — заявку увидят другие операторы того же вида туров',
+      description: 'Group larger than the tour takes: sent to the operator as a query for the whole group, seats not held; if declined, other operators of that tour type see it',
       properties: {
         code: { type: 'string', enum: ['group_over_seats'] },
         tour_id: { type: 'integer' },
-        seats_on_date: { type: ['integer', 'null'], description: 'Свободно на дату; null — расписания у тура нет' },
-        tour_max: { type: ['integer', 'null'], description: 'Потолок тура, как записан; null — не записан или группа тура не ограничена' },
+        seats_on_date: { type: ['integer', 'null'], description: 'Free seats on the date; null — no schedule' },
+        tour_max: { type: ['integer', 'null'], description: 'Tour group limit; null — not recorded or unlimited' },
         participants: { type: 'integer' },
       },
       required: ['code', 'tour_id', 'seats_on_date', 'tour_max', 'participants'],
     },
     confirmation: {
       type: 'object',
-      description: 'Заявка не создана, это черновик (#3399): отдайте человеку url — на странице Ведара он сам нажмёт «Отправить»',
+      description: 'No request yet, only a draft: give the person url; they press Send on the Vedar page',
       properties: {
-        url: { type: 'string', description: 'Страница, где человек отправляет заявку; не открывайте её за человека' },
-        expires_in_min: { type: 'integer', description: 'Сколько минут действует ссылка' },
+        url: { type: 'string', description: 'Page where the person sends the request; never open it for them' },
+        expires_in_min: { type: 'integer', description: 'Minutes the link stays valid' },
       },
       required: ['url', 'expires_in_min'],
     },
