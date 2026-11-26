@@ -598,7 +598,7 @@ withPg('снимки партнёров без согласия: спрятан�
       }
     });
 
-    it('1515: зимнее озеро встаёт первым кадром, остальные идут следом в прежнем порядке, снимок бассейнов ложится последним; повтор ничего не меняет', async () => {
+    it('1515: кадр «Раздолья» снят с карточки, зимнее озеро встаёт первым, остальные идут следом в прежнем порядке, снимок бассейнов ложится последним; повтор ничего не меняет', async () => {
       const place = await pool.query<{ id: string; ark: string }>(
         `SELECT id::text, ark_id::text AS ark FROM places WHERE slug = 'zelenovskie-ozerki' AND merged_into_id IS NULL`);
       const OZERKI = place.rows[0]!;
@@ -608,8 +608,8 @@ withPg('снимки партнёров без согласия: спрятан�
       const COVER = 'photos/laguna-expedition/zelenovskie-ozerki-cover.jpg';
       const POOLS = 'photos/zaporozhets/zelenovskie-ozerki-basseyny.jpg';
       const OLD = '2026-11-01T00:00:00Z';
-      const rows = async () => (await pool.query<{ position: number; s3_key: string; fresh: boolean; stamp: string }>(
-        `SELECT position, s3_key, created_at > $2::timestamptz AS fresh, created_at::text AS stamp
+      const rows = async () => (await pool.query<{ position: number; s3_key: string; fresh: boolean; stamp: string; hidden: string | null }>(
+        `SELECT position, s3_key, created_at > $2::timestamptz AS fresh, created_at::text AS stamp, hidden_reason AS hidden
            FROM place_gallery_photos WHERE ark_id = $1 ORDER BY position`, [OZERKI.ark, OLD])).rows;
       // Сцена как на проде после 1513: обложка тура, летнее озеро, зимнее озеро; метки версии старые.
       const scene = async () => {
@@ -633,6 +633,9 @@ withPg('снимки партнёров без согласия: спрятан�
       await pool.query(M1515);
       const once = await rows();
       expect(once.map((r) => [r.position, r.s3_key])).toEqual([[1, WINTER], [2, COVER], [3, SUMMER], [4, POOLS]]);
+      // Кадр «Раздолья» спрятан причиной, а не удалён; снимки автора не спрятаны.
+      expect(once.map((r) => r.hidden === null)).toEqual([true, false, true, true]);
+      expect(once[1]!.hidden).toMatch(/Раздолье Камчатки/);
       // Переставленным кадрам метка версии обновлена: адрес «позиция + метка» не отдаёт другой снимок из кэша.
       expect(once.map((r) => r.fresh)).toEqual([true, true, true, true]);
       const pools = await pool.query<{ author: string; partner_id: string; width: number; height: number; caption: string; has_bytes: boolean }>(
@@ -644,15 +647,12 @@ withPg('снимки партнёров без согласия: спрятан�
       await pool.query(M1515);
       expect(await rows()).toEqual(once);
 
-      // Карточка: первым — зимнее озеро; у трёх кадров автора подпись — его имя.
+      // Карточка: кадра «Раздолья» нет, первым — зимнее озеро; под каждым кадром — имя автора.
       const c = await card(OZERKI.id);
       const shown = c.images.filter((u) => u.includes('/place-gallery/'));
-      expect(shown.map((u) => u.split('?')[0])).toEqual([1, 2, 3, 4].map((n) => `/api/images/place-gallery/${OZERKI.ark}/${n}`));
-      expect(new Set(shown).size, 'адреса кадров с метками версии не совпадают между собой').toBe(4);
-      const credits = shown.map((u) => c.photoCredits[u]);
-      expect(credits[0]).toBe('Андрей Запорожец');
-      expect(credits[2]).toBe('Андрей Запорожец');
-      expect(credits[3]).toBe('Андрей Запорожец');
+      expect(shown.map((u) => u.split('?')[0])).toEqual([1, 3, 4].map((n) => `/api/images/place-gallery/${OZERKI.ark}/${n}`));
+      expect(new Set(shown).size, 'адреса кадров с метками версии не совпадают между собой').toBe(3);
+      expect(shown.map((u) => c.photoCredits[u])).toEqual(['Андрей Запорожец', 'Андрей Запорожец', 'Андрей Запорожец']);
 
       // Кадр, стоящий на своём месте, метку не меняет: зимний уже первый — перестановки нет.
       await pool.query(`UPDATE place_gallery_photos SET created_at = $2::timestamptz WHERE ark_id = $1`, [OZERKI.ark, OLD]);
@@ -663,7 +663,7 @@ withPg('снимки партнёров без согласия: спрятан�
       await scene();
       await pool.query(`DELETE FROM place_gallery_photos WHERE ark_id = $1 AND s3_key = $2`, [OZERKI.ark, WINTER]);
       await pool.query(M1515);
-      expect((await rows()).map((r) => [r.position, r.s3_key, r.fresh])).toEqual([[1, COVER, false], [2, SUMMER, false], [3, POOLS, true]]);
+      expect((await rows()).map((r) => [r.position, r.s3_key, r.fresh, r.hidden === null])).toEqual([[1, COVER, false, false], [2, SUMMER, false, true], [3, POOLS, true, true]]);
 
       // Карточки автора нет — нет ни его кадров, ни снимка бассейнов: остаётся обложка тура, миграция не падает.
       await scene();

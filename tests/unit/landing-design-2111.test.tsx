@@ -87,6 +87,29 @@ describe('реестр оформления', () => {
   });
 });
 
+describe('кадр «Раздолья Камчатки» (владелец 26.11)', () => {
+  // Обложка тура «Лагуны» «Зеленовские озерки» снята не на озерках:
+  // «на месте зеленовских озерков фото Раздолья камчатки».
+  const RAZDOLYE = '/api/images/s3/photos/laguna-expedition/zelenovskie-ozerki-cover.jpg';
+
+  it('не подписан как Зеленовские озерки ни на одной посадочной', () => {
+    for (const { slug, photo } of allLandingPhotos()) {
+      if (photo.src !== RAZDOLYE) continue;
+      expect(`${photo.caption} ${photo.alt}`, slug).not.toMatch(/зеленовск/i);
+    }
+  });
+
+  it('героем страницы озерков стоит снимок самого озера, подпись автора — его имя', () => {
+    const hero = landingDesign('zelenovskie-ozerki').hero!;
+    expect(hero.src).not.toBe(RAZDOLYE);
+    expect(hero.src).toMatch(/^\/api\/images\/s3\/photos\/zaporozhets\/zelenovskie-ozerki-/);
+    expect(hero.credit.name).toBe('Андрей Запорожец');
+    const { container } = render(<LandingHero h1="Зеленовские озерки" photo={hero} />);
+    expect(container.textContent).toContain('Андрей Запорожец');
+    expect(container.innerHTML).not.toContain('laguna-expedition/zelenovskie-ozerki-cover');
+  });
+});
+
 describe('страница', () => {
   it('у каждой посадочной текст не потерян: все абзацы, пункты и ответы FAQ в HTML', () => {
     for (const l of LANDINGS) {

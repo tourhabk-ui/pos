@@ -108,7 +108,10 @@ const KV_TOLBACHIK_CAMP = p('/api/images/s3/photos/volcanoesland/treking-vokrug-
 const KV_GEYSERS_2 = p('/api/images/s3/photos/volcanoesland/dolina-geyzerov-kaldera-uzon-03.jpg', 'Долина реки с паром над склонами', 'Долина гейзеров: пар над склонами долины.', KV, 640, 427);
 const KV_KLYUCH = p('/api/images/s3/photos/volcanoesland/treking-podnozhie-klyuchevskoy-01.jpg', 'Заснеженный конус вулкана над тёмными шлаковыми полями', 'Ключевская сопка, вид с подножия.', KV, 640, 360);
 const LAGUNA_MALKI = p('/api/images/s3/photos/laguna-expedition/malkinskie-dikie-goryachie-mineralnye-istochniki-cover.jpg', 'Пруд с прозрачной водой среди голых деревьев', 'Малкинские источники, обложка тура.', LAGUNA, 640, 800, 'center 60%');
-const LAGUNA_ZELENOVSKIE = p('/api/images/s3/photos/laguna-expedition/zelenovskie-ozerki-cover.jpg', 'Бассейны под открытым небом у домиков, вдали вулкан', 'Зеленовские озерки, обложка тура.', LAGUNA, 640, 478);
+// Обложка тура «Лагуны» «Зеленовские озерки» стояла здесь героем с подписью
+// «Зеленовские озерки», а на ней — «Раздолье Камчатки» (владелец 26.11: «на месте
+// зеленовских озерков фото Раздолья камчатки»). Герой — снимок самого озера.
+const ZAP_ZELENOVSKIE = p('/api/images/s3/photos/zaporozhets/zelenovskie-ozerki-ozero-letom.jpg', 'Озеро среди деревьев, к воде спускается деревянная лестница', 'Озеро на Зеленовских озерках летом.', ZAP, 720, 539);
 const BEARS_2 = p('/images/marketplace/bears_kurilskoye.jpg', 'Два бурых медведя стоят в воде озера', 'Медведи в воде Курильского озера.', OWNER, 550, 605);
 const OSENNIJ_COVER = p('/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-cover.jpg', 'Осенняя тундра и вулканы в облаках', 'Осенний пейзаж Камчатки.', LAGUNA, 1280, 854);
 const OSENNIJ_ROAD = p('/api/images/s3/photos/laguna-expedition/kamchatka-na-maksimum-osennij-marshrut-1.jpg', 'Вулканы над дорогой среди осенней тундры', 'Вулканы с дороги, осенний маршрут.', LAGUNA, 1280, 854);
@@ -119,7 +122,9 @@ const BERINGA_LETO = p('/api/images/s3/photos/komandorskie-ostrova/ostrov-bering
 const BYSTRAYA_REKA = p('/api/images/s3/photos/tours/bystraya-rafting/01-river-volcanoes.jpg', 'Река среди сопок, вдали вулканы', 'Сплав по Быстрой, вид на вулканы с реки.', RAFT, 1280, 960);
 const NALYCHEVO_TERM = p('/api/images/s3/photos/nalychevo/termalnye-istochniki.jpg', 'Термальные ванны среди травы в долине Налычево', 'Термальные источники в долине Налычево. Снимок на условиях CC BY-SA 4.0.', ROST, 1280, 938);
 const PEREVAL_AVACHA = p('/api/images/s3/photos/laguna-expedition/v-gosti-k-evrazhkam-na-avachinskij-pereval-2.jpg', 'Авачинский вулкан над зелёным склоном перевала', 'Авачинский вулкан с дороги на перевал.', LAGUNA, 1280, 960, '75% 40%');
-const ZELENOVSKIE_STAY = p('/api/images/s3/photos/laguna-expedition/zelenovskie-ozerki-cover.jpg', 'Бассейны под открытым небом у домиков, вдали вулкан', 'Зеленовские озерки. Ведар жильё не бронирует — это кадр места, не каталог гостиниц.', LAGUNA, 1280, 956);
+// Подпись называла место «Зеленовские озерки» — на кадре «Раздолье Камчатки»
+// (владелец 26.11). Имя базы на странице о жилье не ставится: Ведар её не продаёт.
+const POOLS_STAY = p('/api/images/s3/photos/laguna-expedition/zelenovskie-ozerki-cover.jpg', 'Бассейны под открытым небом у домиков, вдали вулкан', 'Бассейны под открытым небом у домиков. Ведар жильё не бронирует — это кадр места, не каталог гостиниц.', LAGUNA, 1280, 956);
 const ZAP_DEAD_FOREST = p('/api/images/s3/photos/zaporozhets/tolbachik-dead-forest.jpg', 'Мёртвый лес у подножия Толбачика, вдали сопки', 'Мёртвый лес на подходе к Толбачику.', ZAP, 1280, 964);
 const KRON_GEYSERS = p('/api/images/s3/photos/kronotsky/dolina-gejzerov.jpg', 'Парящие склоны Долины гейзеров над рекой', 'Долина гейзеров. Снимок на условиях CC BY-SA 4.0.', USHAKOV, 1280, 848);
 
@@ -235,7 +240,7 @@ export const LANDING_DESIGN: Readonly<Record<string, LandingDesign>> = {
   },
   'vachkazhets-kak-dobratsya': { hero: VACHKAZHETS },
   'malkinskie-istochniki-kak-dobratsya': { hero: LAGUNA_MALKI },
-  'zelenovskie-ozerki': { hero: LAGUNA_ZELENOVSKIE },
+  'zelenovskie-ozerki': { hero: ZAP_ZELENOVSKIE },
   // Кадры этого места в приложении ТЗ — только у оператора на паузе.
   'avachinskij-pereval-i-verblyud': {
     hero: PEREVAL_AVACHA,
@@ -261,7 +266,7 @@ export const LANDING_DESIGN: Readonly<Record<string, LandingDesign>> = {
       { starts: 'Пока маршруты парка закрыты и действует рекомендация не приближаться', kind: 'warning', kicker: 'Маршрут закрыт' },
     ],
   },
-  'gde-ostanovitsya-na-kamchatke': { hero: ZELENOVSKIE_STAY, og: og('gde-ostanovitsya-na-kamchatke', 'Бассейны под открытым небом у домиков, вдали вулкан', LAGUNA) },
+  'gde-ostanovitsya-na-kamchatke': { hero: POOLS_STAY, og: og('gde-ostanovitsya-na-kamchatke', 'Бассейны под открытым небом у домиков, вдали вулкан', LAGUNA) },
 };
 
 export function landingDesign(slug: string): LandingDesign {
