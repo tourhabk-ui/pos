@@ -296,18 +296,23 @@ git push origin main  # → CI на main → deploy.yml выкатывает п�
 выхода и две новые зоны — `lib/max/webhook-url.ts` (вход через мессенджеры; с 31.10 и `lib/miniapp/init-data.ts` — подпись initData мини-приложения) и `lib/notifications/pd-alert.ts` (маршрут ПД).
 
 Полный §7 со всеми исключениями, сторожами, денежным путём и возвратами — скилл
-**`vedar-protected-zones`**; загружай перед правкой любой зоны ниже.
+**`vedar-protected-zones`** (сам скилл тоже в зоне, 26.11); загружай перед правкой любой зоны ниже.
 
 - `middleware.ts` — Edge JWT + rate-limit. Четыре исключения только по слову владельца:
   01.09 — гейт `/api/admin/*`; 09.10 — видео из S3 в CSP; 14.10 — реестр публичных API
   `lib/auth/public-api-routes.ts` пускает анонима к `/api/images` и с `HEAD`; 15.11 —
   `/api/operator/*` пускает администратора
-- `lib/auth.ts` — JWT логика
+- `lib/auth.ts` — JWT логика; проверка токена — `lib/auth/jwt.ts`, роли в API (`requireAuth`,
+  `requireRole`, `requireAdmin`) — `lib/auth/middleware.ts`, смена и снятие ролей — тоже зона
+  `lib-auth`
+- `app/api/auth/` — вход и регистрация: пароль, MFA, magic link, Telegram, MAX, обновление
+  токена. Страницы входа `app/auth/` и регистрации оператора `app/operators/join/`, пароль
+  и второй фактор в `lib/auth/` — та же зона `auth-doors` (скан 25.11)
 - `app/api/payments/` — приём оплаты. Приёмника три: `/api/payments/webhook`,
   `/api/hub/operator/payments/webhook` (CloudPayments), `/api/payments/tochka/webhook`
   (СБП Точка). Комиссия — только `recordCommissionFromBooking()`, строка
-  `tour_payments` — только `holdTourPayment()`; платится бронь, подтверждённая
-  оператором. **Приём оплаты выключен 05.10** — выключатель `PLATFORM_ACCEPTS_PAYMENTS`
+  `tour_payments` — только `holdTourPayment()` (обе в зоне: `lib/payments/commission.ts`,
+  `lib/payments/hold-tour-payment.ts`); платится бронь, подтверждённая оператором. **Приём оплаты выключен 05.10** — выключатель `PLATFORM_ACCEPTS_PAYMENTS`
   в `lib/payments/accepting.ts`; включение — видимый коммит вместе с текстами оферты
 - `app/api/safety/sos` — SOS (только через staging)
 - **Контроль выхода** — свой манифест `docs/safety/WATCH_MANIFEST.md` (решение владельца

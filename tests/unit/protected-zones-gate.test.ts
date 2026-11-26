@@ -544,6 +544,97 @@ describe('полный §7 в скилле vedar-protected-zones против р
   });
 });
 
+/**
+ * Скан безопасности 25.11 (ревью PR 3831): агент, запущенный `@claude` из чужого
+ * issue, мог править проверку токена и ролей, двери и страницы входа, комиссию и
+ * холд — реестр их не видел, и проверка зон молчала. Сторож держит не список
+ * путей, а то, ради чего они внесены: функция переехала в новый файл вне зоны —
+ * красный.
+ */
+describe('вход, роли, комиссия и холд — в зонах (скан 25.11)', () => {
+  const ids = (f: string) => zonesOfFile(f).map((z) => z.id);
+
+  it('названные ревью файлы лежат в своих зонах', () => {
+    const expected: Record<string, string> = {
+      'lib/auth/jwt.ts': 'lib-auth',
+      'lib/auth/middleware.ts': 'lib-auth',
+      'lib/auth/role-switch.ts': 'lib-auth',
+      'app/api/roles/route.ts': 'lib-auth',
+      'app/api/auth/signin/route.ts': 'auth-doors',
+      'app/api/auth/register/route.ts': 'auth-doors',
+      'app/api/auth/register-operator/route.ts': 'auth-doors',
+      'app/api/auth/refresh/route.ts': 'auth-doors',
+      'app/api/auth/telegram/route.ts': 'auth-doors',
+      'app/auth/login/page.tsx': 'auth-doors',
+      'app/operators/join/page.tsx': 'auth-doors',
+      'lib/auth/magic-link.ts': 'auth-doors',
+      'lib/payments/commission.ts': 'payments',
+      'lib/payments/hold-tour-payment.ts': 'payments',
+      'lib/payments/tochka.ts': 'payments',
+      '.claude/skills/vedar-protected-zones/SKILL.md': 'zones-gate',
+    };
+    for (const [file, zone] of Object.entries(expected)) {
+      expect(existsSync(join(ROOT, file)), `нет файла ${file}`).toBe(true);
+      expect(ids(file), file).toEqual([zone]);
+    }
+  });
+
+  it('каждый файл под app/api/auth — в зоне входа', () => {
+    const files: string[] = [];
+    const walk = (rel: string) => {
+      for (const e of readdirSync(join(ROOT, rel), { withFileTypes: true })) {
+        const p = `${rel}/${e.name}`;
+        if (e.isDirectory()) walk(p);
+        else files.push(p);
+      }
+    };
+    walk('app/api/auth');
+    expect(files.length).toBeGreaterThan(10);
+    expect(files.filter((f) => !ids(f).includes('auth-doors'))).toEqual([]);
+  });
+
+  /** Функция → зона, где она обязана жить: проверка токена, роли, комиссия, холд. */
+  const GUARDED: Record<string, string> = {
+    verifyToken: 'lib-auth',
+    requireAuth: 'lib-auth',
+    requireRole: 'lib-auth',
+    requireAdmin: 'lib-auth',
+    recordCommissionFromBooking: 'payments',
+    holdTourPayment: 'payments',
+  };
+
+  const definedIn = (name: string): string[] => {
+    const hits: string[] = [];
+    const re = new RegExp(`export\\s+(async\\s+)?function\\s+${name}\\b|export\\s+const\\s+${name}\\b`);
+    const walk = (rel: string) => {
+      for (const e of readdirSync(join(ROOT, rel), { withFileTypes: true })) {
+        const p = `${rel}/${e.name}`;
+        if (e.isDirectory()) walk(p);
+        else if (/\.tsx?$/.test(e.name) && re.test(read(p))) hits.push(p);
+      }
+    };
+    walk('lib');
+    walk('app');
+    return hits;
+  };
+
+  it('проверка токена и ролей, комиссия и холд определены только в своей зоне', () => {
+    for (const [fn, zone] of Object.entries(GUARDED)) {
+      const files = definedIn(fn);
+      expect(files.length, `${fn} не найдена`).toBeGreaterThan(0);
+      for (const f of files) expect(ids(f), `${fn} в ${f}`).toContain(zone);
+    }
+  });
+
+  it('правка проверки токена без слова владельца — красный', () => {
+    const v = judgeZones({ files: [code('lib/auth/jwt.ts')], body: '' });
+    expect(v.outcome).toBe('fail');
+    expect(v.zones.map((r) => r.zone.id)).toEqual(['lib-auth']);
+    const ok = judgeZones({ files: [code('lib/auth/jwt.ts')], body: bodyWith('- lib-auth — «правь» (25.11)') });
+    expect(ok.outcome).toBe('ok');
+  });
+});
+
 describe('контроль выхода: зона покрывает то, что называет манифест', () => {
   const MANIFEST = read('docs/safety/WATCH_MANIFEST.md');
   const TABLE = MANIFEST.slice(MANIFEST.indexOf('## Как это устроено сейчас'), MANIFEST.indexOf('## Правила'));
