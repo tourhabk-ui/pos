@@ -50,6 +50,13 @@ export interface GrowthIssue {
    * выносит наружу только 'suggested' — иначе находка не дойдёт до Issues.
    */
   status?: 'open' | 'suggested';
+  /**
+   * Когда событие видели последним (ISO). Есть только у находок о событиях
+   * прода (`scanProdErrors`): у них «повторилось после починки» — новый факт,
+   * а не дубль. Принятая находка, закрытая раньше этого момента, повтор не
+   * глушит (см. persistGrowthIssues).
+   */
+  last_seen_at?: string;
 }
 
 /**
@@ -666,11 +673,12 @@ export function prodRouteToFile(route: string): string | undefined {
 }
 
 export async function scanProdErrors(): Promise<GrowthIssue[]> {
-  const { rows } = await pool.query<{ route: string | null; n: number; last_message: string | null; methods: string | null }>(
+  const { rows } = await pool.query<{ route: string | null; n: number; last_message: string | null; methods: string | null; last_at: string | null }>(
     `SELECT metadata->>'route' AS route,
             COUNT(*)::int AS n,
             (ARRAY_AGG(metadata->>'message' ORDER BY created_at DESC))[1] AS last_message,
-            STRING_AGG(DISTINCT metadata->>'method', '/') AS methods
+            STRING_AGG(DISTINCT metadata->>'method', '/') AS methods,
+            to_char(MAX(created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS last_at
      FROM ai_actions_log
      WHERE action_type = 'server_error' AND created_at > NOW() - INTERVAL '25 hours'
        AND NOT ${CONNECTION_ABORT_SQL}
@@ -689,6 +697,7 @@ export async function scanProdErrors(): Promise<GrowthIssue[]> {
         `Источник — журнал onRequestError (прод-факт, не чтение кода).`,
       suggestion: 'Воспроизвести по сообщению и починить причину; глушить catch-ем нельзя.',
       model: 'deterministic',
+      ...(r.last_at ? { last_seen_at: r.last_at } : {}),
     }));
 }
 
@@ -1343,6 +1352,30 @@ async function scanStructural(): Promise<GrowthIssue[]> {
  * прода, но и с раннера GitHub — вставка обязана быть ОДНОЙ и той же
  * функцией, иначе дедуп/кап/разметка разойдутся между двумя источниками.
  */
+/**
+ * Есть ли уже такая находка — дубль, которую новый прогон не заводит.
+ *
+ * Отклонённая и проигнорированная дублем не считаются (их заводят заново).
+ * Принятая считается — кроме одного случая (26.11, разбор очереди): событие
+ * прода (`last_seen_at`, $3) случилось ПОСЛЕ того, как находку приняли и
+ * закрыли (`resolved_at`). До этого дня issue «Прод 500: /operators/[slug]»,
+ * закрытая как сделанная, глушила ту же ошибку навсегда: повтор после починки
+ * не доходил до трекера. Без `last_seen_at` (находки по коду) и без
+ * `resolved_at` принятая находка по-прежнему дубль.
+ */
+export const EXISTING_GROWTH_ISSUE_SQL = `
+  SELECT id FROM evo_growth_issues
+   WHERE status NOT IN ('rejected', 'ignored')
+     AND file_path IS NOT DISTINCT FROM $1
+     AND title = $2
+     AND NOT (
+       status = 'accepted'
+       AND resolved_at IS NOT NULL
+       AND $3::timestamptz IS NOT NULL
+       AND resolved_at < $3::timestamptz
+     )
+   LIMIT 1`;
+
 export async function persistGrowthIssues(scanId: string, issues: GrowthIssue[]): Promise<number> {
   let newIssues = 0;
   for (const issue of issues) {
@@ -1353,12 +1386,8 @@ export async function persistGrowthIssues(scanId: string, issues: GrowthIssue[])
     // сравнение через `=` не находило существующую запись, и такая находка
     // плодилась бы заново каждый прогон.
     const { rows: existing } = await pool.query<{ id: string }>(
-      `SELECT id FROM evo_growth_issues
-       WHERE status NOT IN ('rejected', 'ignored')
-         AND file_path IS NOT DISTINCT FROM $1
-         AND title = $2
-       LIMIT 1`,
-      [issue.file_path ?? null, issue.title],
+      EXISTING_GROWTH_ISSUE_SQL,
+      [issue.file_path ?? null, issue.title, issue.last_seen_at ?? null],
     );
 
     if (existing.length > 0) {
