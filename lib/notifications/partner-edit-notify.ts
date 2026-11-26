@@ -20,7 +20,7 @@ import type { PersonalLeadOutcome } from '@/lib/notifications/lead-notify';
 import { reachForPartner } from '@/lib/partners/reach';
 import { escapeHtml } from '@/lib/text/escape-html';
 
-export type EditSubject = 'charter' | 'car_rental' | 'tour';
+export type EditSubject = 'charter' | 'car_rental' | 'tour' | 'pricing_rule';
 
 export interface EditDecisionNotice {
   partnerId: string;
@@ -46,15 +46,22 @@ export interface EditDecisionNotice {
   platformFieldsWords?: string;
   /** Только у тура: вся правка — предложение автомата, полей владельца в ней нет. */
   platformOnly?: boolean;
+  /**
+   * Только у правила цены (1514): правило словами («Скидка на последние
+   * места: −15%, …») и что решалось — новое правило или его снятие.
+   */
+  ruleWords?: string;
+  ruleKind?: 'new' | 'removal';
 }
 
 const CABINET_PATH: Record<EditSubject, string> = {
   charter: '/hub/carrier',
   car_rental: '/hub/carrier/rental',
   tour: '/hub/operator/tours',
+  pricing_rule: '/hub/operator/pricing',
 };
 
-const SUBJECT_WORD: Record<Exclude<EditSubject, 'tour'>, string> = {
+const SUBJECT_WORD: Record<Exclude<EditSubject, 'tour' | 'pricing_rule'>, string> = {
   charter: 'прайса',
   car_rental: 'прайса проката',
 };
@@ -90,8 +97,34 @@ function tourDecisionText(n: EditDecisionNotice): string {
   ].join('\n');
 }
 
+/**
+ * Решение по скидке или наценке тура. Четыре исхода: новое правило одобрено
+ * или отклонено, снятие одобрено или в нём отказано. Сказано, что стало с
+ * ценой на сайте: «одобрено» без этого ничего не говорит владельцу.
+ */
+function pricingRuleDecisionText(n: EditDecisionNotice): string {
+  const title = `«${escapeHtml(n.label)}»`;
+  const rule = n.ruleWords ? escapeHtml(n.ruleWords) : 'правило цены';
+  const reason = n.reason ? `Причина: ${escapeHtml(n.reason)}` : 'Причина не записана.';
+  if (n.ruleKind === 'removal') {
+    return n.outcome === 'approved'
+      ? ['<b>Правило цены снято</b>', `${title}: ${rule} — больше не действует.`].join('\n')
+      : ['<b>В снятии правила цены отказано</b>', `${title}: ${rule} — продолжает действовать.`, reason].join('\n');
+  }
+  if (n.outcome === 'approved') {
+    return ['<b>Скидка или наценка одобрена</b>', `${title}: ${rule} — действует на сайте.`].join('\n');
+  }
+  return [
+    '<b>Скидка или наценка отклонена</b>',
+    `${title}: ${rule} — цена на сайте прежняя.`,
+    reason,
+    'Изменить и отправить на проверку ещё раз можно в кабинете на сайте.',
+  ].join('\n');
+}
+
 export function editDecisionText(n: EditDecisionNotice): string {
   if (n.subject === 'tour') return tourDecisionText(n);
+  if (n.subject === 'pricing_rule') return pricingRuleDecisionText(n);
   const label = escapeHtml(n.label);
   if (n.outcome === 'approved') {
     return [

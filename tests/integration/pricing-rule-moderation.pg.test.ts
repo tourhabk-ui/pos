@@ -29,6 +29,21 @@ vi.mock('@/lib/auth/middleware', async (orig) => ({
   requireOperator: vi.fn(async () => ({ userId: 'c6000000-0000-4000-8000-000000000301', role: 'operator' })), // = USER
 }));
 
+// Транспорт сообщения владельцу подменён: настоящие чаты из тестов не тревожим.
+const sent = vi.hoisted(() => ({ alerts: [] as Array<{ text: string }> }));
+vi.mock('@/lib/notifications/pd-alert', () => ({
+  sendPdAlert: vi.fn(async (a: { text: string }) => {
+    sent.alerts.push(a);
+    return { channel: 'max', delivered: true };
+  }),
+}));
+// Поисковикам из теста не пишем; что пинг уходит только после одобрения — считаем вызовы.
+const pings = vi.hoisted(() => ({ tours: [] as string[] }));
+vi.mock('@/lib/seo/indexnow', async (orig) => ({
+  ...(await orig<typeof import('@/lib/seo/indexnow')>()),
+  pingTourChanged: vi.fn((id: string | number | bigint) => { pings.tours.push(String(id)); }),
+}));
+
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
 if (!PG_URL) {
@@ -90,7 +105,8 @@ withPg('правила цены: действует только провере�
 
     await pool.query(`INSERT INTO users (id, email, name, password_hash, role) VALUES ($1, 'rule-admin@example.test', 'Администратор', 'x', 'admin')`, [ADMIN]);
     await pool.query(
-      `INSERT INTO partners (id, name, category, contact, profile_status, is_public) VALUES ($1, 'Оператор', 'operator', '{}'::jsonb, 'approved', TRUE)`,
+      `INSERT INTO partners (id, name, category, contact, profile_status, is_public, max_chat_id)
+       VALUES ($1, 'Оператор', 'operator', '{}'::jsonb, 'approved', TRUE, 555003)`,
       [OP],
     );
     // Владелец карточки OP и чужая карточка — для дверей кабинета.
@@ -252,5 +268,199 @@ withPg('правила цены: действует только провере�
     const theirs = await addRule(foreign, 0.9, { status: 'approved' });
     expect(await drop(theirs.id)).toBe(404);
     expect(await rows(foreign)).toEqual([{ m: 0.9, status: 'approved', active: true }]);
+  });
+
+  describe('очередь администратора и решение', () => {
+    const queue = async () => {
+      const { GET } = await import('@/app/api/admin/moderation/pricing-rules/route');
+      const res = await GET(new NextRequest('http://localhost/api/admin/moderation/pricing-rules'));
+      const json = (await res.json()) as { data: { rules: Array<Record<string, unknown> & { id: string; tourId: string; kind: string; seen: string }> } };
+      return json.data.rules;
+    };
+    const decide = async (id: string, body: unknown) => {
+      const { POST } = await import('@/app/api/admin/moderation/pricing-rules/[id]/route');
+      const res = await POST(
+        new NextRequest(`http://localhost/api/admin/moderation/pricing-rules/${id}`, { method: 'POST', body: JSON.stringify(body) }),
+        { params: Promise.resolve({ id }) },
+      );
+      return { status: res.status, body: await res.json() };
+    };
+    const ruleRow = async (id: string) => (await pool.query(
+      `SELECT is_active, moderation_status, moderation_reason, moderated_by::text AS moderated_by,
+              removal_requested_at IS NOT NULL AS removal_asked
+         FROM tour_pricing_rules WHERE id = $1::bigint`, [id],
+    )).rows[0];
+
+    it('новое правило: в очереди — слова, что заменит и как изменится цена; одобрение включает его и выключает прежнее', async () => {
+      const tour = await addTour('Очередь: замена скидки');
+      const current = await addRule(tour, 0.9, { status: 'approved' });
+      const fresh = await addRule(tour, 0.8, { status: 'pending' });
+      const card = (await queue()).find((r) => r.id === fresh.id)!;
+      expect(card).toMatchObject({
+        kind: 'new', tourId: tour, tourTitle: 'Очередь: замена скидки', partnerName: 'Оператор', tourOnSite: true,
+        words: 'Скидка на последние места: −20%, когда до выезда 7 дн. и меньше',
+        replaces: 'Скидка на последние места: −10%, когда до выезда 7 дн. и меньше',
+        basePrice: 20000, priceNow: 18000, priceAfter: 16000,
+      });
+      // Пока не одобрено — действует прежнее.
+      expect(await multipliers(tour)).toEqual([0.9]);
+
+      // Без отпечатка и с чужим отпечатком одобрение не применяется.
+      expect((await decide(fresh.id, { action: 'approve' })).status).toBe(400);
+      const stale = await decide(fresh.id, { action: 'approve', seen: 'a'.repeat(64) });
+      expect(stale.status).toBe(409);
+      expect(stale.body.code).toBe('changed');
+      expect(await multipliers(tour)).toEqual([0.9]);
+
+      // Отказы выше владельцу ничего не слали и поисковиков не будили.
+      expect(sent.alerts).toHaveLength(0);
+      expect(pings.tours).toEqual([]);
+      const ok = await decide(fresh.id, { action: 'approve', seen: card.seen });
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      expect(ok.body.message).toBe('«Очередь: замена скидки»: правило действует на сайте');
+      // Владельцу сказано, что стало с ценой на сайте; поисковикам — о странице тура.
+      expect(sent.alerts.map((a) => a.text)).toEqual([[
+        '<b>Скидка или наценка одобрена</b>',
+        '«Очередь: замена скидки»: Скидка на последние места: −20%, когда до выезда 7 дн. и меньше — действует на сайте.',
+      ].join('\n')]);
+      expect(pings.tours).toEqual([tour]);
+      expect(await multipliers(tour)).toEqual([0.8]);
+      expect(await ruleRow(fresh.id)).toMatchObject({ is_active: true, moderation_status: 'approved', moderated_by: ADMIN });
+      expect(await ruleRow(current.id)).toMatchObject({ is_active: false, moderation_status: 'approved' });
+      // Решено — в очереди его нет; повторное решение не применяется.
+      expect((await queue()).some((r) => r.id === fresh.id)).toBe(false);
+      expect((await decide(fresh.id, { action: 'approve', seen: card.seen })).status).toBe(409);
+    });
+
+    it('отказ новому правилу: цена прежняя, причина записана; без причины — 400', async () => {
+      const tour = await addTour('Очередь: отказ');
+      await addRule(tour, 0.9, { status: 'approved' });
+      const fresh = await addRule(tour, 0.5, { status: 'pending' });
+      expect((await decide(fresh.id, { action: 'reject', reason: 'нет' })).status).toBe(400);
+      sent.alerts.length = 0;
+      pings.tours.length = 0;
+      const no = await decide(fresh.id, { action: 'reject', reason: 'Скидка 50% без объяснения — уточните.' });
+      expect(no.status).toBe(200);
+      expect(sent.alerts[0].text).toContain('Скидка или наценка отклонена');
+      expect(sent.alerts[0].text).toContain('цена на сайте прежняя');
+      expect(sent.alerts[0].text).toContain('Причина: Скидка 50% без объяснения — уточните.');
+      // Цена на сайте не изменилась — поисковикам сообщать нечего.
+      expect(pings.tours).toEqual([]);
+      expect(no.body.message).toBe('«Очередь: отказ»: правило отклонено, цена прежняя');
+      expect(await multipliers(tour)).toEqual([0.9]);
+      expect(await ruleRow(fresh.id)).toMatchObject({
+        moderation_status: 'rejected', moderation_reason: 'Скидка 50% без объяснения — уточните.', moderated_by: ADMIN,
+      });
+    });
+
+    it('просьба снять правило: до решения действует; одобрено — выключено; отказано — действует, просьба закрыта с причиной', async () => {
+      const tour = await addTour('Очередь: снятие');
+      const rule = await addRule(tour, 0.85, { status: 'approved', removal: true });
+      const card = (await queue()).find((r) => r.id === rule.id)!;
+      expect(card).toMatchObject({ kind: 'removal', replaces: null, priceNow: 17000, priceAfter: 20000 });
+      // В снятии отказано: правило действует дальше.
+      sent.alerts.length = 0;
+      const keep = await decide(rule.id, { action: 'reject', reason: 'Скидка обещана туристам до конца месяца.' });
+      expect(keep.body.message).toBe('«Очередь: снятие»: в снятии отказано, правило действует');
+      expect(sent.alerts[0].text).toContain('В снятии правила цены отказано');
+      expect(sent.alerts[0].text).toContain('продолжает действовать');
+      expect(await ruleRow(rule.id)).toMatchObject({
+        is_active: true, moderation_status: 'approved', removal_asked: false,
+        moderation_reason: 'Скидка обещана туристам до конца месяца.',
+      });
+      expect(await multipliers(tour)).toEqual([0.85]);
+      expect((await queue()).some((r) => r.id === rule.id)).toBe(false);
+
+      // Снова попросили и одобрили: правило выключено, цена — базовая.
+      await pool.query(`UPDATE tour_pricing_rules SET removal_requested_at = NOW() WHERE id = $1::bigint`, [rule.id]);
+      const again = (await queue()).find((r) => r.id === rule.id)!;
+      sent.alerts.length = 0;
+      const off = await decide(rule.id, { action: 'approve', seen: again.seen });
+      expect(off.body.message).toBe('«Очередь: снятие»: правило снято');
+      expect(sent.alerts[0].text).toContain('Правило цены снято');
+      expect(sent.alerts[0].text).toContain('больше не действует');
+      expect(await ruleRow(rule.id)).toMatchObject({ is_active: false });
+      expect(await multipliers(tour)).toEqual([]);
+    });
+
+    it('правило, отозванное владельцем или заменённое после показа карточки, по старой карточке не одобрить', async () => {
+      const tour = await addTour('Очередь: гонка');
+      const first = await addRule(tour, 0.9, { status: 'pending' });
+      const card = (await queue()).find((r) => r.id === first.id)!;
+      // Владелец поменял процент в том же правиле, пока карточка была открыта.
+      await pool.query(`UPDATE tour_pricing_rules SET multiplier = 0.5 WHERE id = $1::bigint`, [first.id]);
+      expect((await decide(first.id, { action: 'approve', seen: card.seen })).body.code).toBe('changed');
+      expect(await multipliers(tour)).toEqual([]);
+      // Владелец отозвал правило.
+      await pool.query(`UPDATE tour_pricing_rules SET is_active = FALSE WHERE id = $1::bigint`, [first.id]);
+      expect((await decide(first.id, { action: 'approve', seen: card.seen })).status).toBe(409);
+      expect((await decide('999999999', { action: 'reject', reason: 'Нет такого правила.' })).status).toBe(404);
+      expect((await decide('не-число', { action: 'reject', reason: 'Нет такого правила.' })).status).toBe(400);
+    });
+
+    it('в очереди только то, что ждёт решения: действующие, отклонённые и выключенные правила в неё не попадают', async () => {
+      const tour = await addTour('Очередь: состав');
+      const live = await addRule(tour, 0.9, { status: 'approved' });
+      const rejected = await addRule(tour, 0.6, { status: 'rejected' });
+      const off = await addRule(tour, 0.7, { status: 'pending', active: false });
+      const waiting = await addRule(tour, 0.8, { status: 'pending' });
+      const cards = (await queue()).filter((r) => r.tourId === tour);
+      expect(cards.map((r) => r.id)).toEqual([waiting.id]);
+      // «Заменит действующее» и цена «сейчас» — по действующему правилу, а не по отклонённому
+      // или выключенному, хотя те записаны позже.
+      expect(cards[0]).toMatchObject({
+        replaces: 'Скидка на последние места: −10%, когда до выезда 7 дн. и меньше', priceNow: 18000, priceAfter: 16000,
+      });
+      for (const id of [live.id, rejected.id, off.id]) {
+        expect((await decide(id, { action: 'reject', reason: 'Решать нечего.' })).status, id).toBe(409);
+      }
+    });
+
+    it('одобрение правила одного рода не выключает действующее правило другого рода', async () => {
+      const tour = await addTour('Очередь: два рода');
+      const lastMinute = await addRule(tour, 0.9, { status: 'approved' });
+      const group = await addRule(tour, 0.95, { status: 'pending' });
+      await pool.query(
+        `UPDATE tour_pricing_rules SET rule_type = 'group_discount', days_before_min = NULL, days_before_max = NULL, guests_min = 4 WHERE id = $1::bigint`,
+        [group.id],
+      );
+      const card = (await queue()).find((r) => r.id === group.id)!;
+      // Правила другого рода оно не заменяет.
+      expect(card.replaces).toBeNull();
+      expect((await decide(group.id, { action: 'approve', seen: card.seen })).status).toBe(200);
+      expect(await ruleRow(lastMinute.id)).toMatchObject({ is_active: true, moderation_status: 'approved' });
+      expect(await ruleRow(group.id)).toMatchObject({ is_active: true, moderation_status: 'approved' });
+      expect(await multipliers(tour)).toEqual([0.9, 0.95]);
+    });
+
+    it('правило удалённого тура в очередь не попадает и не решается', async () => {
+      const tour = await addTour('Очередь: удалённый тур');
+      const waiting = await addRule(tour, 0.8, { status: 'pending' });
+      const card = (await queue()).find((r) => r.id === waiting.id)!;
+      await pool.query(`UPDATE operator_tours SET deleted_at = NOW() WHERE id = $1::bigint`, [tour]);
+      expect((await queue()).some((r) => r.id === waiting.id)).toBe(false);
+      sent.alerts.length = 0;
+      expect((await decide(waiting.id, { action: 'approve', seen: card.seen })).status).toBe(404);
+      expect(await ruleRow(waiting.id)).toMatchObject({ moderation_status: 'pending' });
+      expect(sent.alerts).toHaveLength(0);
+    });
+
+    it('тур не на сайте: карточка так и говорит; одобрение без отпечатка не применяется и мимо роута', async () => {
+      const tour = await addTour('Очередь: тур не на сайте', { published: false });
+      const waiting = await addRule(tour, 0.8, { status: 'pending' });
+      expect((await queue()).find((r) => r.id === waiting.id)).toMatchObject({ kind: 'new', tourOnSite: false });
+      const published = await addTour('Очередь: тур на сайте');
+      const other = await addRule(published, 0.8, { status: 'pending' });
+      expect((await queue()).find((r) => r.id === other.id)).toMatchObject({ tourOnSite: true });
+      // Схема роута требует отпечаток; прямой вызов решения без него тоже ничего не одобряет.
+      const { decidePricingRule } = await import('@/lib/tours/pricing-rule-review');
+      expect(await decidePricingRule({ id: waiting.id, action: 'approve', reason: null, moderatedBy: ADMIN, seen: null }))
+        .toEqual({ outcome: 'changed' });
+      expect(await ruleRow(waiting.id)).toMatchObject({ moderation_status: 'pending' });
+      // Отказу отпечаток не нужен: цену он не меняет.
+      const no = await decidePricingRule({ id: waiting.id, action: 'reject', reason: 'Проверка отказа без отпечатка.', moderatedBy: ADMIN, seen: null });
+      expect(no.outcome).toBe('rejected');
+      expect(await ruleRow(waiting.id)).toMatchObject({ moderation_status: 'rejected' });
+    });
   });
 });
