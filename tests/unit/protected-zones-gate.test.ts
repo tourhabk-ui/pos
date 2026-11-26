@@ -588,6 +588,7 @@ describe('вход, роли, комиссия и холд — в зонах (с
       'app/api/bookings/[id]/route.ts': 'payments',
       'app/api/bookings/[id]/cancel/route.ts': 'payments',
       'app/api/cron/payouts/route.ts': 'payments',
+      'app/api/max/kuzmich/route.ts': 'messenger-login',
     };
     for (const [file, zone] of Object.entries(expected)) {
       expect(existsSync(join(ROOT, file)), `нет файла ${file}`).toBe(true);
@@ -618,6 +619,9 @@ describe('вход, роли, комиссия и холд — в зонах (с
     validatePassword: 'auth-doors',
     linkMessengerLogin: 'auth-doors',
     linkMessengerLoginToPartner: 'auth-doors',
+    claimMaxLoginSession: 'auth-doors',
+    confirmMaxLoginSession: 'auth-doors',
+    isVerifiedMaxWebhook: 'messenger-login',
     recordCommissionFromBooking: 'payments',
     holdTourPayment: 'payments',
     computeTourRefund: 'payments',
@@ -695,6 +699,28 @@ describe('вход, роли, комиссия и холд — в зонах (с
     expect(hits).toContain('lib/bookings/booking.service.ts');
     const outside = hits.filter((f) => !ids(f).includes('payments'));
     expect(outside, 'денежный путь вне зоны').toEqual([]);
+  });
+
+  /**
+   * Вход через MAX (ревью PR 3833): вызов проверки адреса вебхука и выдача
+   * входа по nonce — только в зонах входа. Иначе правка условия
+   * `verifiedOrigin` в обработчике проходит без слова владельца.
+   */
+  it('каждый файл, который сверяет вебхук MAX или выдаёт вход через MAX, — в зоне входа', () => {
+    const MAX_LOGIN = /\bisVerifiedMaxWebhook\(|\bclaimMaxLoginSession\(|\bconfirmMaxLoginSession\(/;
+    const hits: string[] = [];
+    const walk = (rel: string) => {
+      for (const e of readdirSync(join(ROOT, rel), { withFileTypes: true })) {
+        const p = `${rel}/${e.name}`;
+        if (e.isDirectory()) walk(p);
+        else if (/\.tsx?$/.test(e.name) && MAX_LOGIN.test(read(p))) hits.push(p);
+      }
+    };
+    walk('lib');
+    walk('app');
+    expect(hits).toContain('app/api/max/kuzmich/route.ts');
+    const outside = hits.filter((f) => !ids(f).some((z) => z === 'messenger-login' || z === 'auth-doors'));
+    expect(outside, 'вход через MAX вне зоны').toEqual([]);
   });
 
   it('правка проверки токена без слова владельца — красный', () => {
