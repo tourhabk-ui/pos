@@ -148,7 +148,7 @@ function buildPrompt(p: {
 
 export async function POST(req: NextRequest) {
   const authErr = await requireAdmin(req);
-  if (authErr) return authErr;
+  if (authErr instanceof NextResponse) return authErr;
 
   // Слово владельца 22.10: модель тексты мест не пишет (выключатель и его
   // причина — lib/places/model-place-text.ts). Раньше разбора тела: `force`

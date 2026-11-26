@@ -34,7 +34,10 @@ vi.mock('@/lib/ai/providers', () => ({
   isWaterfallErrorResponse: () => false,
 }));
 vi.mock('@/lib/scraping/brightdata', () => ({ fetchViaBrightData: async () => null }));
-vi.mock('@/lib/auth/middleware', () => ({ requireAdmin: vi.fn(async () => null) }));
+// Договор настоящего requireAdmin: при успехе — данные пользователя, не null
+// (мок с null прятал `if (authErr) return authErr`, #3816; сторож —
+// tests/unit/admin-auth-return.test.ts).
+vi.mock('@/lib/auth/middleware', () => ({ requireAdmin: vi.fn(async () => ({ userId: 'u-admin', email: 'admin@example.test', role: 'admin' })) }));
 
 import { MODEL_WRITES_PLACE_TEXT, MODEL_PLACE_TEXT_PAUSED_MESSAGE } from '@/lib/places/model-place-text';
 import { runKuzmichPlaceEnricher } from '@/lib/agents/kuzmich-place-enricher';
