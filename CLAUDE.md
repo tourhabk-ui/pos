@@ -306,8 +306,10 @@ git push origin main  # → CI на main → deploy.yml выкатывает п�
   `requireRole`, `requireAdmin`) — `lib/auth/middleware.ts`, смена и снятие ролей — тоже зона
   `lib-auth`
 - `app/api/auth/` — вход и регистрация: пароль, MFA, magic link, Telegram, MAX, обновление
-  токена. Страницы входа `app/auth/` и регистрации оператора `app/operators/join/`, пароль
-  и второй фактор в `lib/auth/` — та же зона `auth-doors` (скан 25.11)
+  токена. Страницы входа `app/auth/` и регистрации оператора `app/operators/join/`, регистрация
+  партнёра `app/api/partners/register`, пароль, второй фактор и привязка входа через мессенджер
+  в `lib/auth/` — та же зона `auth-doors` (скан 25.11). Сторож краснеет на любом файле вне зон
+  входа и токена, который подписывает JWT или ставит cookie `auth_token`
 - `app/api/payments/` — приём оплаты. Приёмника три: `/api/payments/webhook`,
   `/api/hub/operator/payments/webhook` (CloudPayments), `/api/payments/tochka/webhook`
   (СБП Точка). Комиссия — только `recordCommissionFromBooking()`, строка

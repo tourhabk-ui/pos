@@ -568,6 +568,12 @@ describe('вход, роли, комиссия и холд — в зонах (с
       'app/auth/login/page.tsx': 'auth-doors',
       'app/operators/join/page.tsx': 'auth-doors',
       'lib/auth/magic-link.ts': 'auth-doors',
+      'lib/auth/password-rule.ts': 'auth-doors',
+      'lib/auth/messenger-link.ts': 'auth-doors',
+      'lib/partners/messenger-login.ts': 'auth-doors',
+      'app/api/partners/register/route.ts': 'auth-doors',
+      'app/api/tourist/profile/password/route.ts': 'auth-doors',
+      'app/api/admin/auth/issue-token/route.ts': 'lib-auth',
       'lib/payments/commission.ts': 'payments',
       'lib/payments/hold-tour-payment.ts': 'payments',
       'lib/payments/tochka.ts': 'payments',
@@ -599,6 +605,9 @@ describe('вход, роли, комиссия и холд — в зонах (с
     requireAuth: 'lib-auth',
     requireRole: 'lib-auth',
     requireAdmin: 'lib-auth',
+    validatePassword: 'auth-doors',
+    linkMessengerLogin: 'auth-doors',
+    linkMessengerLoginToPartner: 'auth-doors',
     recordCommissionFromBooking: 'payments',
     holdTourPayment: 'payments',
   };
@@ -624,6 +633,30 @@ describe('вход, роли, комиссия и холд — в зонах (с
       expect(files.length, `${fn} не найдена`).toBeGreaterThan(0);
       for (const f of files) expect(ids(f), `${fn} в ${f}`).toContain(zone);
     }
+  });
+
+  /**
+   * Обратная сторона (ревью PR 3833): дверь входа узнаётся не по каталогу, а по
+   * делу — файл подписывает JWT или ставит cookie auth_token. Такой файл вне
+   * зон входа и токена — красный, где бы он ни лежал.
+   */
+  it('каждый файл, который подписывает JWT или ставит auth_token, — в зоне входа или токена', () => {
+    const ISSUES = /new SignJWT|\bcreateToken\(|cookies\.set\(\s*['"]auth_token['"]\s*,(?!\s*['"]['"])/;
+    const hits: string[] = [];
+    const walk = (rel: string) => {
+      for (const e of readdirSync(join(ROOT, rel), { withFileTypes: true })) {
+        const p = `${rel}/${e.name}`;
+        if (e.isDirectory()) walk(p);
+        else if (/\.tsx?$/.test(e.name) && ISSUES.test(read(p))) hits.push(p);
+      }
+    };
+    walk('lib');
+    walk('app');
+    expect(hits.length).toBeGreaterThan(8);
+    // Выход из аккаунта (cookie сбрасывается пустой строкой) — не дверь входа.
+    expect(hits).not.toContain('app/api/user/delete/route.ts');
+    const outside = hits.filter((f) => !ids(f).some((z) => z === 'auth-doors' || z === 'lib-auth'));
+    expect(outside, 'выдаёт вход вне зоны').toEqual([]);
   });
 
   it('правка проверки токена без слова владельца — красный', () => {

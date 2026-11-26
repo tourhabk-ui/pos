@@ -53,8 +53,10 @@ description: >-
   `requireRole`, `requireAdmin`) — `lib/auth/middleware.ts`, смена и снятие ролей — тоже зона
   `lib-auth`
 - `app/api/auth/` — вход и регистрация: пароль, MFA, magic link, Telegram, MAX, обновление
-  токена. Страницы входа `app/auth/` и регистрации оператора `app/operators/join/`, пароль
-  и второй фактор в `lib/auth/` — та же зона `auth-doors` (скан 25.11)
+  токена. Страницы входа `app/auth/` и регистрации оператора `app/operators/join/`, регистрация
+  партнёра `app/api/partners/register`, пароль, второй фактор и привязка входа через мессенджер
+  в `lib/auth/` — та же зона `auth-doors` (скан 25.11). Сторож краснеет на любом файле вне зон
+  входа и токена, который подписывает JWT или ставит cookie `auth_token`
 - `app/api/payments/` — приём оплаты. Живых приёмника **три**: `/api/payments/webhook`
   и `/api/hub/operator/payments/webhook` (CloudPayments), `/api/payments/tochka/webhook`
   (СБП Точка, QR — со страницы брони). Комиссию каждый начисляет ЕДИНСТВЕННЫМ

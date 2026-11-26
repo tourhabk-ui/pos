@@ -101,6 +101,8 @@ export const PROTECTED_ZONES = Object.freeze([
       'lib/auth/role-switch.ts',
       'lib/auth/admin-role-change.ts',
       'app/api/roles/**',
+      // Выпуск токена администратором мимо дверей входа (ревью PR 3833).
+      'app/api/admin/auth/issue-token/**',
     ],
     reason:
       'Выпуск и проверка JWT, проверка роли за роутами, какая роль попадает в токен, и сравнение секретов: ошибка здесь открывает чужие кабинеты и админку.',
@@ -124,6 +126,15 @@ export const PROTECTED_ZONES = Object.freeze([
       'lib/auth/mfa-crypto.ts',
       'lib/auth/magic-link.ts',
       'lib/auth/max-login.ts',
+      // Ревью безопасности PR 3833: правило пароля, из которого passwordSchema
+      // берёт все проверки; к какому пользователю привязать вход через
+      // мессенджер; регистрация партнёра (роль из тела, JWT и cookie);
+      // вторая дверь смены пароля в профиле туриста.
+      'lib/auth/password-rule.ts',
+      'lib/auth/messenger-link.ts',
+      'lib/partners/messenger-login.ts',
+      'app/api/partners/register/**',
+      'app/api/tourist/profile/password/**',
     ],
     reason:
       'Где выдаётся вход: ослабленная проверка пароля или второго фактора, мастер-пароль, лишняя роль при регистрации или форма, отправляющая пароль не туда, уводят чужие кабинеты, а администратора — в обход MFA. Внесена по скану безопасности 25.11 (ревью PR 3831, слово владельца 26.11 «Закрывай»): ни одна дверь входа не была в реестре.',
