@@ -159,6 +159,14 @@ export const PROTECTED_ZONES = Object.freeze([
       'lib/payments/cloudpayments-webhook.ts',
       'lib/payments/cloudpayments-check.ts',
       'lib/payments/tochka.ts',
+      // Ревью PR 3833: денежный путь обратно — сумма возврата, долг возврата,
+      // гейт «отменена / не отменена» для возврата и выплаты оператору, и их
+      // двери в админке.
+      'lib/payments/tour-refund.ts',
+      'lib/payments/record-refund-due.ts',
+      'lib/payments/release-eligibility.ts',
+      'app/api/admin/finance/refunds/**',
+      'app/api/admin/finance/payouts/**',
     ],
     reason:
       'Приёмники оплаты: комиссия только recordCommissionFromBooking, строка tour_payments только holdTourPayment. §7 называет три живых приёмника — третий, CloudPayments кабинета оператора, лежит вне app/api/payments. Выключатель PLATFORM_ACCEPTS_PAYMENTS открывает приём денег для всех трёх разом.',
@@ -242,6 +250,9 @@ export const PROTECTED_ZONES = Object.freeze([
       // скиллы»); правило, ослабленное в нём, агент прочтёт как правило.
       // Ревью безопасности PR 3832 предложило внести его в зону.
       '.claude/skills/vedar-protected-zones/SKILL.md',
+      // Сам сторож (ревью PR 3833): обратные проверки реестра живут только
+      // в нём — удалённая проверка открыла бы дверь мимо зон без слова.
+      'tests/unit/protected-zones-gate.test.ts',
     ],
     reason:
       'Сам реестр и проверка. Проверка идёт скриптом из main, поэтому PR, снявший зону из реестра, прошёл бы без слова, а ослабленный реестр действовал бы со следующего PR.',

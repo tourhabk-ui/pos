@@ -578,6 +578,11 @@ describe('вход, роли, комиссия и холд — в зонах (с
       'lib/payments/hold-tour-payment.ts': 'payments',
       'lib/payments/tochka.ts': 'payments',
       '.claude/skills/vedar-protected-zones/SKILL.md': 'zones-gate',
+      'tests/unit/protected-zones-gate.test.ts': 'zones-gate',
+      'lib/payments/tour-refund.ts': 'payments',
+      'lib/payments/release-eligibility.ts': 'payments',
+      'app/api/admin/finance/refunds/route.ts': 'payments',
+      'app/api/admin/finance/payouts/route.ts': 'payments',
     };
     for (const [file, zone] of Object.entries(expected)) {
       expect(existsSync(join(ROOT, file)), `нет файла ${file}`).toBe(true);
@@ -610,6 +615,10 @@ describe('вход, роли, комиссия и холд — в зонах (с
     linkMessengerLoginToPartner: 'auth-doors',
     recordCommissionFromBooking: 'payments',
     holdTourPayment: 'payments',
+    computeTourRefund: 'payments',
+    recordRefundDue: 'payments',
+    cancelledBookingSql: 'payments',
+    notCancelledBookingSql: 'payments',
   };
 
   const definedIn = (name: string): string[] => {
