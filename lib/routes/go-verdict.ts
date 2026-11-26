@@ -232,6 +232,12 @@ export function parkRouteColor(
   return warningsOf(alerts).length > 0 ? 'yellow' : 'green';
 }
 
+/** Причина «Идти», когда к маршруту не пришло ни одного предупреждения. */
+export const CLEAR_REASON = 'Предупреждений и опасных кодов на маршруте нет';
+/** Причина «Идти», когда предупреждения пришли, но оценку не меняют (#3858). */
+export const CLEAR_WITH_ALERTS_REASON =
+  'Запретов и опасных кодов на маршруте нет; предупреждения из списка оценку не меняют';
+
 export function goVerdict(s: RouteSignals): Verdict {
   const unknown = missingCritical(s);
 
@@ -334,8 +340,12 @@ export function goVerdict(s: RouteSignals): Verdict {
     return { status: 'caution', code: 'alert_warning', reason: warn.title, unknown };
   }
 
+  // Предупреждения, которые оценку не меняют (зональная единица, нулевая
+  // важность), стоят в списке маршрута рядом с причиной. «Предупреждений нет»
+  // рядом с ними — противоречие в одном ответе (#3858): причина говорит
+  // только то, что верно при любом списке.
   return {
     status: 'go', code: 'clear',
-    reason: 'Предупреждений и опасных кодов на маршруте нет', unknown,
+    reason: (s.alerts ?? []).length > 0 ? CLEAR_WITH_ALERTS_REASON : CLEAR_REASON, unknown,
   };
 }
