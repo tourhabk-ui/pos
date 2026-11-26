@@ -555,4 +555,189 @@ withPg('автомат предлагает правку тура', () => {
       expect((await draftOf(tour)).proposed_by).toEqual({ photos: 'tour-photos', meeting_point: 'tour-pickup' });
     });
   });
+
+  describe('исполнители: скидка эксперимента и описание от модели — только дверью', () => {
+    const priceOf = async (id: string) => (await pool.query<{ base_price: number; price_old: number | null }>(
+      `SELECT base_price::float8 AS base_price, price_old::float8 AS price_old FROM operator_tours WHERE id = $1::bigint`, [id],
+    )).rows[0];
+    const task = { approval_id: 'x', executor_agent_id: 'ab', action_type: 'ab_scale_winner', description: '', context: {}, due_date: '' };
+    /** Эксперимент старше пяти дней: группа B выигрывает четырьмя бронями против нуля. */
+    const experiment = async (a: string[], b: string[], pct: number) => {
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO agent_experiments (name, metric, status, variant_a, variant_b, created_at)
+         VALUES ('Скидка в тесте', 'booking_count', 'running', $1::jsonb, $2::jsonb, NOW() - INTERVAL '10 days')
+         RETURNING id::text AS id`,
+        [JSON.stringify({ label: 'A', tour_ids: a.map(Number) }), JSON.stringify({ label: 'B', tour_ids: b.map(Number), discount_pct: pct })],
+      );
+      for (let i = 0; i < 4; i += 1) {
+        await pool.query(
+          `INSERT INTO operator_bookings (operator_tour_id, booking_date, end_date, duration_days, participants, booking_status)
+           VALUES ($1::bigint, CURRENT_DATE + 30, CURRENT_DATE + 30, 1, 2, 'confirmed')`, [b[0]],
+        );
+      }
+      return rows[0].id;
+    };
+
+    it('скидка победившей группы: тур на сайте — на проверку, цена на витрине прежняя; тур не на сайте — в строку', async () => {
+      const control = await addTour('Эксперимент: контроль', { published: true });
+      const onSite = await addTour('Эксперимент: на сайте', { published: true });
+      const hidden = await addTour('Эксперимент: не на сайте');
+      const ownPrice = await addTour('Эксперимент: владелец правит цену', { published: true });
+      await ownerSaves(ownPrice, { base_price: 9500 });
+      const exp = await experiment([control], [onSite, hidden, ownPrice, '999999993'], 20);
+      delete process.env.TELEGRAM_BOT_TOKEN;
+
+      const { executeABScaleWinner } = await import('@/lib/agents/execution/handlers/ab-scale-executor');
+      const r = await executeABScaleWinner(task);
+      expect(r.errors).toEqual([]);
+      const told = r.changes_made.join('\n');
+      expect(told).toContain('ждёт проверки администратора — 1; записано в туры, которых нет на сайте, — 1');
+      expect(told).toContain('пропущено: владелец сам отправил цену на проверку — 1');
+      expect(told).toContain('тур не найден — 1');
+
+      // На сайте цена прежняя; скидка ждёт проверки под именем автомата.
+      expect(await priceOf(onSite)).toEqual({ base_price: 10000, price_old: null });
+      const draft = await draftOf(onSite);
+      expect(draft.patch).toEqual({ base_price: 8000, price_old: 10000 });
+      expect(draft.proposed_by).toEqual({ base_price: 'ab-scale', price_old: 'ab-scale' });
+      // Тур не на сайте — записано; цену владельца на проверке исполнитель не тронул.
+      expect(await priceOf(hidden)).toEqual({ base_price: 8000, price_old: 10000 });
+      expect((await draftOf(ownPrice)).patch).toEqual({ base_price: 9500 });
+      expect((await draftOf(ownPrice)).proposed_by).toEqual({});
+      expect(await priceOf(control)).toEqual({ base_price: 10000, price_old: null });
+      // Эксперимент закрыт той же транзакцией.
+      expect((await pool.query(`SELECT status, winner FROM agent_experiments WHERE id = $1::uuid`, [exp])).rows[0])
+        .toEqual({ status: 'completed', winner: 'b' });
+
+      // Администратор видит, кто предложил цену; после одобрения оператору сказано, что цену поменяла платформа.
+      const card = (await adminGet()).data.edits.find((e) => e.tourId === onSite)!;
+      expect(card.changes.map((c) => [c.field, c.proposedBy])).toEqual([
+        ['base_price', 'скидка победившей группы ценового эксперимента'],
+        ['price_old', 'скидка победившей группы ценового эксперимента'],
+      ]);
+      sent.alerts.length = 0;
+      const ok = await adminPost(card.id, { action: 'approve', seen: card.seen });
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      expect(await priceOf(onSite)).toEqual({ base_price: 8000, price_old: 10000 });
+      expect(sent.alerts[0]?.text).toContain('Тур изменён по предложению платформы');
+
+      // Повторный прогон этот эксперимент не трогает: скидка не применяется дважды.
+      const again = await executeABScaleWinner(task);
+      expect(again.changes_made.join('\n')).toContain('Нет A/B экспериментов готовых к оценке');
+      expect(await priceOf(hidden)).toEqual({ base_price: 8000, price_old: 10000 });
+    });
+
+    it('описание от модели: на проверку под своим именем, без порога длины; описание владельца не перебивается', async () => {
+      const { proposeRewrittenDescription } = await import('@/lib/tours/describe-door');
+      // Описание длинное: исполнитель берёт и туры с низкой оценкой — порога длины у этой двери нет.
+      const tour = await addTour('Модель: тур на сайте', { published: true, description: OWNER_TEXT });
+      expect(await proposeRewrittenDescription(tour, COMPOSED)).toBe('staged');
+      expect((await liveOf(tour)).description).toBe(OWNER_TEXT);
+      expect((await draftOf(tour)).proposed_by).toEqual({ description: 'initiative-rewrite' });
+      const card = (await adminGet()).data.edits.find((e) => e.tourId === tour)!;
+      expect(card.changes.map((c) => [c.field, c.proposedBy])).toEqual([['description', 'описание, переписанное моделью']]);
+
+      const own = await addTour('Модель: правка владельца', { published: true });
+      await ownerSaves(own, { description: OWNER_TEXT });
+      expect(await proposeRewrittenDescription(own, COMPOSED)).toBe('skipped_owner_pending');
+      expect((await draftOf(own)).patch).toEqual({ description: OWNER_TEXT });
+
+      const hidden = await addTour('Модель: тур не на сайте');
+      expect(await proposeRewrittenDescription(hidden, COMPOSED)).toBe('written');
+      expect(await proposeRewrittenDescription(hidden, COMPOSED)).toBe('unchanged');
+      expect(await proposeRewrittenDescription('999999992', COMPOSED)).toBe('not_found');
+    });
+  });
+
+  describe('импорт с сайта оператора: существующий тур — только дверью', () => {
+    const rowOf = async (id: string) => (await pool.query<Record<string, unknown>>(
+      `SELECT description, base_price::float8 AS base_price, price_unit, price_note, activity_type, duration_hours::float8 AS duration_hours,
+              source_url, includes, is_stale, parsed_at IS NOT NULL AS parsed, is_published
+         FROM operator_tours WHERE id = $1::bigint`, [id],
+    )).rows[0];
+    const scraped = (title: string, over: Record<string, unknown> = {}) => ({
+      title, category: 'sea' as const, price_from: 12000, price_unit: 'per_person' as const, group_size_max: 8,
+      price_note: 'Детям до 12 лет — скидка', includes: 'Гид, обед', duration_hours: 9, departures: null,
+      source_url: 'https://example.test/tours/volcano', description: COMPOSED, ...over,
+    });
+    const save = async (tour: ReturnType<typeof scraped>) => {
+      const { saveTour } = await import('@/lib/services/operators/operator-tour-scraper');
+      return saveTour(tour as never, OP);
+    };
+
+    it('тур на сайте: цена, единица, примечание, описание и длительность — на проверку; на витрине всё прежнее', async () => {
+      const tour = await addTour('Импорт: тур на сайте', { published: true });
+      expect(await save(scraped('Импорт: тур на сайте'))).toBe('staged');
+      const live = await rowOf(tour);
+      // Содержание прежнее; вид активности оператора импорт не переписал.
+      expect(live).toMatchObject({ description: SHORT, base_price: 10000, price_unit: 'person', price_note: null, activity_type: 'hiking', duration_hours: 6 });
+      // Отметки импорта записаны сразу: турист их не видит.
+      expect(live).toMatchObject({ source_url: 'https://example.test/tours/volcano', includes: 'Гид, обед', is_stale: false, parsed: true });
+      const draft = await draftOf(tour);
+      expect(draft.patch).toEqual({
+        description: COMPOSED, base_price: 12000, price_unit: 'per_person', price_note: 'Детям до 12 лет — скидка', duration_hours: 9,
+      });
+      expect(Object.values(draft.proposed_by)).toEqual(Array(5).fill('operator-site-import'));
+      const card = (await adminGet()).data.edits.find((e) => e.tourId === tour)!;
+      expect(new Set(card.changes.map((c) => c.proposedBy))).toEqual(new Set(['импорт с сайта оператора']));
+      // Повтор импорта с теми же данными ничего не меняет.
+      expect(await save(scraped('Импорт: тур на сайте'))).toBe('staged');
+      expect((await draftOf(tour)).patch).toEqual(draft.patch);
+      // Одобрение пишет все пять полей, включая примечание к цене; оператору сказано, что тур изменила платформа.
+      sent.alerts.length = 0;
+      const ok = await adminPost(card.id, { action: 'approve', seen: card.seen });
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+      expect(await rowOf(tour)).toMatchObject({
+        description: COMPOSED, base_price: 12000, price_unit: 'per_person', price_note: 'Детям до 12 лет — скидка',
+        duration_hours: 9, activity_type: 'hiking',
+      });
+      expect(sent.alerts[0]?.text).toContain('Тур изменён по предложению платформы');
+    });
+
+    it('цена за группу ложится словарём сайта — «за тур»; единица не понята — цена и единица не трогаются', async () => {
+      const group = await addTour('Импорт: цена за группу', { published: true });
+      await save(scraped('Импорт: цена за группу', { price_from: 60000, price_unit: 'per_group', description: null, price_note: null, duration_hours: null }));
+      // Не «per_group»: такое значение расчёт брони прочёл бы как «за человека».
+      expect((await draftOf(group)).patch).toEqual({ base_price: 60000, price_unit: 'per_tour' });
+
+      const unknown = await addTour('Импорт: единица не понята', { published: true });
+      expect(await save(scraped('Импорт: единица не понята', { price_from: 60000, price_unit: 'unknown', description: null, price_note: null, duration_hours: null })))
+        .toBe('unchanged');
+      expect(await draftOf(unknown)).toBeNull();
+      expect(await rowOf(unknown)).toMatchObject({ base_price: 10000, price_unit: 'person', parsed: true });
+      // Единица не понята, но описание найдено — предлагается только оно.
+      await save(scraped('Импорт: единица не понята', { price_unit: 'unknown', price_note: null, duration_hours: null }));
+      expect((await draftOf(unknown)).patch).toEqual({ description: COMPOSED });
+    });
+
+    it('правку владельца на проверке импорт не перебивает; тур не на сайте — в строку; новый тур — неопубликованным', async () => {
+      const own = await addTour('Импорт: правка владельца', { published: true });
+      await ownerSaves(own, { base_price: 11000, description: OWNER_TEXT });
+      expect(await save(scraped('Импорт: правка владельца'))).toBe('staged');
+      const draft = await draftOf(own);
+      expect(draft.patch).toMatchObject({ base_price: 11000, description: OWNER_TEXT, price_unit: 'per_person', duration_hours: 9 });
+      expect(draft.proposed_by).toEqual({
+        price_unit: 'operator-site-import', price_note: 'operator-site-import', duration_hours: 'operator-site-import',
+      });
+      // Все поля импорта уже у владельца на проверке — импорт содержание не трогает вовсе.
+      const all = await addTour('Импорт: всё у владельца', { published: true });
+      await ownerSaves(all, { description: OWNER_TEXT });
+      expect(await save(scraped('Импорт: всё у владельца', { price_from: null, price_note: null, duration_hours: null }))).toBe('kept_owner');
+      expect((await draftOf(all)).proposed_by).toEqual({});
+
+      const hidden = await addTour('Импорт: тур не на сайте');
+      expect(await save(scraped('Импорт: тур не на сайте'))).toBe('updated');
+      expect(await rowOf(hidden)).toMatchObject({ description: COMPOSED, base_price: 12000, price_unit: 'per_person', activity_type: 'hiking' });
+      expect(await draftOf(hidden)).toBeNull();
+
+      expect(await save(scraped('Импорт: новый тур', { price_unit: 'per_group' }))).toBe('inserted');
+      const fresh = (await pool.query<{ id: string }>(`SELECT id::text AS id FROM operator_tours WHERE title = 'Импорт: новый тур'`)).rows[0].id;
+      expect(await rowOf(fresh)).toMatchObject({ is_published: false, price_unit: 'per_tour', activity_type: 'sea', base_price: 12000 });
+      const { publicTourSql } = await import('@/lib/tours/public-visibility');
+      expect((await pool.query(`SELECT 1 FROM operator_tours ot WHERE ot.id = $1::bigint AND ${publicTourSql('ot')}`, [fresh])).rows).toHaveLength(0);
+      // Удалённый тур с тем же названием импорт не воскрешает и не правит: заводит новый.
+      await pool.query(`UPDATE operator_tours SET deleted_at = NOW() WHERE id = $1::bigint`, [hidden]);
+      expect(await save(scraped('Импорт: тур не на сайте'))).toBe('inserted');
+    });
+  });
 });

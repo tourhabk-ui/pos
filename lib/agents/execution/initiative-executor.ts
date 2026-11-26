@@ -19,6 +19,7 @@ import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
 import { callAIWithModelDirect } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import type { ChatMessage } from '@/lib/ai/prompts';
+import { DESCRIBE_OUTCOME_WORDS, proposeRewrittenDescription } from '@/lib/tours/describe-door';
 import { executeCodeChange, executeNewPageCreate } from './handlers/code-change-executor';
 import { executeABScaleWinner } from './handlers/ab-scale-executor';
 import { executeOperatorOutreach } from './handlers/operator-outreach-executor';
@@ -277,11 +278,11 @@ async function executeTourDescriptionRewrite(task: ExecutionTask): Promise<Execu
         const newDesc = await callAIWithModelDirect(messages, getModelForAgent('content'));
 
         if (newDesc && newDesc.length > 20) {
-          await pool.query(
-            `UPDATE operator_tours SET description = $1, updated_at = NOW() WHERE id = $2`,
-            [newDesc.trim(), tour.id]
-          );
-          changes.push(`✓ "${tour.title}" — описание обновлено (${newDesc.length} симв.)`);
+          // Своей записи в тур здесь нет (слово владельца 23.11: автоматы —
+          // только через очередь проверки). Текст модели уходит дверью правки
+          // под своим именем: у тура на сайте он ждёт проверки администратора.
+          const outcome = await proposeRewrittenDescription(String(tour.id), newDesc.trim());
+          changes.push(`"${tour.title}" — ${DESCRIBE_OUTCOME_WORDS[outcome]} (${newDesc.length} симв.)`);
         }
       } catch (err) {
         errors.push(`"${tour.title}": ${err instanceof Error ? err.message : String(err)}`);

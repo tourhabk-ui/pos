@@ -1095,7 +1095,10 @@ describe('запреты', () => {
     // своим входом: дверью человека автомат прошёл бы без пометки «кто
     // предложил», а с пустой карточкой тура — как администратор, мимо очереди.
     const automata = outside.filter((f) => /proposeTourChange/.test(read(f)));
-    expect(automata).toEqual(['lib/tours/describe-door.ts', 'lib/tours/photos-door.ts']);
+    expect(automata).toEqual([
+      'lib/agents/execution/handlers/ab-scale-executor.ts', 'lib/services/operators/operator-tour-scraper.ts',
+      'lib/tours/describe-door.ts', 'lib/tours/photos-door.ts',
+    ]);
     for (const f of automata) {
       const src = read(f);
       expect(src, `${f}: автомат зовёт дверь человека`).not.toMatch(/saveTourChange|stageTourEdit|writeTourPatch/);

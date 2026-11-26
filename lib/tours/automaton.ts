@@ -26,6 +26,9 @@ export const TOUR_AUTOMATA = {
   'tour-describe': 'сборка описания из данных тура',
   'tour-photos': 'добавление снимков к туру',
   'tour-pickup': 'запись точки сбора',
+  'ab-scale': 'скидка победившей группы ценового эксперимента',
+  'initiative-rewrite': 'описание, переписанное моделью',
+  'operator-site-import': 'импорт с сайта оператора',
 } as const;
 
 export type TourAutomaton = keyof typeof TOUR_AUTOMATA;

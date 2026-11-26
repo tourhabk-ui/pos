@@ -208,7 +208,6 @@ const DIRECT_CALLERS_OUTSIDE_BOOKS: Record<string, string> = {
   'qwen-key-probe.ts': 'проба ключа DashScope по маркеру; расход в книги не пишет',
   'xai-x-search-probe.ts': 'проба x_search по маркеру; расход в книги не пишет',
   'route-scraper-agent.js': 'локальный скрипт из package.json, ни одним workflow не запускается — расход на ключе запускающего',
-  'scrape-operator-tours.js': 'локальный скрипт, ни одним workflow не запускается — расход на ключе запускающего',
   'unique-routes-scraper.js': 'локальный скрипт из package.json, ни одним workflow не запускается — расход на ключе запускающего',
 };
 

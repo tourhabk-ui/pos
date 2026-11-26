@@ -69,6 +69,7 @@ const WRITERS: Record<string, { kind: Kind; why: string }> = {
   'lib/guides/own-tour-create.ts': { kind: 'creates', why: 'новый тур гида, is_published = FALSE' },
   'lib/agents/agencies/operator-agency.ts': { kind: 'creates', why: 'ИИ-чат оператора заводит тур неопубликованным' },
   'lib/services/tours/tours-visitkamchatka.ts': { kind: 'creates', why: 'импорт заводит тур неопубликованным; существующие не трогает' },
+  'lib/services/operators/operator-tour-scraper.ts': { kind: 'creates', why: 'импорт с сайта оператора: новый тур — неопубликованным; своим запросом — только колонки импорта, которых сайт не показывает; содержание существующего — дверью' },
 
   'app/api/admin/content/tours/[id]/route.ts': { kind: 'admin', why: 'правка администратора' },
   'app/api/admin/operator-tours/[id]/route.ts': { kind: 'admin', why: 'правка администратора' },
@@ -81,17 +82,14 @@ const WRITERS: Record<string, { kind: Kind; why: string }> = {
   'app/api/operator/tours/[id]/generate-tags/route.ts': { kind: 'not_content', why: 'ai_tags — служебные метки поиска' },
   'app/api/operator/tours/auto-fill-ai/route.ts': { kind: 'not_content', why: 'заметки заполнения; содержание уходит дверью владельца' },
   'lib/guides/own-tour-publish.ts': { kind: 'not_content', why: 'скрыть, показать и снять с публикации — сразу' },
+  'lib/services/tours/tour.service.ts': { kind: 'not_content', why: 'старый сервис туров: publish и unpublish пишут только is_active' },
+  'lib/agents/execution/initiative-executor.ts': { kind: 'not_content', why: 'приостановка тура с плохими отзывами: скрыть — сразу; описание от модели уходит дверью' },
 
   'app/api/cron/payment-test-setup/route.ts': { kind: 'service', why: 'служебный тур проверки оплаты у тестового партнёра' },
   'app/api/cron/sql-shape-check/route.ts': { kind: 'service', why: 'PREPARE: запрос разбирается, но не выполняется' },
 
   'lib/places/merge-carry.ts': { kind: 'place_merge', why: 'слияние мест переносит main_place_id на оставшуюся запись' },
 
-  'lib/agents/execution/handlers/ab-scale-executor.ts': { kind: 'bypass_known', why: 'скидка победившей группы: base_price и price_old прямым UPDATE' },
-  'lib/agents/execution/initiative-executor.ts': { kind: 'bypass_known', why: 'описание, переписанное моделью, прямым UPDATE' },
-  'lib/services/operators/operator-tour-scraper.ts': { kind: 'bypass_known', why: 'импорт с сайта оператора правит цену и состав существующего тура' },
-  'lib/services/tours/tour.service.ts': { kind: 'bypass_known', why: 'старый сервис туров: вызывающих не найдено, разобрать и удалить' },
-  'scripts/scrape-operator-tours.js': { kind: 'bypass_known', why: 'скрипт импорта: пишет туры своим запросом' },
 };
 
 const CODE = repoCodeFiles(ROOT);
@@ -366,6 +364,18 @@ describe('перепись писателей таблицы туров', () => 
     }
   });
 
+  it('исполнители цены и описания своей записи содержания не имеют: только вход автомата', () => {
+    const ab = read('lib/agents/execution/handlers/ab-scale-executor.ts');
+    expect(ab, 'скидка снова пишется своим запросом').not.toMatch(WRITES);
+    expect(ab).toMatch(/proposeTourChange/);
+    expect(ab).not.toMatch(/writeTourPatch|saveTourChange|stageTourEdit/);
+    const initiative = read('lib/agents/execution/initiative-executor.ts');
+    expect(contentColumnsWritten(initiative), 'описание от модели снова пишется своим запросом').toEqual([]);
+    expect(unparsed(initiative)).toEqual([]);
+    expect(initiative).toMatch(/proposeRewrittenDescription\(/);
+    expect(initiative).not.toMatch(/writeTourPatch|saveTourChange|stageTourEdit/);
+  });
+
   it('«не содержание» — действительно не содержание: только UPDATE, ни одной колонки из списка проверки, публикации нет', () => {
     for (const [file, w] of Object.entries(WRITERS)) {
       if (w.kind !== 'not_content') continue;
@@ -392,21 +402,28 @@ describe('перепись писателей таблицы туров', () => 
       expect(inserted.length, `${file}: записи больше нет`).toBeGreaterThan(0);
       // Вставка публикацию не ставит: колонки нет (умолчание базы) либо FALSE.
       for (const value of inserted) expect(['absent', 'false'], `${file}: is_published = ${value}`).toContain(value);
-      // И ни одна запись в существующую строку её не ставит.
+      // И ни одна запись в существующую строку не ставит публикацию и не правит содержание.
       expect(unparsed(src), `${file}: запись, которую перепись не разобрала`).toEqual([]);
       expect(publicationSet(src), `${file}: ставит публикацию`).toEqual([]);
+      expect(contentColumnsWritten(src), `${file}: правит содержание существующего тура своим запросом`).toEqual([]);
     }
+  });
+
+  it('импорт с сайта оператора своим запросом пишет только названные колонки импорта', () => {
+    // Не «отметки»: `includes` и `group_size_max` — прежние колонки импорта
+    // (ревью безопасности PR #3835). Состав тура на сайте — `included`, размер
+    // группы — `max_participants`; эти две не читает ни карточка, ни каталог,
+    // ни MCP. Новая колонка в этом запросе — видимая правка списка: если её
+    // читает турист, ей место в двери правки, а не здесь.
+    const src = read('lib/services/operators/operator-tour-scraper.ts');
+    expect(rowUpdates(src).map((a) => a.column).sort()).toEqual(['group_size_max', 'includes', 'is_stale', 'parsed_at', 'source_url']);
   });
 
   it('обходные пути автоматов — замороженный список: он может только сокращаться', () => {
     const bypass = Object.entries(WRITERS).filter(([, w]) => w.kind === 'bypass_known').map(([f]) => f).sort();
-    expect(bypass).toEqual([
-      'lib/agents/execution/handlers/ab-scale-executor.ts',
-      'lib/agents/execution/initiative-executor.ts',
-      'lib/services/operators/operator-tour-scraper.ts',
-      'lib/services/tours/tour.service.ts',
-      'scripts/scrape-operator-tours.js',
-    ]);
+    // С 23.11 список пуст: последними ушли импорт с сайта оператора, старый
+    // сервис туров и скрипт импорта. Новая запись сюда — только с причиной.
+    expect(bypass).toEqual([]);
     // Запись самоустаревает: перестал писать содержание своим запросом — вычеркнуть.
     for (const file of bypass) {
       const src = read(file);
