@@ -38,14 +38,14 @@ export function checkPriceMove(oldPrice: unknown, newPrice: unknown, confirmed: 
     // но и не «в пределах»: пропускаем только с подтверждением.
     return confirmed
       ? { ok: true, move_pct: 0 }
-      : { ok: false, move_pct: null, reason: 'у тура нет прежней цены, с которой можно сверить ход — подтвердите изменение явно (confirm_large_move)' };
+      : { ok: false, move_pct: null, reason: 'у тура нет прежней цены, с которой можно сверить ход — оператор подтверждает изменение словом «подтверждаю» в том же сообщении' };
   }
   const movePct = Math.round(Math.abs(newN - oldN) / oldN * 1000) / 10;
   if (movePct > PRICE_MOVE_MAX_PCT && !confirmed) {
     return {
       ok: false,
       move_pct: movePct,
-      reason: `ход цены ${movePct}% (${oldN} → ${newN}) больше порога ${PRICE_MOVE_MAX_PCT}% — похоже на опечатку; если это решение, повторите с confirm_large_move=true`,
+      reason: `ход цены ${movePct}% (${oldN} → ${newN}) больше порога ${PRICE_MOVE_MAX_PCT}% — похоже на опечатку; если это решение, оператор пишет одной фразой «подтверждаю цену ${newN}»`,
     };
   }
   return { ok: true, move_pct: movePct };

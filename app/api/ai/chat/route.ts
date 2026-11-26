@@ -503,7 +503,9 @@ async function handleChat(request: NextRequest, onStep?: (label: string) => void
           // само сообщение): один пользовательский запрос — один эффект
           // мутации, повтор модели внутри agentic-цикла отбивается ядром.
           const invocationSeed = `${sessionId ?? 'nosession'}:${message.trim()}`;
-          const opTools = getOperatorTools(partnerId, invocationSeed);
+          // Сообщение оператора — доверенным полем: подтверждение цены и
+          // публикации инструменты читают из него, а не из аргументов модели (26.11).
+          const opTools = getOperatorTools(partnerId, invocationSeed, message.trim());
           const sdkResult = await runSDKAgent({
             agentId: 'operator',
             intent: 'operator_management',

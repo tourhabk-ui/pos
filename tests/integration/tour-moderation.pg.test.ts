@@ -455,7 +455,7 @@ withPg('модерация правок тура', () => {
     it('ИИ-чат оператора: цена тура на витрине — на проверку, и модель об этом знает', async () => {
       const tour = await addTour(OP, 'ИИ-чат: цена', { published: true, price: 10000 });
       const { getOperatorTools } = await import('@/lib/agents/sdk/operator-tools');
-      const tool = getOperatorTools(OP, 'seed-price').find((t) => t.name === 'update_tour_price')!;
+      const tool = getOperatorTools(OP, 'seed-price', `поставь цену 11000 на тур ${tour}`).find((t) => t.name === 'update_tour_price')!;
       const out = JSON.parse(await tool.execute({ tour_id: tour, new_price: '11000' }));
       expect(out.success).toBe(true);
       expect(out.pending_review).toBe(true);
@@ -467,7 +467,7 @@ withPg('модерация правок тура', () => {
     it('ИИ-чат оператора: тур поправили между чтением и записью — конфликт, черновика нет', async () => {
       const tour = await addTour(OP, 'ИИ-чат: конфликт', { published: true, price: 10000 });
       const { getOperatorTools } = await import('@/lib/agents/sdk/operator-tools');
-      const tool = getOperatorTools(OP, 'seed-conflict').find((t) => t.name === 'update_tour_price')!;
+      const tool = getOperatorTools(OP, 'seed-conflict', `цена 11 000 на тур ${tour}`).find((t) => t.name === 'update_tour_price')!;
       tx.before = async () => { await pool.query(`UPDATE operator_tours SET updated_at = NOW() + interval '1 second' WHERE id = $1::bigint`, [tour]); };
       const out = JSON.parse(await tool.execute({ tour_id: tour, new_price: '11000' }));
       expect(out.error).toContain('изменён параллельно');
@@ -478,7 +478,7 @@ withPg('модерация правок тура', () => {
     it('ИИ-чат оператора: «опубликуй» — просьба; «сними с публикации» — сразу', async () => {
       const tour = await addTour(OP, 'ИИ-чат: публикация');
       const { getOperatorTools } = await import('@/lib/agents/sdk/operator-tools');
-      const publish = getOperatorTools(OP, 'seed-pub-1').find((t) => t.name === 'set_tour_published')!;
+      const publish = getOperatorTools(OP, 'seed-pub-1', `опубликуй тур ${tour}`).find((t) => t.name === 'set_tour_published')!;
       const asked = JSON.parse(await publish.execute({ tour_id: tour, published: true }));
       expect(asked.success).toBe(true);
       expect(asked.is_published).toBe(false);
@@ -488,11 +488,60 @@ withPg('модерация правок тура', () => {
       expect(await pendingPatch(tour)).toEqual({ patch: {}, wants_publish: true });
 
       const shownTour = await addTour(OP, 'ИИ-чат: снять', { published: true });
-      const hide = getOperatorTools(OP, 'seed-pub-2').find((t) => t.name === 'set_tour_published')!;
+      const hide = getOperatorTools(OP, 'seed-pub-2', `сними тур ${shownTour} с публикации`).find((t) => t.name === 'set_tour_published')!;
       const hidden = JSON.parse(await hide.execute({ tour_id: shownTour, published: false }));
       expect(hidden).toMatchObject({ success: true, is_published: false, message: 'Тур снят с публикации' });
       expect(hidden.pending_review).toBeUndefined();
       expect(await onStorefront(shownTour)).toBe(false);
+    });
+
+    it('ИИ-чат оператора: без слов оператора в сообщении — ни цены, ни снятия (26.11)', async () => {
+      // Проверка безопасности ИИ-части 26.11: текст туриста в пожеланиях к
+      // брони мог велеть модели снять тур или поменять цену, а флаг
+      // «оператор подтвердил» ставила сама модель.
+      const tour = await addTour(OP, 'ИИ-чат: чужой текст', { published: true, price: 10000 });
+      const { getOperatorTools } = await import('@/lib/agents/sdk/operator-tools');
+      const tools = getOperatorTools(OP, 'seed-inject', 'покажи брони на неделю');
+      const price = tools.find((t) => t.name === 'update_tour_price')!;
+      const hide = tools.find((t) => t.name === 'set_tour_published')!;
+      const p = JSON.parse(await price.execute({ tour_id: tour, new_price: '100', confirm_large_move: 'true' }));
+      expect(p.error).toMatch(/только ту, что оператор написал/);
+      const h = JSON.parse(await hide.execute({ tour_id: tour, published: false }));
+      expect(h.error).toMatch(/по прямой просьбе оператора/);
+      expect((await liveOf(tour)).base_price).toBe(10000);
+      expect(await onStorefront(tour)).toBe(true);
+      expect(await pendingPatch(tour)).toBeNull();
+
+      // Ход больше 50% — только со словом «подтверждаю».
+      const big = getOperatorTools(OP, 'seed-big-1', `поставь цену 30000 на тур ${tour}`).find((t) => t.name === 'update_tour_price')!;
+      expect(JSON.parse(await big.execute({ tour_id: tour, new_price: '30000' })).error).toBeTruthy();
+      const bigOk = getOperatorTools(OP, 'seed-big-2', `подтверждаю цену 30 000 на тур ${tour}`).find((t) => t.name === 'update_tour_price')!;
+      expect(JSON.parse(await bigOk.execute({ tour_id: tour, new_price: '30000' })).success).toBe(true);
+    });
+
+    it('ИИ-чат оператора: просьба открывает только названный тур (ревью безопасности #3843)', async () => {
+      // Оператор просит скрыть отменённые брони, турист в пожеланиях — снять
+      // туры. Глагол в сообщении есть, тура нет: ни один тур не снят.
+      const a = await addTour(OP, 'ИИ-чат: тур А', { published: true, price: 10000 });
+      const b = await addTour(OP, 'ИИ-чат: тур Б', { published: true, price: 10000 });
+      const { getOperatorTools } = await import('@/lib/agents/sdk/operator-tools');
+      const vague = getOperatorTools(OP, 'seed-vague', 'покажи брони и скрой отменённые').find((t) => t.name === 'set_tour_published')!;
+      for (const t of [a, b]) {
+        expect(JSON.parse(await vague.execute({ tour_id: t, published: false })).error).toMatch(/назван номером или полным названием/);
+        expect(await onStorefront(t)).toBe(true);
+      }
+      // Названный тур — только он: «сними тур А» не снимает тур Б.
+      const onlyA = getOperatorTools(OP, 'seed-only-a', `сними тур ${a} с публикации`).find((t) => t.name === 'set_tour_published')!;
+      expect(JSON.parse(await onlyA.execute({ tour_id: b, published: false })).error).toBeTruthy();
+      expect(await onStorefront(b)).toBe(true);
+      // Полным названием — тоже просьба.
+      const byTitle = getOperatorTools(OP, 'seed-title', 'скрой «ИИ-чат: тур Б»').find((t) => t.name === 'set_tour_published')!;
+      expect(JSON.parse(await byTitle.execute({ tour_id: b, published: false })).success).toBe(true);
+      expect(await onStorefront(b)).toBe(false);
+      // Цена другого тура не открывает этот.
+      const price = getOperatorTools(OP, 'seed-price-other', `поставь цену 11000 на тур ${b}`).find((t) => t.name === 'update_tour_price')!;
+      expect(JSON.parse(await price.execute({ tour_id: a, new_price: '11000' })).error).toBeTruthy();
+      expect((await liveOf(a)).base_price).toBe(10000);
     });
   });
 
