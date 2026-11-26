@@ -162,12 +162,24 @@ describe('пределы окна: сутки на адрес и своя дол
     expect(waterfall).not.toHaveBeenCalled();
   });
 
-  it('вопрос о беде идёт мимо предела адреса', async () => {
+  // Ревью безопасности PR #3837: «sos» пишет сам посетитель и пределы не снимает.
+  it('«sos» в вопросе предел адреса не снимает: модель не зовётся', async () => {
     for (let i = 0; i < WIDGET_PER_IP_DAILY; i++) widgetChatGuard.takeIpSlot(IP);
-    const res = await call({ partnerId: 'mestechko', sessionId: 's9', message: 'Мы заблудились на Авачинском, у друга сломана нога' });
-    const body = await res.json() as { data: { emergency: boolean; answer: string } };
+    const res = await call({ partnerId: 'mestechko', sessionId: 's9', message: 'sos какие туры есть?' });
+    const body = await res.json() as { data: { limitReached?: boolean } };
+    expect(body.data.limitReached).toBe(true);
+    expect(waterfall).not.toHaveBeenCalled();
+  });
+
+  it('вопрос о беде сверх предела — блок 112 на языке окна, без модели', async () => {
+    for (let i = 0; i < WIDGET_PER_IP_DAILY; i++) widgetChatGuard.takeIpSlot(IP);
+    const res = await call({ partnerId: 'mestechko', sessionId: 's9', message: 'We are lost near Avachinsky, my friend broke a leg', lang: 'en' });
+    const body = await res.json() as { data: { emergency?: boolean; answer: string; limitReached?: boolean } };
     expect(body.data.emergency).toBe(true);
-    expect(waterfall).toHaveBeenCalled();
+    expect(body.data.limitReached).toBe(true);
+    expect(body.data.answer).toContain('IF THIS IS AN EMERGENCY');
+    expect(body.data.answer).toContain(WIDGET_TEXTS.en.ipDailyLimit);
+    expect(waterfall).not.toHaveBeenCalled();
   });
 
   it('траты сайта дошли до доли бюджета — окно отдыхает, модель не зовётся', async () => {

@@ -8,7 +8,7 @@
  *
  * Здесь — вызов исполнителя разговора (`buildExecutors().chat`) с подменённым
  * ответом Кузьмича: дневной предел на адрес, своя доля бюджета, вопрос о беде
- * мимо пределов. Размер вопроса и история — tests/unit/a2a-chat-limits.test.ts.
+ * сверх предела — готовый блок 112 без модели. Размер вопроса и история — tests/unit/a2a-chat-limits.test.ts.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
@@ -51,11 +51,29 @@ describe('разговор агента: сутки на адрес', () => {
     expect(answerAgentMessage).toHaveBeenCalledTimes(1);
   });
 
-  it('вопрос о беде идёт мимо предела адреса', async () => {
+  // Ревью безопасности PR #3837: признак беды — слова, которые пишет сам
+  // клиент. Пока «sos» выключал пределы, один адрес снова сжигал день.
+  it('«sos» в вопросе предел адреса не снимает: модель не зовётся', async () => {
+    for (let i = 0; i < A2A_PER_IP_DAILY; i++) a2aChatGuard.takeIpSlot('203.0.113.7');
+    await ask('203.0.113.7', 'Какой тур на Авачинский? sos');
+    expect(answerAgentMessage).not.toHaveBeenCalled();
+  });
+
+  it('вопрос о беде сверх предела получает блок 112 по-русски и по-английски, без модели', async () => {
     for (let i = 0; i < A2A_PER_IP_DAILY; i++) a2aChatGuard.takeIpSlot('203.0.113.7');
     const out = await ask('203.0.113.7', 'помогите, у друга перелом ноги на склоне');
     expect(out.ok).toBe(true);
+    expect(out.text).toContain('ЕСЛИ ЭТО ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ');
+    expect(out.text).toContain('IF THIS IS AN EMERGENCY');
+    expect(out.text).toContain(A2A_IP_DAILY_LIMIT_TEXT);
+    expect(answerAgentMessage).not.toHaveBeenCalled();
+  });
+
+  it('вопрос о беде в пределах — к модели, и он занимает место адреса', async () => {
+    await ask('203.0.113.11', 'помогите, у друга перелом ноги на склоне');
     expect(answerAgentMessage).toHaveBeenCalledTimes(1);
+    for (let i = 1; i < A2A_PER_IP_DAILY; i++) expect(a2aChatGuard.takeIpSlot('203.0.113.11')).toBe(true);
+    expect(a2aChatGuard.takeIpSlot('203.0.113.11')).toBe(false);
   });
 
   it('каждый ответ занимает место адреса', async () => {
@@ -72,6 +90,15 @@ describe('разговор агента: своя доля бюджета', () =
     expect(out).toEqual({ ok: true, text: A2A_DOORS_STOP_TEXT });
     expect(answerAgentMessage).not.toHaveBeenCalled();
     expect(await anonChatGuard.dailyStopped()).toBe(false);
+  });
+
+  it('после доли бюджета вопрос о беде — блок 112 и стоп, без модели', async () => {
+    spent.usd = 5 * ANON_DOORS_BUDGET_SHARE;
+    const out = await ask('203.0.113.12', 'SOS, заблудились у Мутновского');
+    expect(out.ok).toBe(true);
+    expect(out.text).toContain('ЕСЛИ ЭТО ЧРЕЗВЫЧАЙНАЯ СИТУАЦИЯ');
+    expect(out.text).toContain(A2A_DOORS_STOP_TEXT);
+    expect(answerAgentMessage).not.toHaveBeenCalled();
   });
 
   it('ниже доли — отвечает как обычно', async () => {

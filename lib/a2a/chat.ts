@@ -25,6 +25,7 @@ import { finishKuzmichAnswer } from '@/lib/kuzmich/answer-guards';
 import { withUntrustedRun } from '@/lib/ai/untrusted';
 import { assertDailyLlmBudget, isDailyBudgetStopped, KUZMICH_DAILY_REST_TEXT } from '@/lib/ai/daily-spend-gate';
 import { MAX_MESSAGE_CHARS, trimHistory } from '@/lib/ai/anon-chat-guard';
+import { detectEmergency, buildSosBlock } from '@/lib/safety/sos-detector';
 import { recordKuzmichAnswer } from '@/lib/kuzmich/answer-timing';
 import { newLoopTiming, answerTokens } from '@/lib/kuzmich/answer-ceiling';
 import { answerStall } from '@/lib/kuzmich/loop-stall';
@@ -72,6 +73,19 @@ export const A2A_IP_DAILY_LIMIT_TEXT =
 export const A2A_DOORS_STOP_TEXT =
   'На сегодня ответы Кузьмича текстом для агентов закончились: у Ведара дневной лимит расходов на ИИ. Инструменты (DataPart, MCP) работают как обычно. Экстренный вызов — 112. ' +
   'Kuzmich\'s free-text answers for agents are paused for today (daily AI budget). Structured tools (DataPart, MCP) still work. Emergency: 112.';
+
+/**
+ * Отказ по пределу для вопроса о беде (ревью безопасности PR #3837, 26.11).
+ * Признак беды — слова в тексте, а текст пишет сам агент, поэтому пределы
+ * держат и такой вопрос. Сверх предела модель не зовётся, но вопрос о беде
+ * получает готовый блок 112 и советы — по-русски и по-английски: язык
+ * чужого агента неизвестен. Обычный вопрос получает отказ как есть.
+ */
+export function withEmergencyBlock(refusal: string, question: string): string {
+  const detection = detectEmergency(question);
+  if (!detection.detected) return refusal;
+  return `${buildSosBlock(detection.categories, 'ru')}\n\n${buildSosBlock(detection.categories, 'en')}\n\n${refusal}`;
+}
 
 export interface AgentAnswerOptions {
   /** Ключ разговора (contextId A2A): грейдер хэширует его сам. */
