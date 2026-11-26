@@ -144,6 +144,7 @@ export const DEVICE_STORAGE: readonly DeviceStorageEntry[] = [
   { file: 'components/PWA/InstallTracker.tsx', personal: 'none', holds: 'случайный номер установки' },
   { file: 'components/admin/shared/SensitiveMaskToggle.tsx', personal: 'none', holds: 'включена ли маска контактов в админке' },
   { file: 'components/field/PointCard.tsx', personal: 'none', holds: 'формат координат' },
+  { file: 'components/hub/PartnerOfferBanner.tsx', personal: 'none', holds: 'отметка «позже» у просьбы принять оферту: до закрытия вкладки, с редакцией оферты в имени ключа' },
   { file: 'components/kuzmich/KuzmichWidget.tsx', personal: 'none', holds: 'случайный номер разговора' },
   { file: 'components/map/MapThreatChip.tsx', personal: 'none', holds: 'кэш тревог на карте' },
   { file: 'components/places/PlaceSwipeDeck.tsx', personal: 'none', holds: 'подсказка показана' },

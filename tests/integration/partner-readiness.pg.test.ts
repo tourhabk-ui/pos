@@ -464,6 +464,57 @@ withPg('готовность партнёра: факты из базы', () => 
       expect(item(await read('offerOld'), 'offer')?.state).toBe('done');
     });
 
+    // Слово владельца 24.11: «Партнёры, заведённые до оферты, принимают её при
+    // следующем входе в кабинет, до сезона». Кабинет спрашивает состояние
+    // просьбы этим чтением — оно судится на той же схеме, что и дверь акцепта.
+    it('GET: состояние просьбы — по журналу своей карточки; чтение ничего не пишет', async () => {
+      const ask = async (key: string, role?: string) => {
+        viewer.userId = USER[key];
+        viewer.role = role ?? CATEGORY[key];
+        const { GET } = await import('@/app/api/hub/partner/offer/route');
+        const res = await GET(new NextRequest('http://localhost/api/hub/partner/offer'));
+        const json = await res.json() as { data?: { state: string; previous: boolean; edition: string } };
+        return { status: res.status, data: json.data };
+      };
+      const total = async () => Number((await pool.query(`SELECT COUNT(*)::int AS n FROM partner_offer_acceptances`)).rows[0].n);
+      const before = await total();
+
+      // Заведён до отметки: просьба, и не «оферта обновилась».
+      expect(await journal('stayPending')).toHaveLength(0);
+      expect(await ask('stayPending')).toEqual({
+        status: 200, data: { state: 'needed', previous: false, edition: '5 октября 2026 г.' },
+      });
+      // Принял действующую редакцию (тесты выше): просить не о чем.
+      expect((await ask('opPilot')).data?.state).toBe('accepted');
+      // В журнале сначала прежняя редакция, потом действующая (тест выше): принято.
+      expect((await ask('offerOld')).data?.state).toBe('accepted');
+      // Агенту оферта не нужна.
+      expect((await ask('agent')).data?.state).toBe('not_needed');
+      // Чтение журнал не пополняет.
+      expect(await total()).toBe(before);
+    });
+
+    it('GET: в журнале только прежняя редакция — просьба с пометкой «оферта обновилась»', async () => {
+      viewer.userId = USER.opNew;
+      viewer.role = CATEGORY.opNew;
+      const { GET } = await import('@/app/api/hub/partner/offer/route');
+      const client = await pool.connect();
+      try {
+        // Строка прежней редакции живёт только внутри этой проверки: соседним тестам журнал opNew нужен пустым.
+        const inserted = await client.query<{ id: string }>(
+          `INSERT INTO partner_offer_acceptances (partner_id, user_id, offer_version, accepted_at, source)
+           VALUES ($1, $2, '2025-01-01', NOW() - INTERVAL '10 days', 'registration') RETURNING id::text AS id`, [ID.opNew, USER.opNew],
+        );
+        const res = await GET(new NextRequest('http://localhost/api/hub/partner/offer'));
+        expect((await res.json() as { data: unknown }).data).toMatchObject({ state: 'needed', previous: true });
+        await client.query(`DELETE FROM partner_offer_acceptances WHERE id = $1::bigint`, [inserted.rows[0].id]);
+      } finally {
+        client.release();
+      }
+      const again = await GET(new NextRequest('http://localhost/api/hub/partner/offer'));
+      expect((await again.json() as { data: unknown }).data).toMatchObject({ state: 'needed', previous: false });
+    });
+
     it('журнал не принимает акцепт без версии и с неизвестным источником', async () => {
       const insert = (version: string | null, source: string) => pool.query(
         `INSERT INTO partner_offer_acceptances (partner_id, user_id, offer_version, source) VALUES ($1, $2, $3, $4)`,

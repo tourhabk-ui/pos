@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, ArrowRight, CheckCircle2, CircleDashed, Clock, HelpCircle } from 'lucide-react';
 import type { ItemState, PartnerReadiness, ReadinessItem } from '@/lib/partners/readiness';
-import { OfferAcceptCheckbox } from '@/components/legal/OfferAcceptCheckbox';
+import { OfferAcceptForm } from '@/components/hub/OfferAcceptForm';
 
 type Load =
   | { kind: 'loading' }
@@ -29,7 +29,8 @@ function isItem(v: unknown): v is ReadinessItem {
   if (!v || typeof v !== 'object') return false;
   const i = v as Record<string, unknown>;
   return typeof i.key === 'string' && typeof i.title === 'string' && typeof i.detail === 'string'
-    && typeof i.required === 'boolean' && STATES.includes(i.state as ItemState);
+    && typeof i.required === 'boolean' && STATES.includes(i.state as ItemState)
+    && (i.tag === undefined || typeof i.tag === 'string');
 }
 
 /** Ответ роута: пункты, «чек-листа нет» (null) или не то, что ждали. */
@@ -51,47 +52,6 @@ const STATE_VIEW: Record<ItemState, { label: string; color: string; Icon: typeof
   unknown: { label: 'Не проверено',  color: 'text-[var(--warning)]',    Icon: HelpCircle },
 };
 
-/**
- * Принять оферту прямо в чек-листе (этап 5 плана готовности, 23.11): отметка
- * и кнопка. Кнопка без отметки не нажимается — и сказано почему. Сервер
- * проверяет пришедшее состояние отметки и пишет акцепт в журнал с версией.
- */
-function AcceptOffer({ onDone }: { onDone: () => void }) {
-  const [checked, setChecked] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const accept = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/hub/partner/offer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ offer_accepted: checked }),
-      });
-      const json = await res.json().catch(() => null) as { success?: boolean; error?: string } | null;
-      if (!res.ok || !json?.success) throw new Error(json?.error ?? 'Отметка не записана — попробуйте позже');
-      onDone();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Отметка не записана — попробуйте позже');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="mt-1" data-testid="accept-offer">
-      <OfferAcceptCheckbox checked={checked} onChange={setChecked} id="readiness-offer-accept" />
-      <button type="button" className="ds-btn ds-btn-primary text-sm disabled:opacity-50" disabled={!checked || busy} onClick={() => void accept()}>
-        Принять оферту
-      </button>
-      {!checked && <p className="mt-1 text-xs text-[var(--text-muted)]">Чтобы принять, поставьте отметку.</p>}
-      {error && <p role="alert" className="mt-1 text-sm text-[var(--danger)]">{error}</p>}
-    </div>
-  );
-}
-
 function Item({ item, urgent, onChanged }: { item: ReadinessItem; urgent: boolean; onChanged: () => void }) {
   const view = STATE_VIEW[item.state];
   // Канал при карточке на витрине — тревога: цвет опасности, не акцента.
@@ -103,10 +63,14 @@ function Item({ item, urgent, onChanged }: { item: ReadinessItem; urgent: boolea
         <p className="text-sm font-medium text-[var(--text-primary)]">
           {item.title}
           <span className={`ml-2 text-xs font-normal ${color}`}>{view.label}</span>
-          {!item.required && <span className="ml-2 text-xs font-normal text-[var(--text-muted)]">не обязательно</span>}
+          {/* Необязательный пункт так и подписан; у оферты подпись своя (`tag`):
+              непринятая — «просим до начала сезона», принятая — без подписи. */}
+          {!item.required && (item.tag ?? 'не обязательно') !== '' && (
+            <span className="ml-2 text-xs font-normal text-[var(--text-muted)]" data-testid="item-tag">{item.tag ?? 'не обязательно'}</span>
+          )}
         </p>
         <p className="mt-0.5 text-sm text-[var(--text-secondary)] break-words">{item.detail}</p>
-        {item.action === 'accept_offer' && <AcceptOffer onDone={onChanged} />}
+        {item.action === 'accept_offer' && <OfferAcceptForm id="readiness-offer-accept" onDone={onChanged} />}
       </div>
       {item.href && (item.state === 'todo' || item.key === 'offer') && (
         <Link

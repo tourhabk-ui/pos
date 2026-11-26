@@ -4,6 +4,7 @@ import { ReactNode } from 'react';
 import { LayoutDashboard, Home, ClipboardList, CalendarDays, BookUser, ListChecks, BellDot, Star } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { PartnerChannelBanner } from '@/components/hub/PartnerChannelBanner';
+import { PartnerOfferBanner } from '@/components/hub/PartnerOfferBanner';
 
 // section → на мобиле сетка иконок по разделам вместо ленты (см. HubSidebar).
 const SIDEBAR_ITEMS = [
@@ -21,6 +22,7 @@ export default function StayHubLayout({ children }: { children: ReactNode }) {
   return (
     <HubLayout sidebarItems={SIDEBAR_ITEMS} sidebarTitle="Владелец жилья" requiredRole={['stay', 'admin']}>
       <PartnerChannelBanner />
+      <PartnerOfferBanner />
       {children}
     </HubLayout>
   );

@@ -4,6 +4,7 @@ import { ReactNode } from 'react';
 import { CalendarDays, Users, CreditCard, Star, MessageSquare, User, Map, BookUser, ListChecks, BellDot, Compass } from 'lucide-react';
 import { HubLayout } from '@/components/layout/HubLayout';
 import { PartnerChannelBanner } from '@/components/hub/PartnerChannelBanner';
+import { PartnerOfferBanner } from '@/components/hub/PartnerOfferBanner';
 import { ChatWidget } from '@/components/chat/ChatWidget';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 
@@ -39,6 +40,7 @@ export default function GuideHubLayout({ children }: { children: ReactNode }) {
   return (
     <HubLayout sidebarItems={SIDEBAR_ITEMS} sidebarTitle="Кабинет гида" requiredRole="guide">
       <PartnerChannelBanner />
+      <PartnerOfferBanner />
       {children}
       <ChatWidget />
     </HubLayout>
