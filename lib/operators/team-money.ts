@@ -25,8 +25,18 @@ export function dashboardWithoutMoney(data: OperatorDashboardData): OperatorDash
   };
 }
 
-/** Поля тура, которые считаются ценой: их правит владелец или менеджер с правом can_edit_prices. */
-export const TOUR_PRICE_FIELDS = ['base_price', 'price_old', 'price_unit'] as const;
+/**
+ * Поля тура, которые считаются ценой: их правит владелец или менеджер с правом
+ * can_edit_prices.
+ *
+ * Примечание к цене (`price_note`) — тоже цена: турист читает его рядом с
+ * суммой («Примечание к цене» в ответах MCP). Пока поле писал только импорт,
+ * человеку оно не открывалось; с переводом импорта на дверь правки его приняла
+ * и схема правки владельца — и менеджер без права цен мог бы прислать
+ * «Акция: 5 000 ₽ с человека» мимо запрета владельца (ревью безопасности
+ * PR #3835, 26.11).
+ */
+export const TOUR_PRICE_FIELDS = ['base_price', 'price_old', 'price_unit', 'price_note'] as const;
 
 /** Трогает ли правка тура цену: поле цены прислано (быстрое заполнение, создание). */
 export function touchesTourPrice(input: Record<string, unknown>): boolean {

@@ -69,7 +69,7 @@ const WRITERS: Record<string, { kind: Kind; why: string }> = {
   'lib/guides/own-tour-create.ts': { kind: 'creates', why: 'новый тур гида, is_published = FALSE' },
   'lib/agents/agencies/operator-agency.ts': { kind: 'creates', why: 'ИИ-чат оператора заводит тур неопубликованным' },
   'lib/services/tours/tours-visitkamchatka.ts': { kind: 'creates', why: 'импорт заводит тур неопубликованным; существующие не трогает' },
-  'lib/services/operators/operator-tour-scraper.ts': { kind: 'creates', why: 'импорт с сайта оператора: новый тур — неопубликованным, отметки импорта — своим запросом, содержание существующего — дверью' },
+  'lib/services/operators/operator-tour-scraper.ts': { kind: 'creates', why: 'импорт с сайта оператора: новый тур — неопубликованным; своим запросом — только колонки импорта, которых сайт не показывает; содержание существующего — дверью' },
 
   'app/api/admin/content/tours/[id]/route.ts': { kind: 'admin', why: 'правка администратора' },
   'app/api/admin/operator-tours/[id]/route.ts': { kind: 'admin', why: 'правка администратора' },
@@ -407,6 +407,16 @@ describe('перепись писателей таблицы туров', () => 
       expect(publicationSet(src), `${file}: ставит публикацию`).toEqual([]);
       expect(contentColumnsWritten(src), `${file}: правит содержание существующего тура своим запросом`).toEqual([]);
     }
+  });
+
+  it('импорт с сайта оператора своим запросом пишет только названные колонки импорта', () => {
+    // Не «отметки»: `includes` и `group_size_max` — прежние колонки импорта
+    // (ревью безопасности PR #3835). Состав тура на сайте — `included`, размер
+    // группы — `max_participants`; эти две не читает ни карточка, ни каталог,
+    // ни MCP. Новая колонка в этом запросе — видимая правка списка: если её
+    // читает турист, ей место в двери правки, а не здесь.
+    const src = read('lib/services/operators/operator-tour-scraper.ts');
+    expect(rowUpdates(src).map((a) => a.column).sort()).toEqual(['group_size_max', 'includes', 'is_stale', 'parsed_at', 'source_url']);
   });
 
   it('обходные пути автоматов — замороженный список: он может только сокращаться', () => {
