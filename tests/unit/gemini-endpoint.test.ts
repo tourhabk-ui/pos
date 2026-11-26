@@ -108,6 +108,20 @@ function headersOf(init: RequestInit | undefined): Record<string, string> {
   return { ...(h as Record<string, string>) };
 }
 
+/** PNG из сигнатуры и трёх блоков (IHDR, IDAT, IEND): очистке метаданных хватает строения. */
+const TINY_PNG_BASE64 = (() => {
+  const chunk = (type: string, data: Buffer) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length, 0);
+    return Buffer.concat([len, Buffer.from(type, 'latin1'), data, Buffer.alloc(4)]);
+  };
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', Buffer.alloc(13, 1)),
+    chunk('IDAT', Buffer.alloc(8, 2)),
+    chunk('IEND', Buffer.alloc(0)),
+  ]).toString('base64');
+})();
+
 describe('живые пути Gemini идут по адресу из настройки, ключ — заголовком', () => {
   let calls: Call[];
 
@@ -136,7 +150,9 @@ describe('живые пути Gemini идут по адресу из настр�
     }],
     ['зрение (callVisionDetailed)', async () => {
       const { callVisionDetailed } = await import('@/lib/ai/providers');
-      await callVisionDetailed('aGVsbG8=', 'image/jpeg', 'Что на снимке?');
+      // Настоящий заголовок PNG, а не «hello»: вход зрения сначала снимает
+      // метаданные и снимок без формата в модель не пускает (26.11).
+      await callVisionDetailed(TINY_PNG_BASE64, 'image/png', 'Что на снимке?');
     }],
     ['голос (callGeminiTranscribe)', async () => {
       const { callGeminiTranscribe } = await import('@/lib/ai/providers');

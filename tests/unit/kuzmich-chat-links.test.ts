@@ -21,6 +21,25 @@ describe('ссылки в ответе Кузьмича', () => {
     expect(c[1].text).toBe('https://ru.wikipedia.org/wiki/Горелый_(вулкан)');
   });
 
+  it('подписанная ссылка на чужой хост под видом своего пути ссылкой не становится (26.11)', () => {
+    // Проверка безопасности ИИ-части 26.11: «/\evil» браузер читает как «//evil».
+    for (const target of ['/\\evil.example/pay', '//evil.example/pay', '/\\/evil.example']) {
+      const c = chatLinkChunks(`Готово: [Оплата на vedarai.ru](${target}) — по ссылке`);
+      expect(c.some((x) => x.href !== undefined), `адрес ${target}`).toBe(false);
+    }
+    // Свой путь по-прежнему ссылка.
+    expect(chatLinkChunks('[Тур](/catalog/tours/12)')).toEqual([{ text: 'Тур', href: '/catalog/tours/12' }]);
+  });
+
+  it('свой хост с путём из двух косых остаётся полным адресом на нашем хосте', () => {
+    const md = chatLinkChunks('[Оплата](https://vedarai.ru//evil.example/pay)');
+    expect(md[0]).toEqual({ text: 'Оплата', href: 'https://vedarai.ru//evil.example/pay' });
+    const plain = chatLinkChunks('см. https://vedarai.ru//evil.example');
+    expect(plain[1]).toEqual({ text: 'https://vedarai.ru//evil.example', href: 'https://vedarai.ru//evil.example' });
+    // Обычный свой адрес — путь, как раньше.
+    expect(chatLinkChunks('https://vedarai.ru/places/x')[0]).toEqual({ text: 'https://vedarai.ru/places/x', href: '/places/x' });
+  });
+
   it('не http(s) ссылкой не становится; текст без ссылок — один кусок', () => {
     expect(chatLinkChunks('javascript:alert(1)').every(c => !c.href)).toBe(true);
     expect(chatLinkChunks('просто текст')).toEqual([{ text: 'просто текст' }]);

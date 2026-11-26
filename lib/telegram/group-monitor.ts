@@ -61,6 +61,31 @@ interface MonitoredGroup {
  * группы без телефонов и почт — в подписи и в тексте (#3433, 16.11). Прежде
  * запись хранила их как есть, хотя образцы рядом уже чистились.
  */
+/**
+ * Переписка группы для промпта модели: авторы — «Участник 1», «Участник 2»…
+ * в порядке первого появления, текст — через redactPII.
+ *
+ * Имя автора в Telegram (`first_name`) уходило в зарубежную модель как есть
+ * (проверка безопасности ИИ-части 26.11, слово владельца «чини Карт бланш»).
+ * Для разбора безопасности и рынка имя не нужно, нужно лишь различать
+ * собеседников — поэтому псевдоним, а не пропуск автора вовсе.
+ */
+export function groupPromptText(messages: readonly Pick<GroupMessage, 'from' | 'text'>[], maxChars = 4000): string {
+  const alias = new Map<string, string>();
+  return messages
+    .map((m) => {
+      const key = (m.from ?? '').trim() || '—';
+      let who = alias.get(key);
+      if (!who) {
+        who = `Участник ${alias.size + 1}`;
+        alias.set(key, who);
+      }
+      return `[${who}]: ${redactPII(m.text)}`;
+    })
+    .join('\n')
+    .slice(0, maxChars);
+}
+
 export function hotSignalContext(messages: readonly Pick<GroupMessage, 'from' | 'text'>[]): string {
   return messages.slice(-5).map((m) => `${redactPII(m.from)}: ${redactPII(m.text)}`).join('\n');
 }
@@ -239,12 +264,10 @@ class GroupMonitorService {
     // лежит внутри текста, поля нет. Поэтому чистка стоит здесь, у самой
     // границы, а не полагается на статический разбор.
     //
-    // Имя рядом с телефоном остаётся: отличить его от обычного слова
+    // Имя рядом с телефоном в тексте остаётся: отличить его от обычного слова
     // детерминированно нельзя, а гадать в чистилке ПД — хуже, чем пропустить.
-    const rawText = messages
-      .map(m => `[${redactPII(m.from)}]: ${redactPII(m.text)}`)
-      .join('\n')
-      .slice(0, 4000);
+    // Имя автора уходит псевдонимом (groupPromptText, 26.11).
+    const rawText = groupPromptText(messages);
 
     const prompt: ChatMessage[] = [
       {

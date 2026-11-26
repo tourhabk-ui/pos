@@ -203,6 +203,65 @@ withPg('витрина туров: снятый тур не в плане и н�
     expect(two).not.toContain('W2PT тур unpublished');
   });
 
+  it('блок «свободные места» в промпте Кузьмича — только туры с витрины (26.11)', async () => {
+    // Проверка безопасности ИИ-части 26.11: блок идёт в промпт каждого хода
+    // (сайт, Telegram, MAX, A2A) и брал туры без шлюза витрины.
+    //
+    // Блок берёт первые 10 строк по дате. В базе CI у живых туров из миграций
+    // есть места на сегодня, и они вытеснили тестовые (CI 26.11, kernel-pg на
+    // f3050345). Сцена кладёт десять таких «чужих» туров сама — чтобы не
+    // зависеть от того, что лежит в базе, — и на своё время гасит все чужие
+    // места в окне; после сцены они возвращаются. База у файла своя.
+    const added: string[] = [];
+    const fillers: string[] = [];
+    let silenced: string[] = [];
+    try {
+      for (let k = 0; k < 10; k++) {
+        const { rows } = await pool.query<{ id: string }>(
+          `INSERT INTO operator_tours (operator_id, title, slug, activity_type, base_price, price_unit,
+                                       min_participants, max_participants, duration_hours, difficulty,
+                                       is_active, is_published)
+           VALUES ($1, $2, $3, 'w2pt_filler', 1000, 'per_person', 1, 10, 8, 'easy', TRUE, TRUE)
+           RETURNING id::text`,
+          [OPERATOR.id, `W2PT чужой ${k}`, `w2pt-filler-${k}`],
+        );
+        fillers.push(rows[0].id);
+        await pool.query(
+          `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+           VALUES ($1, CURRENT_DATE, 5, FALSE)`,
+          [rows[0].id],
+        );
+      }
+      silenced = (await pool.query<{ id: string }>(
+        `UPDATE tour_availability SET is_cancelled = TRUE
+          WHERE date >= CURRENT_DATE AND is_cancelled = FALSE
+          RETURNING id::text`,
+      )).rows.map((r) => r.id);
+      expect(silenced.length, 'чужие места сцены не погашены').toBeGreaterThanOrEqual(10);
+      for (const s of STATES) {
+        const { rows } = await pool.query<{ id: string }>(
+          `INSERT INTO tour_availability (operator_tour_id, date, available_slots, is_cancelled)
+           VALUES ($1, CURRENT_DATE, 5, FALSE) RETURNING id::text`,
+          [id[s]],
+        );
+        added.push(rows[0].id);
+      }
+      const { searchOperatorAvailability } = await import('@/lib/telegram/operator-availability');
+      const block = await searchOperatorAvailability('свободные места');
+      expect(block).toContain('W2PT тур live —');
+      expect(block).toContain('W2PT тур live2 —');
+      expect(block).not.toContain('W2PT чужой');
+      for (const s of ['deleted', 'inactive', 'unpublished'] as const) {
+        expect(block, `в блоке тур «${s}»`).not.toContain(`W2PT тур ${s} —`);
+      }
+    } finally {
+      await pool.query(`DELETE FROM tour_availability WHERE id::text = ANY($1::text[])`, [added]);
+      await pool.query(`UPDATE tour_availability SET is_cancelled = FALSE WHERE id::text = ANY($1::text[])`, [silenced]);
+      await pool.query(`DELETE FROM tour_availability WHERE operator_tour_id::text = ANY($1::text[])`, [fillers]);
+      await pool.query(`DELETE FROM operator_tours WHERE id::text = ANY($1::text[])`, [fillers]);
+    }
+  });
+
   it('каталог и его сводка после снятия второго канона: те же два живых тура', async () => {
     const { queryMarketplaceTours, queryCatalogSummary, MarketplaceToursQuerySchema } = await import('@/lib/search/tour-search');
     const r = await queryMarketplaceTours(MarketplaceToursQuerySchema.parse({ limit: 100 }));

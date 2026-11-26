@@ -96,7 +96,7 @@ import { pickupForCard } from '@/lib/tours/pickup';
 import { TOOL_EXECUTION_FAILED } from '@/lib/kuzmich/tool-failure';
 import { McpUserError } from '@/lib/mcp/jsonrpc';
 import { logText } from '@/lib/log/log-text';
-import { redactPII, redactUserTurns } from '@/lib/security/pii-redact';
+import { redactPII, redactUserTurns, redactTurnPD } from '@/lib/security/pii-redact';
 import { wrapUntrusted, untrustedField, currentUntrustedMark, untrustedMarkInstructions, withUntrustedRun } from '@/lib/ai/untrusted';
 import { assertDailyLlmBudget, isDailyBudgetStopped, KUZMICH_DAILY_REST_TEXT } from '@/lib/ai/daily-spend-gate';
 
@@ -3235,7 +3235,9 @@ export async function aiChatAgentLoop(
   // (пробы 764–766). Telegram, MAX, веб-чат и стрим кладут вопрос в историю
   // до вызова — для них ничего не меняется: вопрос уже среди сообщений.
   // Сверка с историей — по очищенному тексту: история выше уже очищена.
-  const askedForModel = redactPII(userText);
+  // Та же маска, что у истории (redactUserTurns → redactTurnPD, 26.11): иначе
+  // очищенный вопрос не совпал бы с очищенной историей и ушёл бы дважды.
+  const askedForModel = redactTurnPD(userText);
   const asked = askedForModel.trim();
   if (asked && !msgs.some(m => m.role === 'user' && m.content.includes(asked))) {
     msgs.push({ role: 'user', content: askedForModel });

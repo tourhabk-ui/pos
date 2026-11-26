@@ -125,6 +125,13 @@ describe('gradeKuzmichResponse — судья получает собранны�
   });
   afterEach(() => warn.mockRestore());
 
+  it('имя, которым человек представился, судье не уходит (26.11)', async () => {
+    await gradeKuzmichResponse(`Меня зовут Иван Петров. ${QUESTION}`, ANSWER, 'web-2', { surface: 'web' });
+    const sent = (fast.mock.calls[0]![0] as Array<{ content: string }>).map((m) => m.content).join('\n');
+    expect(sent).not.toMatch(/Иван|Петров/);
+    expect(sent).toContain('Курильское озеро');
+  });
+
   it('конец ответа и данные тура доходят до судьи; длина ответа — в записи', async () => {
     await gradeKuzmichResponse(QUESTION, ANSWER, 'web-1', {
       surface: 'web',

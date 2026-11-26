@@ -17,7 +17,7 @@ import { pool } from '@/lib/db-pool';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 import { callAIFast } from '@/lib/ai/providers';
 import { runWithUsageTracking } from '@/lib/ai/usage-context';
-import { redactPII } from '@/lib/security/pii-redact';
+import { redactPII, redactTurnPD } from '@/lib/security/pii-redact';
 import { assessGrounding, groundsFacts, type ToolRun } from '@/lib/agents/eval/grounding';
 import { classifyResponse } from '@/lib/kuzmich/refusal-detector';
 
@@ -303,7 +303,9 @@ export async function gradeKuzmichResponse(
   // W2-5/A20): судья — зарубежная модель, а запись читает эволюция и тоже
   // отдаёт её модели. Род ответа и заземление судятся по СЫРОМУ ответу: телефон
   // в нём — сигнал конкретики, без которого «выдуманный номер» не поймать.
-  const question = redactPII(userText);
+  // Вопрос — той же маской, что реплики чата (redactTurnPD, 26.11): судья
+  // зарубежный, и имя, которым человек представился, к нему не уходит.
+  const question = redactTurnPD(userText);
   const answerText = redactPII(botResponse);
   const tag = conversationTag(conversationKey);
 

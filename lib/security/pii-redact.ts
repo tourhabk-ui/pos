@@ -311,7 +311,78 @@ export function redactPII(text: string | null | undefined, opts: RedactOptions =
  * границы: им телефон нужен, и модели они его не передают.
  */
 export function redactUserTurns<T extends { role: string; content: string }>(turns: readonly T[]): T[] {
-  return turns.map((m) => (m.role === 'user' ? { ...m, content: redactPII(m.content) } : m));
+  return turns.map((m) => (m.role === 'user' ? { ...m, content: redactTurnPD(m.content) } : m));
+}
+
+/**
+ * Имя после явного представления (ревью безопасности PR #3840): «меня зовут
+ * иван петров», «МЕНЯ ЗОВУТ ИВАН», «Меня зовут: Иван», «My name is: john»,
+ * два пробела между именем и фамилией. До ревью имя ловилось только с большой
+ * буквы, после пробела или тире и при обороте с маленькой «меня».
+ *
+ * Оборот ищется без учёта регистра, имя — по форме слова. Первое слово — в
+ * любом регистре. Следующие (до двух) — с большой буквы, капсом или
+ * строчными, но с окончанием фамилии или отчества: иначе «меня зовут иван и
+ * я хочу на Мутновский» потеряло бы полфразы вместе с вулканом.
+ *
+ * Без просмотра назад (lookbehind): модуль идёт в клиентский бандл
+ * (Safari < 16.4).
+ */
+const NAME_FIRST = '(?:\\p{Lu}{2,}|\\p{L}\\p{Ll}+)';
+const NAME_NEXT = '(?:\\p{Lu}{2,}|\\p{Lu}\\p{Ll}+|\\p{Ll}+(?:ов|ова|ев|ева|ёв|ёва|ин|ина|ын|ына|ский|ская|цкий|цкая|енко|ук|юк|вич|вна|ична))';
+const SPOKEN_NAME = `${NAME_FIRST}(?:(?:[ \\t]+|[ \\t]*-[ \\t]*)${NAME_NEXT}(?![\\p{L}])){0,2}`;
+const INTRO_TRIGGER = '(?:^|[^\\p{L}])(?:зовут|мо[её]\\s+имя|my\\s+name\\s+is|имя\\s*:|name\\s*:)[ \\t]*[—–:-]?[ \\t]*';
+
+/** Заменяет на «[имя]» имя за каждым оборотом представления. */
+function maskIntroducedNames(text: string): string {
+  const trigger = new RegExp(INTRO_TRIGGER, 'giu');
+  const name = new RegExp(SPOKEN_NAME, 'uy');
+  let out = '';
+  let last = 0;
+  for (let m = trigger.exec(text); m; m = trigger.exec(text)) {
+    const at = m.index + m[0].length;
+    name.lastIndex = at;
+    const n = name.exec(text);
+    if (n) {
+      out += `${text.slice(last, at)}[имя]`;
+      last = at + n[0].length;
+      trigger.lastIndex = last;
+    } else if (m[0].length === 0) {
+      trigger.lastIndex += 1;
+    }
+  }
+  return out + text.slice(last);
+}
+
+/**
+ * Реплика человека перед зарубежной моделью: телефон и почта (redactPII), а
+ * ещё имя, которым человек представился явно, ссылки на профили соцсетей и
+ * @ники (проверка безопасности ИИ-части 26.11, слово владельца «чини Карт
+ * бланш»). До этого дня из реплики уходили только телефон и почта, а заявка
+ * в чате — «Меня зовут Иван Петров, +7…, согласен» — оставалась в истории и
+ * на следующих ходах несла имя в модель.
+ *
+ * Строже redactChatPD нарочно не сделано. Правила «Это X.» и «Я X.» здесь нет:
+ * в разговоре о поле «Мы на вулкане. Это Горелый.» — место, а не имя, и
+ * Кузьмич, потерявший место, хуже, чем Кузьмич, узнавший имя. Ссылки на свой
+ * сайт и на любые страницы, кроме профилей соцсетей, остаются: в них нет
+ * человека, а модели они нужны.
+ */
+export function redactTurnPD(text: string | null | undefined): string {
+  if (!text) return '';
+  let out = text;
+  out = out.replace(/\b(?:https?:\/\/)?(?:www\.|m\.)?(?:vk\.com|vk\.ru|t\.me|telegram\.me|instagram\.com|ok\.ru|wa\.me|max\.ru)\/\S+/gi, '[ссылка]');
+  // Почта — раньше ников: «a@b.ru» не должен стать «a[ник]».
+  out = out.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[email]');
+  out = out.replace(/(^|[^\w@])@[A-Za-z0-9_]{3,32}\b/g, '$1[ник]');
+  const NAME = '[А-ЯЁA-Z][а-яёa-z]+(?:[ -][А-ЯЁA-Z][а-яёa-z]+){0,2}';
+  out = maskIntroducedNames(out);
+  // «I'm John.» — только имя с большой буквы и конец фразы за ним: «I'm at
+  // the crater» остаётся. Русского «Я Иван» и «Это Иван» здесь нет нарочно
+  // (см. выше: «Это Горелый» — место).
+  out = out.replace(new RegExp(`((?:^|[\\s,.!])(?:I'm|I’m|I\\s+am))(\\s+)(${NAME})(?=\\s*(?:[.,!;\\n)]|$))`, 'gu'), '$1$2[имя]');
+  out = out.replace(new RegExp(`(с\\s+уважением,?\\s*)(${NAME})\\s*$`, 'iu'), '$1[имя]');
+  return redactPII(out);
 }
 
 /** Есть ли в тексте детектируемые ПД (телефон/email). */
@@ -339,7 +410,7 @@ export function redactChatPD(text: string | null | undefined, names: ReadonlyArr
   out = out.replace(/(^|[^\w@])@[A-Za-z0-9_]{3,32}\b/g, '$1[ник]');
   // Представился: «меня зовут Анна», «я — Иван Петров», «это Мария», «my name is John».
   const NAME = '[А-ЯЁA-Z][а-яёa-z]+(?:[ -][А-ЯЁA-Z][а-яёa-z]+){0,2}';
-  out = out.replace(new RegExp(`([Мм]еня\\s+зовут|[Мм]о[её]\\s+имя|[Mm]y\\s+name\\s+is)(\\s*[—–-]?\\s*)(${NAME})`, 'gu'), '$1$2[имя]');
+  out = maskIntroducedNames(out);
   // «Это Иван.», «Я — Мария,»: только если за именем конец фразы — иначе «это Авачинский вулкан».
   out = out.replace(new RegExp(`((?:^|[\\s,.!])(?:[Ээ]то|[Яя]|I'm|I\\s+am))(\\s*[—–-]?\\s*)(${NAME})(?=\\s*(?:[.,!;\\n)]|$))`, 'gu'), '$1$2[имя]');
   // Подпись в конце: «— Мария», «С уважением, Иван».
