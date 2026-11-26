@@ -94,7 +94,9 @@ jobs:
     # установку, проверку итога и учёт (сторож держит запас не меньше 5 мин).
     timeout-minutes: 50
     outputs:
-      ran: ${{ steps.scope.outputs.run }}
+      # Ревью шло: нужно было и счёт не пуст. Пустой счёт — модель не звали,
+      # и учёту записывать нечего.
+      ran: ${{ steps.scope.outputs.run == 'true' && steps.balance.outputs.empty != 'true' }}
       # Непусто — счётчики выжаты и уехали к учёту; не доехали — учёт краснеет.
       usage_file: ${{ steps.usage.outputs.file }}
     env:
@@ -159,6 +161,48 @@ jobs:
             echo "run=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Ревью безопасности не запускалось: PR не трогает обработчики запросов, вход, оплату, MCP, данные людей и workflow. Нужно — повесьте метку security-review."
           fi
+
+      # Баланс DeepSeek — до установки и до модели (26.11). В тот день счёт
+      # кончился, и ревью краснело на каждом PR через минуту строкой
+      # «API Error: 402 Insufficient Balance» — без слова о том, что делать.
+      # Пустой счёт — красный с причиной словами и комментарием в PR, модель не
+      # зовётся. Ниже порога — предупреждение, ревью идёт. Баланс не прочитан —
+      # предупреждение, ревью идёт: «не смог проверить» не равно «пусто»
+      # (§4.0). Остаток в лог не печатается: репозиторий публичный. Порог и
+      # разбор ответа — scripts/deepseek-balance.sh; тот же скрипт раз в 6
+      # часов зовёт .github/workflows/deepseek-balance.yml и ведёт issue.
+      - name: Баланс DeepSeek
+        id: balance
+        if: ${{ env.DEEPSEEK_KEY != '' && steps.scope.outputs.run == 'true' }}
+        env:
+          DEEPSEEK_BALANCE_MIN_USD: ${{ vars.DEEPSEEK_BALANCE_MIN_USD }}
+          DEEPSEEK_BALANCE_MIN_CNY: ${{ vars.DEEPSEEK_BALANCE_MIN_CNY }}
+        run: |
+          set -uo pipefail
+          RES=$(bash scripts/deepseek-balance.sh) || RES="state=unknown"
+          field() { printf '%s\n' "$RES" | sed -n "s/^$1=//p" | head -n 1 | tr -cd 'A-Za-z0-9._-'; }
+          STATE=$(field state); MIN=$(field threshold); CUR=$(field currency); HTTP=$(field http)
+          case "$STATE" in
+            empty)
+              echo "empty=true" >> "$GITHUB_OUTPUT"
+              echo "::error::Баланс DeepSeek пуст — ревью безопасности не запускалось. Пополните счёт на platform.deepseek.com и повесьте на PR метку security-review."
+              {
+                echo "### Ревью безопасности — не запускалось: баланс DeepSeek пуст"
+                echo "- API DeepSeek ответил, что на счёте нет денег. Модель этот PR не читала — это не «находок нет»."
+                echo "- Пополните счёт на platform.deepseek.com и повесьте на PR метку \`security-review\`."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+              ;;
+            low)
+              echo "::warning::Баланс DeepSeek ниже порога ($MIN $CUR) — ревью идёт, но скоро встанет. Пополните счёт на platform.deepseek.com."
+              ;;
+            ok)
+              echo "Баланс DeepSeek выше порога ($MIN $CUR)."
+              ;;
+            *)
+              echo "::warning::Баланс DeepSeek не прочитан (HTTP ${HTTP:-нет ответа}) — ревью идёт: «не смог проверить» не равно «пусто»."
+              ;;
+          esac
 
       - uses: actions/setup-node@v7
         if: ${{ env.DEEPSEEK_KEY != '' && steps.scope.outputs.run == 'true' }}
@@ -458,6 +502,14 @@ jobs:
           TURNS=$(printf '%s' "$RESULT" | jq -r '.num_turns // "не сообщено"')
           if [ "$IS_ERROR" = "true" ]; then
             MSG=$(tr '\r\n' '  ' < "$OUT/report.md" | head -c 300)
+            # Счёт кончился посреди дня (проверка баланса перед ревью его ещё
+            # видела) — та же причина словами и тот же комментарий в PR.
+            if printf '%s' "$MSG" | grep -qiE 'API Error: 402|Insufficient Balance'; then
+              echo "no_balance=true" >> "$GITHUB_OUTPUT"
+              echo "::error::Ревью безопасности не состоялось: баланс DeepSeek пуст (API 402 Insufficient Balance). Пополните счёт на platform.deepseek.com и повесьте на PR метку security-review."
+              echo "### Ревью безопасности ($MODEL) — не состоялось: баланс DeepSeek пуст. Это не «находок нет»." >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
             # У обрыва по пределу ходов текста нет — причину называют подтип и число ходов.
             WHY=$(printf '%s' "$RESULT" | jq -r '[(.subtype // empty | tostring | select(test("^[a-z_]{1,40}$"))), (.num_turns | numbers | "ходов \(.)")] | join(", ")')
             echo "::error::Ревью безопасности не состоялось: ${MSG:-итог без текста}${WHY:+ ($WHY)}"
@@ -518,9 +570,31 @@ jobs:
           } > "$OUT/comment.md"
           gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file "$OUT/comment.md"
 
+      # Пустой счёт — одним комментарием в PR, текст постоянный: ни слова
+      # модели в нём нет. Без него автор видит только красный крестик.
+      - name: Баланс DeepSeek пуст — комментарием в PR
+        if: ${{ failure() && env.DEEPSEEK_KEY != '' && (steps.balance.outputs.empty == 'true' || steps.verdict.outputs.no_balance == 'true') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          BODY="$RUNNER_TEMP/no-balance.md"
+          {
+            echo "### Ревью безопасности не состоялось: баланс DeepSeek пуст"
+            echo
+            echo "API DeepSeek ответил, что на счёте нет денег, поэтому модель этот PR не читала. Это не «находок нет»."
+            echo
+            echo "Пополните счёт на platform.deepseek.com и повесьте на PR метку \`security-review\` — ревью пройдёт заново."
+            echo
+            echo "---"
+            echo "_Остаток счёта проверяется и по расписанию: \`.github/workflows/deepseek-balance.yml\` заводит issue, когда он ниже порога._"
+          } > "$BODY"
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file "$BODY"
+
       - name: Выжимка расхода — одни счётчики
         id: usage
-        if: ${{ always() && env.DEEPSEEK_KEY != '' && steps.scope.outputs.run == 'true' }}
+        if: ${{ always() && env.DEEPSEEK_KEY != '' && steps.scope.outputs.run == 'true' && steps.balance.outputs.empty != 'true' }}
         continue-on-error: true
         env:
           TRANSCRIPT: ${{ runner.temp }}/transcript.jsonl
@@ -556,7 +630,7 @@ jobs:
           echo "file=$dst" >> "$GITHUB_OUTPUT"
 
       - name: Счётчики расхода — к учёту
-        if: ${{ always() && env.DEEPSEEK_KEY != '' && steps.scope.outputs.run == 'true' }}
+        if: ${{ always() && env.DEEPSEEK_KEY != '' && steps.scope.outputs.run == 'true' && steps.balance.outputs.empty != 'true' }}
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
