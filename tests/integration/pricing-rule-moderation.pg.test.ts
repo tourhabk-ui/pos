@@ -111,24 +111,48 @@ withPg('правила цены: действует только провере�
   });
 
   it('миграция 1514 на таблице с данными: прежние правила действуют, новое без статуса — «на проверке»', async () => {
-    // Тот же текст миграции — на пробной таблице с двумя правилами, заведёнными «до миграции».
-    await pool.query(`CREATE TABLE probe_rules (id BIGSERIAL PRIMARY KEY, multiplier NUMERIC(5,3) NOT NULL, is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMP DEFAULT NOW())`);
-    await pool.query(`INSERT INTO probe_rules (multiplier, is_active) VALUES (0.85, TRUE), (1.15, FALSE)`);
-    const sql = readFileSync(join(process.cwd(), 'migrations/1514_tour_pricing_rules_moderation.sql'), 'utf-8')
-      .replace(/tour_pricing_rules/g, 'probe_rules');
+    const sql = readFileSync(join(process.cwd(), 'migrations/1514_tour_pricing_rules_moderation.sql'), 'utf-8');
+    // Таблица прода «до миграции»: в базе теста миграция уже применена, поэтому
+    // её снимает обратная правка из хвоста самой миграции, выполненная как есть
+    // (заодно проверено, что обещанный откат исполним). Рукописной таблицы нет:
+    // миграция ложится на настоящую схему tour_pricing_rules.
+    const rollback = sql.slice(sql.indexOf('-- Rollback:')).split('\n').slice(1)
+      .map((line) => line.replace(/^--\s?/, '')).join('\n');
+    expect(rollback).toMatch(/DROP COLUMN IF EXISTS moderation_status/);
+    await pool.query(rollback);
+    const columns = async () => (await pool.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'tour_pricing_rules' AND column_name LIKE 'moderat%'`)).rows.map((r) => r.column_name).sort();
+    expect(await columns()).toEqual([]);
+
+    // Два правила, заведённые «до миграции»: включённое и выключенное.
+    const tour = await addTour('Правила до миграции');
+    const before = async (multiplier: number, active: boolean) => (await pool.query<{ id: string }>(
+      `INSERT INTO tour_pricing_rules (operator_tour_id, rule_type, days_before_min, days_before_max, multiplier, is_active)
+       VALUES ($1::bigint, 'last_minute', 0, 3, $2, $3) RETURNING id::text`, [tour, multiplier, active])).rows[0]!.id;
+    const live = await before(0.85, true);
+    const off = await before(1.15, false);
+
     await pool.query(sql);
-    expect((await pool.query(`SELECT multiplier::float8 AS m, moderation_status FROM probe_rules ORDER BY id`)).rows)
-      .toEqual([{ m: 0.85, moderation_status: 'approved' }, { m: 1.15, moderation_status: 'approved' }]);
+    expect(await columns()).toEqual(['moderated_at', 'moderated_by', 'moderation_reason', 'moderation_status']);
+    const statuses = async () => (await pool.query<{ id: string; m: number; moderation_status: string }>(
+      `SELECT id::text, multiplier::float8 AS m, moderation_status FROM tour_pricing_rules WHERE operator_tour_id = $1::bigint ORDER BY id`, [tour])).rows;
+    expect(await statuses()).toEqual([
+      { id: live, m: 0.85, moderation_status: 'approved' },
+      { id: off, m: 1.15, moderation_status: 'approved' },
+    ]);
     // Новое правило без названного статуса цену не меняет, пока его не проверили.
-    const fresh = await pool.query(`INSERT INTO probe_rules (multiplier) VALUES (0.5) RETURNING moderation_status`);
-    expect(fresh.rows[0].moderation_status).toBe('pending');
+    const fresh = await pool.query<{ id: string; moderation_status: string }>(
+      `INSERT INTO tour_pricing_rules (operator_tour_id, rule_type, days_before_min, days_before_max, multiplier)
+       VALUES ($1::bigint, 'last_minute', 4, 7, 0.5) RETURNING id::text, moderation_status`, [tour]);
+    expect(fresh.rows[0]!.moderation_status).toBe('pending');
     // Повторный прогон миграции статусы не трогает.
     await pool.query(sql);
-    expect((await pool.query(`SELECT moderation_status, COUNT(*)::int AS n FROM probe_rules GROUP BY 1 ORDER BY 1`)).rows)
-      .toEqual([{ moderation_status: 'approved', n: 2 }, { moderation_status: 'pending', n: 1 }]);
+    expect((await statuses()).map((r) => r.moderation_status)).toEqual(['approved', 'approved', 'pending']);
     // Чужой статус база не примет.
-    await expect(pool.query(`INSERT INTO probe_rules (multiplier, moderation_status) VALUES (0.9, 'live')`)).rejects.toMatchObject({ code: '23514' });
-    await pool.query(`DROP TABLE probe_rules`);
+    await expect(pool.query(
+      `INSERT INTO tour_pricing_rules (operator_tour_id, rule_type, days_before_min, days_before_max, multiplier, moderation_status)
+       VALUES ($1::bigint, 'last_minute', 8, 9, 0.9, 'live')`, [tour])).rejects.toMatchObject({ code: '23514' });
+    await pool.query(`DELETE FROM tour_pricing_rules WHERE operator_tour_id = $1::bigint`, [tour]);
   });
 
   it('у настоящей таблицы умолчание — «на проверке»: правило без статуса цену не меняет', async () => {
