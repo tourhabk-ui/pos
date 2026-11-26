@@ -13,7 +13,7 @@
  * готовности 23.11, этап 4): у тура на витрине новая цена уходит на проверку
  * администратору и возвращается отдельным списком `pending`. Наценка на
  * выходные (tour_pricing_rules) — второй канал цены, и с 23.11 он тоже идёт
- * на проверку (миграция 1513, lib/tours/pricing-rule-door): такие туры
+ * на проверку (миграция 1514, lib/tours/pricing-rule-door): такие туры
  * возвращаются в том же списке `pending`.
  */
 import type { PoolClient } from 'pg';
@@ -81,7 +81,7 @@ export async function confirmPendingChange(db: Db, operatorId: string, id: strin
   const c = cur.change;
   const ids = cur.preview.tours.map((t) => t.tourId);
   if (c.kind === 'weekend_markup') {
-    // Наценка — второй канал цены, и он тоже идёт на проверку (1513): на
+    // Наценка — второй канал цены, и он тоже идёт на проверку (1514): на
     // сайте она появится после одобрения. «Уже действует такая же» — applied.
     const w = await setWeekendMarkup(db, operatorId, ids, c.percent, userId);
     const applied = w.tours.filter((i) => !w.pending.includes(i));
