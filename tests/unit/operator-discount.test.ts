@@ -29,9 +29,47 @@
  * Процент переводится в множитель ОДНОЙ функцией. Спутать 0.15 с 0.85 значит
  * дать скидку 85% вместо 15%, и такая опечатка стоит денег сразу.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NextRequest } from 'next/server';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+// С 23.11 скидка идёт на проверку (слово владельца: «цена тура меняется только
+// через одну дверь»): роут зовёт дверь lib/tours/pricing-rule-door. Здесь дверь
+// подменена — судим, что роут отдаёт ей карточку из входа и честно называет
+// исход. Владение, замену просьбы и «действует до решения» судит PostgreSQL —
+// tests/integration/pricing-rule-moderation.pg.test.ts.
+const USER = 'c6000000-0000-4000-8000-000000000301';
+const gate = vi.hoisted(() => ({ propose: vi.fn(), remove: vi.fn(), may: true }));
+vi.mock('@/lib/tours/pricing-rule-door', () => ({ proposePricingRule: gate.propose, requestRuleRemoval: gate.remove }));
+vi.mock('@/lib/database', () => ({ transaction: async (fn: (client: unknown) => unknown) => fn({ query: vi.fn() }) }));
+vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn() } }));
+vi.mock('@/lib/auth/middleware', () => ({ requireOperator: vi.fn() }));
+vi.mock('@/lib/auth/operator-helpers', () => ({ getOperatorPartnerId: vi.fn() }));
+vi.mock('@/lib/operators/team-access', async () => {
+  const { NextResponse } = await import('next/server');
+  return {
+    requireOperatorTeam: vi.fn(async () => ({
+      userId: 'c6000000-0000-4000-8000-000000000301', role: 'operator', partnerId: 'partner-1',
+      access: { kind: 'owner', partnerId: 'partner-1' },
+    })),
+    managerMay: () => gate.may,
+    permissionDenied: () => NextResponse.json({ success: false, error: 'Нет права менять цены' }, { status: 403 }),
+  };
+});
+
+const URL = 'http://localhost/api/hub/operator/pricing-rules';
+async function post(body: unknown) {
+  const { POST } = await import('@/app/api/hub/operator/pricing-rules/route');
+  const res = await POST(new NextRequest(URL, { method: 'POST', body: JSON.stringify(body) }));
+  return { status: res.status, body: await res.json() };
+}
+async function del(query: string) {
+  const { DELETE } = await import('@/app/api/hub/operator/pricing-rules/route');
+  const res = await DELETE(new NextRequest(`${URL}${query}`, { method: 'DELETE' }));
+  return { status: res.status, body: await res.json() };
+}
+beforeEach(() => { gate.propose.mockReset(); gate.remove.mockReset(); gate.may = true; });
 import {
   OPERATOR_RULE_TYPES, OPERATOR_RULE_LABEL, MAX_OPERATOR_DISCOUNT,
   discountToMultiplier, multiplierToDiscount, isOperatorRuleType,
@@ -106,18 +144,78 @@ describe('оператору отданы только скидки, и толь
 });
 
 describe('свой тур и чужой', () => {
-  it('владение проверяется до записи', () => {
-    expect(ROUTE_CODE).toMatch(/if \(!await ownTourOrNull\(operatorId, d\.tourId\)\)/);
-    expect(ROUTE_CODE).toMatch(/WHERE id = \$1 AND operator_id = \$2/);
+  it('просьба уходит в дверь с карточкой из входа, а не из тела запроса; чужой тур — 404', async () => {
+    gate.propose.mockResolvedValueOnce({ outcome: 'pending', ruleId: '11' });
+    const ok = await post({ tourId: 7, ruleType: 'last_minute', percent: 15, daysBefore: 7, operatorId: 'чужая-карточка' });
+    expect(ok.status).toBe(201);
+    expect(ok.body).toMatchObject({ success: true, id: '11', state: 'pending', multiplier: 0.85 });
+    // Не «сохранено»: цена на сайте пока прежняя, и это сказано.
+    expect(ok.body.message).toBe('Скидка отправлена на проверку. Туристы увидят её после одобрения администратором.');
+    expect(gate.propose.mock.calls[0][1]).toEqual({
+      operatorId: 'partner-1', requestedBy: USER, tourId: 7, ruleType: 'last_minute', multiplier: 0.85,
+      daysBeforeMin: 0, daysBeforeMax: 7, guestsMin: null,
+    });
+    // Дверь не нашла тур у этой карточки — 404, а не «отправлено».
+    gate.propose.mockResolvedValueOnce({ outcome: 'not_found' });
+    const foreign = await post({ tourId: 99, ruleType: 'last_minute', percent: 15, daysBefore: 7 });
+    expect(foreign.status).toBe(404);
+    expect(foreign.body.success).toBe(false);
   });
 
-  it('на удалении владение проверяется В ЗАПРОСЕ, а не до него', () => {
-    // Отдельная проверка до UPDATE оставила бы окно между ними.
-    const at = ROUTE_CODE.indexOf('export async function DELETE');
-    expect(at).toBeGreaterThan(0);
-    const block = ROUTE_CODE.slice(at);
-    expect(block).toMatch(/EXISTS \(/);
-    expect(block).toMatch(/ot\.operator_id = \$2/);
+  it('скидка группе несёт число человек, а не окно дней', async () => {
+    gate.propose.mockResolvedValueOnce({ outcome: 'pending', ruleId: '12' });
+    await post({ tourId: 7, ruleType: 'group_discount', percent: 10, guestsMin: 4, daysBefore: 9 });
+    expect(gate.propose.mock.calls[0][1]).toMatchObject({
+      ruleType: 'group_discount', multiplier: 0.9, guestsMin: 4, daysBeforeMin: null, daysBeforeMax: null,
+    });
+  });
+
+  it('та же скидка уже действует или уже ждёт — исход назван своими словами, не «отправлена»', async () => {
+    gate.propose.mockResolvedValueOnce({ outcome: 'already_live', ruleId: '5' });
+    const live = await post({ tourId: 7, ruleType: 'last_minute', percent: 15, daysBefore: 7 });
+    expect(live.status).toBe(200);
+    expect(live.body).toMatchObject({ state: 'already_live', message: 'Такая скидка уже действует.' });
+    gate.propose.mockResolvedValueOnce({ outcome: 'already_pending', ruleId: '6' });
+    const waiting = await post({ tourId: 7, ruleType: 'last_minute', percent: 15, daysBefore: 7 });
+    expect(waiting.status).toBe(200);
+    expect(waiting.body).toMatchObject({ state: 'already_pending', message: 'Такая скидка уже ждёт проверки.' });
+  });
+
+  it('на удалении владение проверяет дверь: ей отдана карточка из входа и id правила', async () => {
+    gate.remove.mockResolvedValueOnce({ outcome: 'removal_pending' });
+    const live = await del('?id=41');
+    expect(live.status).toBe(200);
+    expect(live.body).toMatchObject({
+      success: true, state: 'removal_pending',
+      message: 'Просьба снять скидку отправлена на проверку. До решения администратора скидка действует.',
+    });
+    expect(gate.remove.mock.calls[0][1]).toEqual({ operatorId: 'partner-1', ruleId: '41' });
+    gate.remove.mockResolvedValueOnce({ outcome: 'withdrawn' });
+    expect((await del('?id=42')).body).toMatchObject({ state: 'withdrawn', message: 'Скидка убрана: на цену она не влияла.' });
+    // Чужое или несуществующее правило — 404.
+    gate.remove.mockResolvedValueOnce({ outcome: 'not_found' });
+    expect((await del('?id=43')).status).toBe(404);
+  });
+
+  it('id не число — 404, до двери и до базы дело не доходит; без id — 400', async () => {
+    expect((await del('?id=41%3B%20DROP')).status).toBe(404);
+    expect((await del('?id=-1')).status).toBe(404);
+    expect((await del('')).status).toBe(400);
+    expect(gate.remove).not.toHaveBeenCalled();
+  });
+
+  it('без права менять цены просьба до двери не доходит', async () => {
+    gate.may = false;
+    expect((await post({ tourId: 7, ruleType: 'last_minute', percent: 15, daysBefore: 7 })).status).toBe(403);
+    expect((await del('?id=41')).status).toBe(403);
+    expect(gate.propose).not.toHaveBeenCalled();
+    expect(gate.remove).not.toHaveBeenCalled();
+  });
+
+  it('своей записи правила у роута нет: мимо двери скидка на сайт не выходит', () => {
+    expect(ROUTE_CODE).not.toMatch(/INSERT\s+INTO\s+tour_pricing_rules/);
+    expect(ROUTE_CODE).not.toMatch(/UPDATE\s+tour_pricing_rules/);
+    expect(ROUTE_CODE).not.toMatch(/'approved'/);
   });
 
   it('оператор без партнёрской записи получает отказ, а не пустой список', () => {
@@ -130,25 +228,34 @@ describe('свой тур и чужой', () => {
 });
 
 describe('условие рода обязательно', () => {
-  it('«последние места» без окна дней отвергаются', () => {
+  it('«последние места» без окна дней отвергаются — до двери', async () => {
     // Иначе скидка на последние места действовала бы ВСЕГДА.
-    expect(ROUTE_CODE).toMatch(/d\.ruleType === 'last_minute' && d\.daysBefore === undefined/);
-    expect(ROUTE).toMatch(/Укажите, за сколько дней до выезда/);
+    const res = await post({ tourId: 7, ruleType: 'last_minute', percent: 15 });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Укажите, за сколько дней до выезда действует скидка');
+    expect(gate.propose).not.toHaveBeenCalled();
   });
 
-  it('«скидка группе» без числа человек отвергается', () => {
-    expect(ROUTE_CODE).toMatch(/d\.ruleType === 'group_discount' && d\.guestsMin === undefined/);
+  it('«скидка группе» без числа человек отвергается — до двери', async () => {
+    const res = await post({ tourId: 7, ruleType: 'group_discount', percent: 15 });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Укажите, от какого числа человек действует скидка');
+    expect(gate.propose).not.toHaveBeenCalled();
   });
 
-  it('второе правило того же рода не добавляется к первому, а заменяет его', () => {
-    // Две «скидки на последние места» перемножились бы: −15% и −15% дали бы
-    // −27,75%. Прежнее гасится в ТОМ ЖЕ запросе, что вставляет новое.
-    expect(ROUTE_CODE).toMatch(/UPDATE tour_pricing_rules SET is_active = FALSE/);
-    expect(ROUTE_CODE).toMatch(/rule_type = \$2 AND is_active = TRUE/);
-    const at = ROUTE_CODE.indexOf('WITH off AS (');
-    expect(at, 'гашение прежнего правила вынесено из запроса вставки').toBeGreaterThan(0);
-    expect(ROUTE_CODE.slice(at, at + 600)).toMatch(/INSERT INTO tour_pricing_rules/);
+  it('процент вне 1..50 и чужой род правила отвергаются — до двери', async () => {
+    expect((await post({ tourId: 7, ruleType: 'last_minute', percent: 51, daysBefore: 7 })).status).toBe(400);
+    expect((await post({ tourId: 7, ruleType: 'last_minute', percent: 0, daysBefore: 7 })).status).toBe(400);
+    // Роды, поднимающие цену, оператору не отданы.
+    expect((await post({ tourId: 7, ruleType: 'season_peak', percent: 10 })).status).toBe(400);
+    expect((await post({ tourId: 7, ruleType: 'weekend_sat_sun', percent: 10 })).status).toBe(400);
+    expect(gate.propose).not.toHaveBeenCalled();
   });
+
+  // «Второе правило того же рода не добавляется к первому» (две скидки
+  // перемножились бы) теперь держит дверь и очередь: новая просьба заменяет
+  // прежнюю неодобренную, одобрение выключает прежнее действующее. Судит
+  // PostgreSQL — tests/integration/pricing-rule-moderation.pg.test.ts.
 });
 
 describe('экран показывает ту же цену, что посчитает сервер', () => {

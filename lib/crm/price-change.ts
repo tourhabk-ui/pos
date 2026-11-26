@@ -12,7 +12,9 @@
  * Запись базовой цены — единая дверь владельца (lib/tours/tour-change, план
  * готовности 23.11, этап 4): у тура на витрине новая цена уходит на проверку
  * администратору и возвращается отдельным списком `pending`. Наценка на
- * выходные (tour_pricing_rules) — второй канал цены, очередь её не касается.
+ * выходные (tour_pricing_rules) — второй канал цены, и с 23.11 он тоже идёт
+ * на проверку (миграция 1514, lib/tours/pricing-rule-door): такие туры
+ * возвращаются в том же списке `pending`.
  */
 import type { PoolClient } from 'pg';
 import type { PriceChange, PricePreview } from '@/lib/crm/price-preview';
@@ -79,8 +81,11 @@ export async function confirmPendingChange(db: Db, operatorId: string, id: strin
   const c = cur.change;
   const ids = cur.preview.tours.map((t) => t.tourId);
   if (c.kind === 'weekend_markup') {
-    const applied = await setWeekendMarkup(db, operatorId, ids, c.percent);
-    return { outcome: 'applied', applied, pending: [], skipped: ids.filter((i) => !applied.includes(i)) };
+    // Наценка — второй канал цены, и он тоже идёт на проверку (1514): на
+    // сайте она появится после одобрения. «Уже действует такая же» — applied.
+    const w = await setWeekendMarkup(db, operatorId, ids, c.percent, userId);
+    const applied = w.tours.filter((i) => !w.pending.includes(i));
+    return { outcome: 'applied', applied, pending: w.pending, skipped: ids.filter((i) => !w.tours.includes(i)) };
   }
   const applied: number[] = [];
   const pending: number[] = [];
