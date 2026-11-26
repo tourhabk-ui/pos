@@ -76,6 +76,7 @@ const [MESTECHKO, VOLCANOESLAND] = CASES;
 const M1431 = readFileSync(join(process.cwd(), 'migrations/1431_place_gallery_partner_consent.sql'), 'utf-8');
 const M1436 = readFileSync(join(process.cwd(), 'migrations/1436_partner_tour_photos_on_bare_places.sql'), 'utf-8');
 const M1513 = readFileSync(join(process.cwd(), 'migrations/1513_zelenovskie_ozerki_zaporozhets_photos.sql'), 'utf-8');
+const M1515 = readFileSync(join(process.cwd(), 'migrations/1515_zelenovskie_ozerki_winter_first_pools.sql'), 'utf-8');
 const SLUGS = { 'Местечко Камчатка': 'mestechko', 'Край Вулканов': 'volcanoesland' } as const;
 
 const S3 = 'https://s3.example.test/bucket';
@@ -595,6 +596,87 @@ withPg('снимки партнёров без согласия: спрятан�
         expect(item?.file, r.s3_key).toBe(`media/s3/${r.s3_key}`);
         expect(readFileSync(join(process.cwd(), item!.file)).length, r.s3_key).toBeGreaterThan(50_000);
       }
+    });
+
+    it('1515: зимнее озеро встаёт первым кадром, остальные идут следом в прежнем порядке, снимок бассейнов ложится последним; повтор ничего не меняет', async () => {
+      const place = await pool.query<{ id: string; ark: string }>(
+        `SELECT id::text, ark_id::text AS ark FROM places WHERE slug = 'zelenovskie-ozerki' AND merged_into_id IS NULL`);
+      const OZERKI = place.rows[0]!;
+      await pool.query(`UPDATE places SET is_visible = TRUE WHERE id::text = $1`, [OZERKI.id]);
+      const WINTER = 'photos/zaporozhets/zelenovskie-ozerki-ozero-zimoy.jpg';
+      const SUMMER = 'photos/zaporozhets/zelenovskie-ozerki-ozero-letom.jpg';
+      const COVER = 'photos/laguna-expedition/zelenovskie-ozerki-cover.jpg';
+      const POOLS = 'photos/zaporozhets/zelenovskie-ozerki-basseyny.jpg';
+      const OLD = '2026-11-01T00:00:00Z';
+      const rows = async () => (await pool.query<{ position: number; s3_key: string; fresh: boolean; stamp: string }>(
+        `SELECT position, s3_key, created_at > $2::timestamptz AS fresh, created_at::text AS stamp
+           FROM place_gallery_photos WHERE ark_id = $1 ORDER BY position`, [OZERKI.ark, OLD])).rows;
+      // Сцена как на проде после 1513: обложка тура, летнее озеро, зимнее озеро; метки версии старые.
+      const scene = async () => {
+        await pool.query(`DELETE FROM place_gallery_photos WHERE ark_id = $1`, [OZERKI.ark]);
+        await pool.query(
+          `INSERT INTO place_gallery_photos (ark_id, position, image_data, mime_type, width, height, caption, author, s3_key, partner_id)
+           VALUES ($1, 1, NULL, 'image/jpeg', 1600, 1195, 'Обложка тура', $2, $4, $3)`,
+          [OZERKI.ark, VOLCANOESLAND.partner, partnerIds[VOLCANOESLAND.partner], COVER],
+        );
+        await pool.query(M1513);
+        await pool.query(`UPDATE place_gallery_photos SET created_at = $2::timestamptz WHERE ark_id = $1`, [OZERKI.ark, OLD]);
+      };
+      await pool.query(`DELETE FROM partners WHERE slug = 'andrey-zaporozhets'`);
+      const zapId = (await pool.query<{ id: string }>(
+        `INSERT INTO partners (name, category, contact, slug, is_public) VALUES ('Андрей Запорожец', 'guide', '{}', 'andrey-zaporozhets', TRUE) RETURNING id::text`,
+      )).rows[0]!.id;
+
+      await scene();
+      expect((await rows()).map((r) => r.s3_key)).toEqual([COVER, SUMMER, WINTER]);
+
+      await pool.query(M1515);
+      const once = await rows();
+      expect(once.map((r) => [r.position, r.s3_key])).toEqual([[1, WINTER], [2, COVER], [3, SUMMER], [4, POOLS]]);
+      // Переставленным кадрам метка версии обновлена: адрес «позиция + метка» не отдаёт другой снимок из кэша.
+      expect(once.map((r) => r.fresh)).toEqual([true, true, true, true]);
+      const pools = await pool.query<{ author: string; partner_id: string; width: number; height: number; caption: string; has_bytes: boolean }>(
+        `SELECT author, partner_id::text, width, height, caption, image_data IS NOT NULL AS has_bytes
+           FROM place_gallery_photos WHERE ark_id = $1 AND s3_key = $2`, [OZERKI.ark, POOLS]);
+      expect(pools.rows).toEqual([{ author: 'Андрей Запорожец', partner_id: zapId, width: 413, height: 540, caption: 'Бассейны на Зеленовских озерках', has_bytes: false }]);
+
+      // Повтор: порядок и метки те же.
+      await pool.query(M1515);
+      expect(await rows()).toEqual(once);
+
+      // Карточка: первым — зимнее озеро; у трёх кадров автора подпись — его имя.
+      const c = await card(OZERKI.id);
+      const shown = c.images.filter((u) => u.includes('/place-gallery/'));
+      expect(shown.map((u) => u.split('?')[0])).toEqual([1, 2, 3, 4].map((n) => `/api/images/place-gallery/${OZERKI.ark}/${n}`));
+      expect(new Set(shown).size, 'адреса кадров с метками версии не совпадают между собой').toBe(4);
+      const credits = shown.map((u) => c.photoCredits[u]);
+      expect(credits[0]).toBe('Андрей Запорожец');
+      expect(credits[2]).toBe('Андрей Запорожец');
+      expect(credits[3]).toBe('Андрей Запорожец');
+
+      // Кадр, стоящий на своём месте, метку не меняет: зимний уже первый — перестановки нет.
+      await pool.query(`UPDATE place_gallery_photos SET created_at = $2::timestamptz WHERE ark_id = $1`, [OZERKI.ark, OLD]);
+      await pool.query(M1515);
+      expect((await rows()).map((r) => r.fresh)).toEqual([false, false, false, false]);
+
+      // Зимнего кадра у места нет — порядок не трогается, миграция не падает; бассейны ложатся следом.
+      await scene();
+      await pool.query(`DELETE FROM place_gallery_photos WHERE ark_id = $1 AND s3_key = $2`, [OZERKI.ark, WINTER]);
+      await pool.query(M1515);
+      expect((await rows()).map((r) => [r.position, r.s3_key, r.fresh])).toEqual([[1, COVER, false], [2, SUMMER, false], [3, POOLS, true]]);
+
+      // Карточки автора нет — нет ни его кадров, ни снимка бассейнов: остаётся обложка тура, миграция не падает.
+      await scene();
+      await pool.query(`DELETE FROM place_gallery_photos WHERE ark_id = $1 AND partner_id = $2`, [OZERKI.ark, zapId]);
+      await pool.query(`DELETE FROM partners WHERE id = $1`, [zapId]);
+      await pool.query(M1515);
+      expect((await rows()).map((r) => r.s3_key)).toEqual([COVER]);
+
+      // Файл под ключом лежит в репозитории и стоит в маркере заливки.
+      const marker = JSON.parse(readFileSync(join(process.cwd(), '.github/triggers/media-to-s3.json'), 'utf-8')) as { items: Array<{ file: string; key: string }> };
+      const item = marker.items.find((i) => i.key === POOLS);
+      expect(item?.file).toBe(`media/s3/${POOLS}`);
+      expect(readFileSync(join(process.cwd(), item!.file)).length).toBeGreaterThan(50_000);
     });
   });
 
