@@ -212,11 +212,17 @@ describe('одобрение: онбординг агента подаёт за�
     expect(read('app/hub/admin/operators/_OperatorsClient.tsx')).toMatch(/agent:\s*'Турагент'/);
   });
 
-  it('письмо об одобрении агенту говорит про кабинет агента, а не про публикацию туров', () => {
+  it('письмо об одобрении агенту говорит про кабинет агента, а не про публикацию туров', async () => {
+    // Слова письма живут в lib/operator/approval-email (вынесены ради экранирования);
+    // судим то, что уходит агенту, а не строку в исходнике роута.
+    const { approvalEmailHtml, approvalEmailSubject } = await import('@/lib/operator/approval-email');
+    expect(approvalEmailSubject('agent')).toMatch(/Кабинет агента открыт/);
+    const html = approvalEmailHtml({ contactName: 'Тест', companyName: 'Тест', category: 'agent', partnerId: 'p1' });
+    expect(html).toMatch(/Профиль агента/);
+    expect(html).toContain('https://vedarai.ru/hub/agent');
+    expect(html).not.toMatch(/публиковать туры/);
     const src = read('app/api/admin/operators/[id]/route.ts');
-    expect(src).toMatch(/const isAgent = partner\.category === 'agent'/);
-    expect(src).toMatch(/Кабинет агента открыт/);
-    expect(src).toMatch(/профиль агента/);
+    expect(src).toMatch(/approvalEmailSubject\(partner\.category\)/);
     // Агент (и тестовый профиль, 1495) не становится публичным от одобрения.
     expect(src).toMatch(/CASE WHEN category = 'agent' OR is_test IS TRUE THEN is_public ELSE TRUE END/);
   });
