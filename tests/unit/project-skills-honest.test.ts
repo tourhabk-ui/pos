@@ -16,7 +16,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const SKILLS = ['money-path', 'pd-guard', 'pg-verify', 'role-audit', 'pr-drive', 'day-review'];
+const SKILLS = ['money-path', 'pd-guard', 'pg-verify', 'role-audit', 'pr-drive', 'day-review', 'vedar-security-audit'];
 const ROOT = process.cwd();
 const CI = readFileSync(join(ROOT, '.github/workflows/ci.yml'), 'utf-8');
 
@@ -52,6 +52,21 @@ describe('навыки проекта ссылаются на существую
       expect(unresolved, `${name}: имя не найдено ни среди сторожей, ни среди навыков, ни в ci.yml`).toEqual([]);
     });
   }
+
+  // Скилл проверки безопасности (слово владельца 26.11 «свой делай») и правила
+  // ревью безопасности на PR держат одни образцы: ревьюер читает правила, сессия —
+  // скилл. Ссылка в одну сторону без другой — половина связки (правило 10.09).
+  it('скилл проверки безопасности и правила ревью ссылаются друг на друга', () => {
+    const skill = readFileSync(join(ROOT, '.claude/skills/vedar-security-audit/SKILL.md'), 'utf-8');
+    const rules = readFileSync(join(ROOT, '.github/security-review-rules.md'), 'utf-8');
+    expect(skill).toContain('.github/security-review-rules.md');
+    expect(rules).toContain('.claude/skills/vedar-security-audit/SKILL.md');
+    // Образцы прогона 26.11 — в обоих: ревьюер и сессия ищут одно и то же.
+    for (const marker of ['«sos»', 'хвост JPEG', 'одну форму записи', '«скрой»', '--upload-pack']) {
+      expect(rules, `правила ревью без образца ${marker}`).toContain(marker);
+    }
+    for (const pr of ['#3837', '#3840', '#3843', '#3845']) expect(skill, `скилл без образца ${pr}`).toContain(pr);
+  });
 
   it('навыков скрейпа чужого сайта нет', () => {
     expect(existsSync(join(ROOT, '.claude/skills/web-scraper-routes.md'))).toBe(false);
