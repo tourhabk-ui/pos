@@ -61,17 +61,22 @@ export async function POST(request: NextRequest) {
 
   const d = parsed.data;
   const { rows } = await pool.query(
+    // Правило ставит администратор — он и есть проверка: статус называется
+    // прямо, умолчание колонки (1514) — «на проверке».
     `INSERT INTO tour_pricing_rules
        (operator_tour_id, rule_type, multiplier,
         date_from, date_to, days_before_min, days_before_max,
-        occupancy_min, guests_min)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        occupancy_min, guests_min,
+        moderation_status, moderated_at, moderated_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, 'approved', NOW(), $10::uuid)
      RETURNING *`,
     [
       d.operatorTourId, d.ruleType, d.multiplier,
       d.dateFrom ?? null, d.dateTo ?? null,
       d.daysBeforeMin ?? null, d.daysBeforeMax ?? null,
       d.occupancyMin ?? null, d.guestsMin ?? null,
+      // Вошедший под служебным ключом uuid не несёт: «кто одобрил» тогда не записано.
+      z.string().uuid().safeParse(auth.userId).success ? auth.userId : null,
     ]
   );
 

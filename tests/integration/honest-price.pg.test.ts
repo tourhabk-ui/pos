@@ -90,9 +90,10 @@ withPg('честная цена на настоящем PostgreSQL', () => {
       );
     }
     await pool.query(
+      // Правило проверено администратором: цену меняет только такое (1514).
       `INSERT INTO tour_pricing_rules
-         (operator_tour_id, rule_type, days_before_min, days_before_max, multiplier, is_active)
-       VALUES ($1, 'last_minute', 0, 7, 0.85, true)`,
+         (operator_tour_id, rule_type, days_before_min, days_before_max, multiplier, is_active, moderation_status)
+       VALUES ($1, 'last_minute', 0, 7, 0.85, true, 'approved')`,
       [tourWithRule],
     );
     // Baseline + все миграции, как у соседних pg-тестов: дефолтных 10 с хука

@@ -49,8 +49,8 @@ export async function setWeekendMarkup(db: Db, operatorId: string, tourIds: read
   );
   if (multiplier !== null) {
     await db.query(
-      `INSERT INTO tour_pricing_rules (operator_tour_id, rule_type, multiplier, is_active)
-       SELECT unnest($1::int[]), 'weekend_sat_sun', $2, TRUE`,
+      `INSERT INTO tour_pricing_rules (operator_tour_id, rule_type, multiplier, is_active, moderation_status)
+       SELECT unnest($1::int[]), 'weekend_sat_sun', $2, TRUE, 'approved'`,
       [ids, multiplier],
     );
   }
