@@ -3790,6 +3790,20 @@
     ]
   },
   {
+    "src": "/api/images/s3/photos/zaporozhets/zelenovskie-ozerki-ozero-letom.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
+    "src": "/api/images/s3/photos/zaporozhets/zelenovskie-ozerki-ozero-zimoy.jpg",
+    "widths": [
+      320,
+      640
+    ]
+  },
+  {
     "src": "/api/images/s3/photos/zheltukhin/zheltukhin-01.jpg",
     "widths": [
       320,
