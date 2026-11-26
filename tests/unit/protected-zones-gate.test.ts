@@ -51,7 +51,7 @@ const bodyWith = (...lines: string[]) =>
 
 describe('решение по PR: граничные случаи', () => {
   it('PR без зоны — зелёный', () => {
-    const v = judgeZones({ files: [code('lib/places/aliases.ts'), code('lib/auth/middleware.ts')], body: '' });
+    const v = judgeZones({ files: [code('lib/places/aliases.ts'), code('lib/auth/role-routes.ts')], body: '' });
     expect(v.outcome).toBe('clean');
     expect(formatVerdict(v).exitCode).toBe(0);
   });
@@ -232,7 +232,70 @@ function fakeGitHub(opts: {
   return fetchImpl as unknown as typeof fetch;
 }
 
-const ENV = { GH_TOKEN: 't', REPO: 'o/r', PR_NUMBER: '7', BASE_SHA: 'main0000', HEAD_SHA: 'head0000' };
+const ENV = { GH_TOKEN: 't', REPO: 'o/r', PR_NUMBER: '7', BASE_SHA: 'main0000', HEAD_SHA: 'head0000', PR_AUTHOR_ASSOCIATION: 'OWNER' };
+
+// Проверка безопасности 26.11 (слово владельца «чини Карт бланш»): тело PR
+// пишет его автор, а PR в открытый репозиторий открывает кто угодно.
+describe('слово владельца приносит только участник репозитория', () => {
+  const PAY = 'app/api/payments/webhook/route.ts';
+  const WORD = bodyWith('- payments — «пока уберём оплату» (05.10)');
+
+  it('PR постороннего с разделом в теле — красный и говорит почему', () => {
+    for (const assoc of ['NONE', 'CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR', 'FIRST_TIMER', 'MANNEQUIN', '']) {
+      const v = judgeZones({ files: [code(PAY)], body: WORD, authorAssociation: assoc });
+      expect(v.outcome, assoc).toBe('fail');
+      const f = formatVerdict(v);
+      expect(f.exitCode).toBe(1);
+      expect(f.out.join('\n')).toMatch(/не засчитано: PR открыт не владельцем, участником или соавтором/);
+      expect(f.summary).toMatch(/Раздел в теле не засчитан/);
+    }
+  });
+
+  it('владелец, участник и соавтор — раздел засчитан', () => {
+    for (const assoc of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
+      expect(judgeZones({ files: [code(PAY)], body: WORD, authorAssociation: assoc }).outcome, assoc).toBe('ok');
+    }
+  });
+
+  it('посторонний правит одни комментарии — предупреждение, как у всех', () => {
+    expect(judgeZones({ files: [commentsOnly(PAY)], body: '', authorAssociation: 'NONE' }).outcome).toBe('warn');
+  });
+
+  it('проход по PR: отметка не пришла — раздел не засчитан, пришла OWNER — засчитан', async () => {
+    const gh = () => fakeGitHub({
+      files: [{ filename: PAY, status: 'modified' }],
+      contents: { [`base0000:${PAY}`]: 'export const a = 1;\n', [`head0000:${PAY}`]: 'export const a = 2;\n' },
+    });
+    const { PR_AUTHOR_ASSOCIATION: _drop, ...noAssoc } = ENV;
+    const missing = await runZonesCheck({ env: { ...noAssoc, CHANGED_FILES: '1', PR_BODY: WORD }, fetchImpl: gh(), ts });
+    expect(missing.exitCode).toBe(1);
+    expect(missing.out.join('\n')).toMatch(/отметка автора: не пришла/);
+    const outsider = await runZonesCheck({ env: { ...ENV, PR_AUTHOR_ASSOCIATION: 'NONE', CHANGED_FILES: '1', PR_BODY: WORD }, fetchImpl: gh(), ts });
+    expect(outsider.exitCode).toBe(1);
+    const owner = await runZonesCheck({ env: { ...ENV, CHANGED_FILES: '1', PR_BODY: WORD }, fetchImpl: gh(), ts });
+    expect(owner.exitCode).toBe(0);
+  });
+
+  it('workflow передаёт отметку автора из события', () => {
+    const wf = load(read('.github/workflows/protected-zones.yml')) as {
+      jobs: Record<string, { steps: Array<{ run?: string; env?: Record<string, string> }> }>;
+    };
+    const run = Object.values(wf.jobs).flatMap((j) => j.steps).find((s) => s.run?.includes('scripts/protected-zones.mjs'));
+    expect(run?.env?.PR_AUTHOR_ASSOCIATION).toBe('${{ github.event.pull_request.author_association }}');
+  });
+});
+
+describe('зона JWT — там, где живёт JWT', () => {
+  it('подпись и проверка токена, проверка роли и сравнение секретов — в зоне lib-auth', () => {
+    for (const f of ['lib/auth.ts', 'lib/auth/jwt.ts', 'lib/auth/middleware.ts', 'lib/security/constant-time-equal.ts']) {
+      expect(zonesOfFile(f).map((z) => z.id), f).toEqual(['lib-auth']);
+    }
+  });
+
+  it('lib/auth.ts берёт проверку токена из lib/auth/jwt.ts — зона без него стерегла бы обёртку', () => {
+    expect(read('lib/auth.ts')).toMatch(/from '@\/lib\/auth\/jwt'/);
+  });
+});
 
 describe('проход поверх API GitHub', () => {
   it('список файлов не получен — красный «не смог проверить», а не «зон нет»', async () => {
@@ -422,7 +485,8 @@ describe('реестр зон против репозитория и CLAUDE.md �
 
   it('реестр публичных API — зона (третье исключение §7 по слову владельца 14.10)', () => {
     expect(zonesOfFile('lib/auth/public-api-routes.ts').map((z) => z.id)).toEqual(['public-api-routes']);
-    expect(zonesOfFile('lib/auth/middleware.ts')).toEqual([]);
+    // Тёзка middleware.ts — проверка роли за роутами — в зоне JWT, а не Edge-гварда.
+    expect(zonesOfFile('lib/auth/middleware.ts').map((z) => z.id)).toEqual(['lib-auth']);
   });
 
   it('граница пути зоны — каталог целиком, а не префикс строки', () => {

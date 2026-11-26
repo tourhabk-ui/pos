@@ -17,7 +17,8 @@ name: Deploy to Timeweb Cloud
 # у API на каждом прогоне, а не читает этот комментарий (урок 17.08 ниже).
 #
 # Ручной выкат — workflow_dispatch: собирает голову main и гейт CI обходит.
-# Это рука владельца, а не путь по умолчанию.
+# Это рука владельца, а не путь по умолчанию. Запуск с другой ветки джоб
+# выката пропускает (условие `github.ref` у джоба deploy, 26.11).
 #
 # Подтверждённый выкат оставляет ЗАПИСЬ: GitHub Deployment в окружении
 # vedarai.ru с sha, который сверка признала работающим на проде (шаг «Запись
@@ -106,7 +107,12 @@ jobs:
     # его так же, и без этих двух условий его зелёный CI заказал бы у
     # Timeweb сборку чужого коммита — GitHub отдаёт коммиты форков и по
     # адресу основного репозитория.
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success') }}
+    #
+    # Ручной выкат — только с main (проверка безопасности 26.11, слово
+    # владельца «чини Карт бланш»). workflow_dispatch запускается на любой
+    # ветке, и `github.sha` тогда — голова этой ветки: кнопка с чужой ветки
+    # заказала бы у Timeweb сборку непроверенного и не влитого коммита.
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success') }}
     steps:
       # История нужна ДО проверки: подтверждение «прод содержит наш коммит»
       # считается по предкам, а не по совпадению строк (см. ниже).

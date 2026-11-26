@@ -71,4 +71,8 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
           PR_BODY: ${{ github.event.pull_request.body }}
+          # Отметка автора PR (OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, NONE…)
+          # ставит GitHub, не автор. Слово владельца из тела засчитывается
+          # только у первых трёх (проверка безопасности 26.11).
+          PR_AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
         run: TS_MODULE="$RUNNER_TEMP/ts/node_modules/typescript" node scripts/protected-zones.mjs --run

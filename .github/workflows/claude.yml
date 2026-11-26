@@ -34,6 +34,14 @@ on:
 #
 # Условие здесь — то же, что `if:` у работы ниже, слово в слово: сторож
 # tests/unit/hand-foreign-event.test.ts вычисляет оба на одних событиях.
+#
+# «@claude» в теле или заголовке задачи постороннего руку больше не запускает
+# (проверка безопасности ИИ-части 26.11, слово владельца «чини Карт бланш»).
+# Экшен сверяет право записи у того, кто ВЫЗВАЛ событие: на `opened` это
+# автор, и посторонний получал отказ, а на `assigned` — владелец, назначивший
+# исполнителя, и текст постороннего, включая скрытые HTML-комментарии, уходил
+# руке с правом записи. Задачу постороннего рука берёт только по метке
+# agent-proposal или комментарию с «@claude» — их ставит человек.
 concurrency:
   group: >-
     claude-${{
@@ -41,7 +49,6 @@ concurrency:
     (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
     (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'agent-proposal') ||
     (github.event_name == 'issues' && github.event.action != 'labeled' && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association) && !contains(github.event.issue.body, '<!-- scout-proposal -->')) ||
-    (github.event_name == 'issues' && github.event.action != 'labeled' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && !contains(github.event.issue.body, '<!-- scout-proposal -->')) ||
     (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
     (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
     )
@@ -75,7 +82,6 @@ jobs:
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'agent-proposal') ||
       (github.event_name == 'issues' && github.event.action != 'labeled' && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association) && !contains(github.event.issue.body, '<!-- scout-proposal -->')) ||
-      (github.event_name == 'issues' && github.event.action != 'labeled' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && !contains(github.event.issue.body, '<!-- scout-proposal -->')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
     runs-on: ubuntu-latest

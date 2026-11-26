@@ -477,7 +477,8 @@ describe('экран согласия и возврат после входа', 
 
   it('middleware.ts этим не тронут: /api/mcp пропускается целиком, /oauth — вне matcher', () => {
     const mw = read('middleware.ts');
-    expect(mw).toMatch(/if \(pathname\.startsWith\('\/api\/mcp'\)\)/);
+    // Сверка по сегментам с 26.11 (tests/unit/edge-mcp-segment.test.ts исполняет шлюз).
+    expect(mw).toMatch(/if \(isPathMatch\(pathname, '\/api\/mcp'\)\)/);
     expect(mw).not.toMatch(/'\/oauth/);
   });
 });

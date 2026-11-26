@@ -276,8 +276,11 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const method = request.method;
 
-  // MCP server — public, no auth required (Timeweb AI agent calls this)
-  if (pathname.startsWith('/api/mcp')) {
+  // MCP server — public, no auth required (Timeweb AI agent calls this).
+  // Сверка по сегментам, а не startsWith (проверка безопасности 26.11, слово
+  // владельца «чини Карт бланш»): префикс строки пускал бы без входа любой
+  // будущий роут, чьё имя начинается с mcp, — /api/mcp-admin, /api/mcpstats.
+  if (isPathMatch(pathname, '/api/mcp')) {
     return applySecurityHeaders(NextResponse.next(), pathname);
   }
 
