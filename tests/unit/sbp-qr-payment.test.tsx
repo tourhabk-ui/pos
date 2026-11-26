@@ -65,6 +65,22 @@ describe('SbpQrPayment', () => {
     expect(screen.getByText(/QR действителен ещё/)).toBeInTheDocument();
   });
 
+  it('под кнопкой — что делать, если ссылка СБП не открылась (НСПК, сертификаты Минцифры с 25.11)', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true, status: 200, json: () => Promise.resolve(QR_RESPONSE),
+    });
+
+    render(<SbpQrPayment bookingId={4} amount={1500} onPaid={vi.fn()} />);
+    await flush();
+
+    const hint = screen.getByText(/Кнопка не открылась\?/);
+    expect(hint).toHaveTextContent('сканером в приложении банка');
+    expect(hint).toHaveTextContent('Яндекс Браузере');
+    // Подсказка стоит после кнопки, а не вместо неё.
+    const link = screen.getByRole('link', { name: 'Открыть в приложении банка' });
+    expect(link.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('503 — сообщает, что СБП недоступен, без слова «ошибка»', async () => {
     fetchMock.mockResolvedValue({
       ok: false, status: 503, json: () => Promise.resolve({ error: 'недоступно' }),
