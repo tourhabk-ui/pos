@@ -22,7 +22,7 @@
  */
 import { useEffect, useState } from 'react';
 import { CheckCircle2, FileText, X } from 'lucide-react';
-import { OfferAcceptForm } from '@/components/legal/OfferAcceptForm';
+import { OfferAcceptForm } from '@/components/hub/OfferAcceptForm';
 import { OFFER_ASK_STATES, OFFER_EDITION, OFFER_URL, offerAskWords, type OfferAskState } from '@/lib/legal/offer';
 import { logSwallowedFailure } from '@/lib/observability/swallowed';
 

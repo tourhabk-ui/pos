@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, ArrowRight, CheckCircle2, CircleDashed, Clock, HelpCircle } from 'lucide-react';
 import type { ItemState, PartnerReadiness, ReadinessItem } from '@/lib/partners/readiness';
-import { OfferAcceptForm } from '@/components/legal/OfferAcceptForm';
+import { OfferAcceptForm } from '@/components/hub/OfferAcceptForm';
 
 type Load =
   | { kind: 'loading' }
