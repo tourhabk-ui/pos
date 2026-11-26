@@ -28,6 +28,7 @@ import { ALERT_MATCH_SQL, ALERT_ZONAL_ONLY_SQL } from '@/lib/services/safety/ale
 import { CORRIDOR_VOLCANO_KM } from '@/lib/safety/corridor';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { PARK_STATUS_FRESH_HOURS, routeParkStatus, type ParkRouteStatus } from '@/lib/parks/park-route-status';
+import { roadAlertNamesRoute, routeRoadKind } from '@/lib/safety/road-route-alert';
 
 /** Минимальный контракт запроса — ровно то, что нужно сборщику. */
 export type QueryFn = <T>(sql: string, params: unknown[]) => Promise<{ rows: T[] }>;
@@ -65,6 +66,10 @@ export { CORRIDOR_VOLCANO_KM };
  * предъявляется предикату как набор «мест» — каждая опорная точка с каждой
  * зоной маршрута, — и предупреждение относится к маршруту, если относится
  * хоть к одной.
+ *
+ * Своя ветка у маршрута одна, и у мест её быть не может: дорожное
+ * ограничение, которое называет дорогу самого маршрута («Зимник Анавгай -
+ * Тигиль», #3858). Место — не дорога. Правило — lib/safety/road-route-alert.
  */
 
 const KM_PER_DEG_LAT = 111.32;
@@ -116,7 +121,7 @@ export function isInSeason(season: string | null, month: number): boolean | null
   return null;
 }
 
-interface RouteRow { id: string | null; zone: string | null; season: string | null; lat: string | null; lng: string | null }
+interface RouteRow { id: string | null; zone: string | null; season: string | null; lat: string | null; lng: string | null; title?: string | null }
 interface PointRow { zone: string | null; lat: string | null; lng: string | null }
 interface AlertRow { title: string; severity: number | null; alert_type: string | null; zonal: boolean | null }
 interface VolcanoRow { name: string; acc: string }
@@ -126,6 +131,8 @@ interface ClosureRow { name: string; reason: string | null }
 interface RouteShape {
   /** `kamchatka_routes.id` найденной строки: на нём живут путевые точки. */
   dbId: string;
+  /** Название маршрута: по нему дорожное ограничение узнаёт свою дорогу (#3858). */
+  title: string | null;
   zones: string[];
   season: string | null;
   points: Array<{ lat: number; lng: number }>;
@@ -150,7 +157,7 @@ interface RouteShape {
  * id найденной строки.
  */
 export const ROUTE_ROW_BY_ANY_ID_SQL = `
-  SELECT id::text AS id, zone, season, lat::text, lng::text
+  SELECT id::text AS id, zone, season, lat::text, lng::text, title
     FROM kamchatka_routes
    WHERE id::text = $1 OR ark_id::text = $1
    ORDER BY (id::text = $1) DESC
@@ -191,7 +198,7 @@ async function loadRouteShape(routeId: string, q: QueryFn): Promise<RouteShape |
     push(r.lat, r.lng);
     for (const p of points.rows) push(p.lat, p.lng);
 
-    return { dbId, zones: [...zones], season: r.season, points: coords };
+    return { dbId, title: r.title ?? null, zones: [...zones], season: r.season, points: coords };
   } catch (err) {
     // Форма маршрута неизвестна — значит неизвестно и всё, что от неё зависит.
     // Молчать при этом нельзя (§4.0): отказ чтения — в лог с SQLSTATE.
@@ -244,8 +251,34 @@ function alertFingerprint(title: string): string {
   return title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().slice(0, 60);
 }
 
+/**
+ * Дорожные ограничения, которые называют дорогу самого маршрута (#3858).
+ *
+ * Маршрут «Зимник Анавгай - Тигиль» — это дорога. Ограничение «закрыт проезд
+ * … автозимника, между селом Тигиль и посёлком Палана» не нашло в каталоге
+ * мест ни Тигиля, ни Паланы, координаты не получило и потому не дошло ни до
+ * кого. Заголовок при этом называет дорогу маршрута, и это и есть привязка.
+ * Правило — `lib/safety/road-route-alert.ts`. Такое ограничение — не зональное:
+ * место в нём названо.
+ */
+export const ROAD_ALERTS_FOR_ROUTE_SQL = `
+  SELECT ea.title, ea.severity::int AS severity, ea.alert_type
+    FROM external_alerts ea
+   WHERE ea.alert_type = 'road_closure'
+     AND (ea.expires_at IS NULL OR ea.expires_at > ${UTC_WALL_NOW_SQL})
+   ORDER BY ea.severity DESC NULLS LAST, ea.created_at DESC
+   LIMIT 200`;
+
+async function loadNamedRoadAlerts(routeTitle: string | null, q: QueryFn): Promise<AlertRow[]> {
+  if (!routeRoadKind(routeTitle)) return [];
+  const { rows } = await q<Omit<AlertRow, 'zonal'>>(ROAD_ALERTS_FOR_ROUTE_SQL, []);
+  return rows
+    .filter((r) => roadAlertNamesRoute(routeTitle, r.alert_type, r.title))
+    .map((r) => ({ ...r, zonal: false }));
+}
+
 async function loadAlerts(
-  zones: string[], points: Array<{ lat: number; lng: number }>, routeId: string, q: QueryFn,
+  zones: string[], points: Array<{ lat: number; lng: number }>, routeId: string, routeTitle: string | null, q: QueryFn,
 ): Promise<Array<{ title: string; severity: number; type: string | null; zonal: boolean }> | null> {
   try {
     const lats = points.map((p) => p.lat);
@@ -291,11 +324,19 @@ async function loadAlerts(
         LIMIT 50`,
       [zones, lats, lngs, routeId],
     );
-    // Порядок из запроса (важность, затем свежесть) сохраняется, поэтому
-    // первой остаётся самая тяжёлая копия дубля, а не случайная.
+    // Запросы идут по одному: оба — на одном `q`, а он может быть клиентом
+    // транзакции (CLAUDE.md §4).
+    const named = await loadNamedRoadAlerts(routeTitle, q);
+    // Порядок — важность, затем порядок запроса (свежесть): первой остаётся
+    // самая тяжёлая копия дубля, а не случайная. Названное ограничение того же
+    // текста идёт раньше зонального: оно не зональное.
+    const merged = [...named, ...rows]
+      .map((r, i) => ({ r, i }))
+      .sort((a, b) => (Number(b.r.severity ?? -1) - Number(a.r.severity ?? -1)) || a.i - b.i)
+      .map(({ r }) => r);
     const seen = new Set<string>();
     const out: Array<{ title: string; severity: number; type: string | null; zonal: boolean }> = [];
-    for (const r of rows) {
+    for (const r of merged) {
       const key = alertFingerprint(r.title);
       if (key === '' || seen.has(key)) continue;
       seen.add(key);
@@ -474,7 +515,7 @@ export async function collectRouteSignals(
   // Тревоги и закрытия — по id найденной строки, а не по тому, что пришло:
   // пришёл мог id карточки (см. ROUTE_ROW_BY_ANY_ID_SQL).
   const [alerts, volcanoes, closures, park] = await Promise.all([
-    loadAlerts(shape.zones, shape.points, shape.dbId, q),
+    loadAlerts(shape.zones, shape.points, shape.dbId, shape.title, q),
     loadVolcanoes(shape.points, q),
     loadClosures(shape.dbId, q),
     loadParkStatus(shape.dbId, q),

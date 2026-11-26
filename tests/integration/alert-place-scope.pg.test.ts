@@ -32,6 +32,7 @@ import { join } from 'node:path';
 import { ALERT_MATCH_SQL, ALERT_ZONAL_ONLY_SQL } from '@/lib/services/safety/alert-place-scope';
 import { TOURIST_BAN_SQL, BAN_AUDIENCE, BAN_VERB } from '@/lib/services/safety/tourist-ban';
 import { collectRouteSignals, type QueryFn } from '@/lib/routes/collect-signals';
+import { goVerdict } from '@/lib/routes/go-verdict';
 import { ACTIVE_ZONE_ALERTS_SQL, UNDATED_ALERT_HORIZON_DAYS } from '@/lib/safety/alerts';
 import { KRAI_COMMANDER_ZONE, KRAI_KORYAK_ZONE } from '@/lib/safety/krai-far';
 import { KURIL_NORTH_ZONE } from '@/lib/safety/kuril-north';
@@ -777,6 +778,13 @@ withPg('кого накрывает предупреждение', () => {
     expect(await coveredBy(id)).toEqual([FAR_NORTH.id]);
   });
 
+  it('перелив кос морской водой по северной зоне: озеро — да, вулканы и горы — нет (#3859)', async () => {
+    const id = await insertAlert({
+      type: 'weather', title: 'Экстренное предупреждение на 27 ноября 2026 г. (переливание песчаных кос морской водой)', zones: ['northern'],
+    });
+    expect(await coveredBy(id)).toEqual([FAR_NORTH.id]);
+  });
+
   it('ветер вместе с волнением моря — не морская: вулкан её получает', async () => {
     const id = await insertAlert({
       type: 'weather', title: 'Экстренное предупреждение (сильный ветер, опасное волнение моря, тест)', zones: ['northern'],
@@ -806,6 +814,10 @@ withPg('кого накрывает предупреждение', () => {
       ['weather', 'Экстренное предупреждение на 3 октября 2026 г. (сильный дождь)'],
       ['tsunami_warning', 'Угроза цунами: волнение моря у побережья'],
       ['weather', 'ОПАСНОЕ ВОЛНЕНИЕ МОРЯ'],
+      // #3859: перелив кос — с «морской водой» и без неё.
+      ['weather', 'Экстренное предупреждение на 27 ноября 2026 г. (переливание песчаных кос морской водой)'],
+      ['weather', 'Переливание кос на побережье'],
+      ['weather', 'Переливание через дамбу'],
     ];
     for (const [type, title] of cases) {
       const { rows } = await pool.query<{ m: boolean }>(
@@ -1547,6 +1559,43 @@ withPg('кого накрывает предупреждение', () => {
       const t = 'Экстренное предупреждение (опасное волнение моря, тест маршрута)';
       await insertAlert({ type: 'weather', title: t, zones: ['avachinsky'] });
       expect((await titles(ROUTE)).map((a) => a.title)).toContain(t);
+    });
+
+    // ── Закрытие дороги, которой и является маршрут (#3858, 26.11) ──
+    // Сёл Тигиль и Палана в каталоге мест нет: координату ограничение не
+    // получает, и до 26.11 оно не доходило ни до кого.
+    const ZIMNIK = 'd0000000-0000-4000-8000-0000000000ab';
+    const ZIMNIK_CLOSED = 'Временно закрыт проезд для легкового транспорта на участке с 230-го по 435-й км автозимника, между селом Тигиль и посёлком Палана (тест зимника)';
+
+    it('закрытие автозимника доходит до маршрута «Зимник Анавгай - Тигиль», и не как зональное', async () => {
+      await pool.query(
+        `INSERT INTO kamchatka_routes (id, category, title, zone, lat, lng, is_visible)
+         VALUES ($1, 'auto', 'Зимник Анавгай - Тигиль', NULL, 56.6, 158.4, TRUE)`,
+        [ZIMNIK],
+      );
+      await insertAlert({ type: 'road_closure', title: ZIMNIK_CLOSED, zones: [] });
+      await insertAlert({
+        type: 'road_closure', zones: [],
+        title: 'Проезд закрыт в связи с ограниченной видимостью и метелью (тест зимника)',
+      });
+      const s = await collectRouteSignals(ZIMNIK, { query: q, month: 11 });
+      const a = s.alerts?.find((x) => x.title === ZIMNIK_CLOSED);
+      expect(a, 'закрытие своей дороги не дошло до маршрута').toBeDefined();
+      expect(a!.zonal).toBe(false);
+      // Ограничение без названия места — не про эту дорогу.
+      expect(s.alerts!.map((x) => x.title)).not.toContain('Проезд закрыт в связи с ограниченной видимостью и метелью (тест зимника)');
+      expect(goVerdict(s)).toMatchObject({ status: 'no', code: 'alert_ban' });
+    });
+
+    it('то же закрытие не доходит до маршрута, который дорогой не назван', async () => {
+      expect((await titles(ROUTE)).map((a) => a.title)).not.toContain(ZIMNIK_CLOSED);
+    });
+
+    it('истёкшее закрытие автозимника маршрут не красит', async () => {
+      const t = 'Закрыт автозимник Анавгай — Тигиль, снято (тест зимника)';
+      const id = await insertAlert({ type: 'road_closure', title: t, zones: [] });
+      await pool.query(`UPDATE external_alerts SET expires_at = ${UTC_WALL_NOW_SQL} - INTERVAL '1 day' WHERE id = $1`, [id]);
+      expect((await titles(ZIMNIK)).map((a) => a.title)).not.toContain(t);
     });
 
     it('миграция 1153 делает «Гору Замок» точкой пути своего маршрута', async () => {
