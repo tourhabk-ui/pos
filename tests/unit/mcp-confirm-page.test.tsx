@@ -286,7 +286,11 @@ describe('страница /confirm', () => {
     expect(button.getAttribute('aria-describedby')).toBeNull();
     fireEvent.click(button);
     await screen.findByText('Заявка отправлена');
-    expect(document.activeElement).toBe(screen.getByText('Заявка отправлена').closest('section'));
+    // Фокус ставит эффект после отрисовки (useEffect в _ConfirmClient): текст
+    // в документе раньше, чем фокус на итоге. Проверка сразу после текста
+    // гонялась с эффектом и под нагрузкой падала — CI на main 26.11 (#3852).
+    // Ждём сам фокус; не перейдёт вовсе — waitFor падает по сроку.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByText('Заявка отправлена').closest('section')));
     vi.unstubAllGlobals();
   });
 

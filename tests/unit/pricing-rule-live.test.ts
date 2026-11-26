@@ -33,7 +33,11 @@ type Kind =
   /** Показывает правила владельцу или администратору — все, с их статусом. */
   | 'listing'
   /** Перепись: считает правила по своим определениям и называет их в ответе. */
-  | 'census';
+  | 'census'
+  /** Очередь проверки: читает правила, ждущие решения, и решает их под замком. */
+  | 'review'
+  /** Дверь владельца: читает правила рода под замком, чтобы попросить новое или снятие. */
+  | 'door';
 
 const READERS: Record<string, { kind: Kind; why: string }> = {
   'lib/tours/honest-price.ts': { kind: 'price', why: 'цена карточки и цена брони' },
@@ -42,6 +46,8 @@ const READERS: Record<string, { kind: Kind; why: string }> = {
   'app/api/hub/operator/pricing-rules/route.ts': { kind: 'listing', why: 'экран «скидки» у владельца' },
   'app/api/admin/pricing-rules/route.ts': { kind: 'listing', why: 'список правил у администратора' },
   'app/api/cron/pricing-rules-census/route.ts': { kind: 'census', why: 'перепись правил цены' },
+  'lib/tours/pricing-rule-review.ts': { kind: 'review', why: 'очередь скидок и наценок у администратора и решение по правилу' },
+  'lib/tours/pricing-rule-door.ts': { kind: 'door', why: 'просьба владельца о правиле и о его снятии' },
 };
 
 describe('условие «правило действует» — одно', () => {
@@ -99,26 +105,49 @@ describe('перепись читателей и писателей правил
     expect(READS.test('LEFT JOIN "tour_pricing_rules" pr ON pr.operator_tour_id = t.id')).toBe(true);
 
     const writers = SOURCES.filter((f) => WRITES.test(read(f)));
+    // Три писателя, и у каждого своя роль: кабинеты владельца в таблицу сами
+    // больше не пишут — только через дверь.
     expect(writers).toEqual([
-      'app/api/admin/pricing-rules/route.ts',
-      'app/api/hub/operator/pricing-rules/route.ts',
-      'lib/tours/operator-markup.ts',
+      'app/api/admin/pricing-rules/route.ts', // администратор: правило сразу действующим, удаление
+      'lib/tours/pricing-rule-door.ts',       // дверь владельца: просьба о правиле и о снятии
+      'lib/tours/pricing-rule-review.ts',     // очередь проверки: решение администратора
     ]);
   });
 
-  it('правило не пишут, не назвав статус проверки', () => {
+  it('правило пишут две двери: администратор — действующим, владелец — на проверку', () => {
     const inserters = SOURCES.filter((f) => INSERTS.test(read(f)));
+    // Третий писатель — третий путь цены на сайт мимо проверки.
     expect(inserters).toEqual([
       'app/api/admin/pricing-rules/route.ts',
-      'app/api/hub/operator/pricing-rules/route.ts',
-      'lib/tours/operator-markup.ts',
+      'lib/tours/pricing-rule-door.ts',
     ]);
-    for (const file of inserters) {
+    const insertsOf = (file: string) => {
       const src = read(file);
-      for (const m of src.matchAll(insertsInto(TABLE, 'gi'))) {
-        const insert = src.slice(m.index, m.index + 420);
+      return [...src.matchAll(insertsInto(TABLE, 'gi'))].map((m) => src.slice(m.index, m.index + 520));
+    };
+    for (const file of inserters) {
+      for (const insert of insertsOf(file)) {
         expect(insert, `${file}: правило пишется без статуса — оно молча осталось бы «на проверке»`).toMatch(/moderation_status/);
       }
     }
+    // Дверь владельца не может записать правило действующим: слова «approved» в её записи нет.
+    const doorInserts = insertsOf('lib/tours/pricing-rule-door.ts');
+    expect(doorInserts.length).toBeGreaterThan(0);
+    for (const insert of doorInserts) {
+      expect(insert).toMatch(/'pending'/);
+      expect(insert).not.toMatch(/'approved'/);
+    }
+  });
+
+  it('статус правила меняют только дверь администратора и очередь проверки', () => {
+    // «approved» рядом с записью в таблицу правил — это право выпустить цену на сайт.
+    const approvers = SOURCES.filter((f) => {
+      const src = read(f);
+      return [...src.matchAll(writesTo(TABLE, 'gi'))].some((m) => /'approved'/i.test(src.slice(m.index, m.index + 700)));
+    });
+    expect(approvers).toEqual([
+      'app/api/admin/pricing-rules/route.ts',
+      'lib/tours/pricing-rule-review.ts',
+    ]);
   });
 });
