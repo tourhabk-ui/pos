@@ -8,8 +8,14 @@
  * `curl -s *`, `git :*` и `npm :*`. Сессия, прочитавшая подсунутый текст
  * (issue, комментарий бота, страницу), могла без вопроса исполнить любой код,
  * напечатать секреты окружения, отправить их наружу или переписать историю
- * (`git push --force`, `git reset --hard`). Чтение и проверки остались, всё
- * остальное снова спрашивает.
+ * (`git push --force`, `git reset --hard`). Проверки и `git status` остались,
+ * всё остальное снова спрашивает.
+ *
+ * Из git без вопроса — только `status` (ревью безопасности PR #3845).
+ * «Чтение» git им не ограничивается: `git fetch --upload-pack=<команда>` и
+ * `git fetch ext::<команда>` исполняют команду, а `git log`, `git show` и
+ * `git diff` с `--output` пишут в любой файл текст, заданный `--format`, —
+ * например в ~/.bashrc.
  *
  * Это запрет, поэтому сторож сверяет строки файла (CLAUDE.md §4, 13.10):
  * список запрещённого — ниже, с причиной у каждой строки.
@@ -36,6 +42,7 @@ const FORBIDDEN: Array<{ re: RegExp; why: string }> = [
   { re: /^(curl|wget|nc|ncat|ssh|scp|rsync)\b/, why: 'сеть наружу' },
   { re: /^git\s*(:|\*)/, why: 'любая команда git, вплоть до push --force и reset --hard' },
   { re: /^git (push|reset|rebase|commit|checkout|clean|config|remote)\b/, why: 'запись истории или настроек git' },
+  { re: /^git (?!status\b)/, why: 'git, кроме status: fetch исполняет команду (--upload-pack, ext::), log/show/diff пишут файл (--output), branch двигает ссылки' },
   { re: /^npm\s*(:|\*)/, why: 'любая команда npm, вплоть до publish и exec' },
   { re: /^(npx|npm exec)\s*(:|\*)/, why: 'любой пакет из сети' },
   { re: /^(rm|chmod|chown|sudo|dd)\b/, why: 'удаление и права' },
@@ -53,14 +60,18 @@ describe('разрешения сессий без вопроса', () => {
     });
   }
 
-  it('проверки и чтение по-прежнему без вопроса', () => {
-    for (const need of ['npx tsc:*', 'npx vitest:*', 'git status:*', 'git diff:*', 'git log:*']) {
+  it('проверки и git status по-прежнему без вопроса', () => {
+    for (const need of ['npx tsc:*', 'npx vitest:*', 'git status:*']) {
       expect(bashHeads, need).toContain(need);
     }
   });
 
   it('сторож узнаёт снятые 26.11 строки', () => {
-    const removed = ['python3:*', 'node --env-file=.env.local:*', 'env', 'curl -s *', 'curl -s --max-time *', 'git :*', 'npm :*'];
+    const removed = [
+      'python3:*', 'node --env-file=.env.local:*', 'env', 'curl -s *', 'curl -s --max-time *', 'git :*', 'npm :*',
+      // Ревью безопасности PR #3845: «чтение» git, которое исполняет и пишет.
+      'git fetch:*', 'git log:*', 'git show:*', 'git diff:*', 'git branch:*',
+    ];
     for (const r of removed) {
       expect(FORBIDDEN.some(({ re }) => re.test(r)), r).toBe(true);
     }
