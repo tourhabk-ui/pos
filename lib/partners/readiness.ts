@@ -25,7 +25,7 @@
  * Здесь только правило и слова. База — lib/partners/readiness-store.ts.
  */
 import { REQUEST_RECEIVING_CATEGORIES } from '@/lib/partners/categories';
-import { LEGAL_PENDING, OFFER_EDITION, OFFER_URL } from '@/lib/legal/offer';
+import { LEGAL_PENDING, OFFER_EDITION, OFFER_URL, OWNER_DECISIONS } from '@/lib/legal/offer';
 
 export type ReadinessCategory = (typeof REQUEST_RECEIVING_CATEGORIES)[number];
 
@@ -298,12 +298,13 @@ function acceptedOn(iso: string): string {
  * ничего не блокирует: партнёр, заведённый до отметки, заявки получает как
  * получал. Юридического текста здесь нет — только что принято и когда.
  *
- * Самозанятым пункт говорит прямо, что вопрос не решён: оферта называет
- * Партнёром юрлицо или ИП. Гид — роль, где это встречается чаще всего.
+ * Самозанятым пункт называет решение владельца 24.11 («Самозанятые могут
+ * быть стороной оферты») и то, что текст оферты пока говорит о юрлицах и ИП.
+ * Гид — роль, где это встречается чаще всего.
  */
 function offerItem(f: ReadinessFacts): ReadinessItem {
   const base = { key: 'offer' as const, title: 'Оферта для партнёров', required: false, href: OFFER_URL };
-  const tail = f.category === 'guide' ? ` ${LEGAL_PENDING.selfEmployed}` : '';
+  const tail = f.category === 'guide' ? ` ${OWNER_DECISIONS.selfEmployed}` : '';
   if (f.offer === 'unknown') return { ...base, state: 'unknown', detail: NOT_CHECKED };
   if (f.offer?.current) {
     const on = acceptedOn(f.offer.acceptedAt);

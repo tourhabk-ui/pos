@@ -252,7 +252,7 @@ function Step2Payout({ onFinish }: { onFinish: () => void }) {
       ) : (
         <div className="space-y-4">
           <div>
-            <label className={labelCls}>Название организации / ФИО ИП</label>
+            <label className={labelCls}>Название организации / ФИО ИП или самозанятого</label>
             <input value={name} onChange={e => setName(e.target.value)} placeholder="ООО «Компания»" className={inputCls} />
           </div>
           <div className="grid grid-cols-2 gap-3">

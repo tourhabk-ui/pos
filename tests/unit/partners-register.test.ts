@@ -132,6 +132,58 @@ describe('POST /api/partners/register', () => {
     expect(body.data.status).toBe('pending');
   });
 
+  // Слово владельца 24.11: «До апреля 2027 комиссии нет».
+  describe('комиссия и правовая форма', () => {
+    const consentsOf = () => {
+      const insert = clientQueryMock.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO partners'))!;
+      return JSON.parse(String((insert[1] as unknown[])[7])) as Record<string, Record<string, unknown>>;
+    };
+    const legalOf = () => {
+      const insert = clientQueryMock.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO partners'))!;
+      return JSON.parse(String((insert[1] as unknown[])[5])) as Record<string, unknown>;
+    };
+
+    it('в согласиях записано действующее условие, а не согласие со ставкой 10%', async () => {
+      expect((await POST(registerReq(VALID_BODY))).status).toBe(201);
+      const consents = consentsOf();
+      expect(Object.keys(consents.commission).sort()).toEqual(['terms', 'timestamp']);
+      expect(consents.commission.terms).toBe('До апреля 2027 года комиссии нет.');
+      // Соседние согласия записаны как были.
+      expect(consents.offer.agreed).toBe(true);
+      expect(consents.personalData.agreed).toBe(true);
+      // Ни в одной записи согласий нет ставки.
+      expect(JSON.stringify(consents)).not.toMatch(/"rate"|10\s*%/);
+    });
+
+    it('согласия с комиссией регистрация не требует: без отметки и с отказом партнёр заводится', async () => {
+      const { agreeCommission: _dropped, ...withoutMark } = VALID_BODY;
+      expect((await POST(registerReq(withoutMark))).status).toBe(201);
+      mockDb();
+      expect((await POST(registerReq({ ...VALID_BODY, email: 'second@x.ru', agreeCommission: false }))).status).toBe(201);
+      // Что бы ни прислала форма, в записи — условие, а не её отметка.
+      expect(consentsOf().commission).not.toHaveProperty('agreed');
+    });
+
+    it('оферту и согласие на данные регистрация требует по-прежнему', async () => {
+      const noOffer = await POST(registerReq({ ...VALID_BODY, agreeOffer: false }));
+      expect(noOffer.status).toBe(400);
+      const noPd = await POST(registerReq({ ...VALID_BODY, agreePersonalData: false }));
+      expect(noPd.status).toBe(400);
+      for (const res of [noOffer, noPd]) expect(JSON.stringify(await res.json())).not.toMatch(/комисси/i);
+      expect(clientQueryMock.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO partners'))).toBe(false);
+    });
+
+    it('самозанятый — допустимая правовая форма: ИНН из 12 цифр, ОГРН нет', async () => {
+      const res = await POST(registerReq({ ...VALID_BODY, businessType: 'self_employed', inn: '410112345678', companyName: 'Тест Тестов' }));
+      expect(res.status).toBe(201);
+      expect(legalOf()).toMatchObject({ businessType: 'self_employed', inn: '410112345678', ogrn: '' });
+    });
+
+    it('незнакомая правовая форма отвергается', async () => {
+      expect((await POST(registerReq({ ...VALID_BODY, businessType: 'кооператив' }))).status).toBe(400);
+    });
+  });
+
   it('дубль email в users → 409, без INSERT', async () => {
     mockDb({ userExists: true });
 

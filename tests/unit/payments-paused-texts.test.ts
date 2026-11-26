@@ -29,7 +29,10 @@ const GATED = [
   'app/hub/agent/commissions/_AgentCommissionsPageClient.tsx',
   'app/hub/agent/profile/_AgentProfileClient.tsx',
   'app/hub/carrier/_CarrierClient.tsx',
-  'app/api/partners/register/route.ts',
+  // Регистрация партнёра из списка ушла 24.11 (слово владельца «До апреля
+  // 2027 комиссии нет»): согласия с комиссией роут не требует ни при каком
+  // положении флага, и фразы об оплате в нём не осталось — это держит
+  // tests/unit/partners-register.test.ts.
   // 07.10, «убери оплаты, мы пока не туроператоры»:
   'app/hub/operator/onboarding/_OnboardingClient.tsx',
   'app/hub/agent/layout.tsx',
@@ -63,6 +66,12 @@ describe('тексты при выключенной оплате', () => {
       expect(readFileSync(f, 'utf8')).toMatch(/platformAcceptsPayments\(\)|agentRoleOpen\(\)/);
     });
   }
+
+  it('регистрация партнёра не называет ставку комиссии и не спрашивает согласия с ней', () => {
+    const src = readFileSync('app/api/partners/register/route.ts', 'utf8');
+    expect(src).not.toMatch(/комиссии 10%|rate:\s*10|z\.literal\(true[^)]*комисси/);
+    expect(src).not.toMatch(/platformAcceptsPayments/);
+  });
 
   it('справка не обещает удержание денег, выплаты и комиссию', () => {
     const text = JSON.stringify(HELP_ARTICLES);

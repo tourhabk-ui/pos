@@ -742,7 +742,7 @@ function CreatePartnerPanel({ onCreated }: { onCreated: () => void }) {
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [description, setDescription] = useState('');
-  const [businessType, setBusinessType] = useState<'individual' | 'ip' | 'ooo' | 'other'>('individual');
+  const [businessType, setBusinessType] = useState<'individual' | 'self_employed' | 'ip' | 'ooo' | 'other'>('individual');
   const [cats, setCats] = useState<PartnerCategory[]>(['operator']);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -850,6 +850,7 @@ function CreatePartnerPanel({ onCreated }: { onCreated: () => void }) {
             <select className="ds-input" value={businessType}
                     onChange={e => setBusinessType(e.target.value as typeof businessType)}>
               <option value="individual">Физическое лицо</option>
+              <option value="self_employed">Самозанятый</option>
               <option value="ip">ИП</option>
               <option value="ooo">ООО</option>
               <option value="other">Другое</option>
