@@ -108,7 +108,7 @@ describe('напоминание перед правкой', () => {
 describe('напоминание перед коммитом и PR', () => {
   it('коммит видит правки, сделанные мимо Edit, в том числе с -c и после cd', () => {
     const repo = tmp('skill-reminder-git-');
-    execFileSync('git', ['init', '-q'], { cwd: repo });
+    execFileSync('git', ['-c', 'color.ui=false', 'init', '-q'], { cwd: repo });
     mkdirSync(join(repo, 'migrations'));
     writeFileSync(join(repo, 'migrations/9999_x.sql'), 'SELECT 1;\n');
     const bash = (command: string) =>
