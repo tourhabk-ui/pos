@@ -262,6 +262,7 @@ ${touristAnswers}
 - [FAQ](${BASE}/faq) — ответы на вопросы туристов
 - [Контакты](${BASE}/contact) — связь с командой и заявка
 - [Стать партнёром](${BASE}/for-operators) — для операторов, гидов, владельцев жилья
+- [Политика конфиденциальности](${BASE}/legal/privacy) — как обрабатываются персональные данные
 
 ## AI-ассистент Кузьмич — что реально умеет и чего НЕ делает
 
@@ -475,6 +476,7 @@ ${sections}
 - OpenAPI 3.1 для агентов без MCP и A2A: ${BASE}${OPENAPI_PATH} (каталог API: ${BASE}${API_CATALOG_PATH})
 - Ситкарта: ${BASE}/sitemap.xml
 - robots.txt: ${BASE}/robots.txt
+- Политика конфиденциальности: ${BASE}/legal/privacy
 `;
 
   return new NextResponse(content, {
