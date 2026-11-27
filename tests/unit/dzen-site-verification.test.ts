@@ -16,10 +16,10 @@ import { join } from 'node:path';
 vi.mock('next/headers', () => ({ headers: async () => new Headers({ 'user-agent': 'Googlebot' }) }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query: vi.fn(async () => ({ rows: [] })) } }));
 
-const TOKEN = 'QJsdvPGmQ0KLDTNxh4xe2d6OzyLCH0SLSW9RI5YDvLvxi2rlTxLm8veinv9x533P';
-const NAME = `zen_${TOKEN}.html`;
+const CODE = 'QJsdvPGmQ0KLDTNxh4xe2d6OzyLCH0SLSW9RI5YDvLvxi2rlTxLm8veinv9x533P';
+const NAME = `zen_${CODE}.html`;
 const PATH = `/${NAME}`;
-const EXPECTED = `<meta name="zen-verification" content="${TOKEN}" />`;
+const EXPECTED = `<meta name="zen-verification" content="${CODE}" />`;
 
 const { match } = require('next/dist/compiled/path-to-regexp') as {
   match: (src: string) => (path: string) => unknown;
