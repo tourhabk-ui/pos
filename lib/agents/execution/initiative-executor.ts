@@ -16,7 +16,7 @@
 
 import { pool } from '@/lib/db-pool';
 import { WIDGET_CHAT_PSEUDO_LEAD_SQL } from '@/lib/leads/widget-chat-pseudo';
-import { callAIWithModelDirect } from '@/lib/ai/providers';
+import { AI_FAST_UNAVAILABLE, callAIWithModelDirect, isWaterfallErrorResponse } from '@/lib/ai/providers';
 import { getModelForAgent } from '@/lib/ai/agent-models';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { DESCRIBE_OUTCOME_WORDS, proposeRewrittenDescription } from '@/lib/tours/describe-door';
@@ -222,6 +222,13 @@ async function executeSendNotification(task: ExecutionTask): Promise<ExecutionRe
   }
 }
 
+/** Ответ — заглушка водопада, а не текст модели: все провайдеры отказали. */
+function modelUnavailable(text: string | null | undefined): boolean {
+  if (typeof text !== 'string') return false;
+  const t = text.trim();
+  return t === AI_FAST_UNAVAILABLE || isWaterfallErrorResponse(t);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // EXECUTOR 3: TOUR DESCRIPTION REWRITE (Content Agent)
 // Переписывает описания туров с низким рейтингом через AI
@@ -277,6 +284,13 @@ async function executeTourDescriptionRewrite(task: ExecutionTask): Promise<Execu
         ];
         const newDesc = await callAIWithModelDirect(messages, getModelForAgent('content'));
 
+        // Отказ всех провайдеров приходит не исключением, а строкой-заглушкой
+        // («Сервис временно недоступен…»). Она длиннее 20 знаков и раньше
+        // уходила в очередь проверки как описание тура (разбор находок #1428).
+        if (modelUnavailable(newDesc)) {
+          errors.push(`"${tour.title}": модель недоступна`);
+          continue;
+        }
         if (newDesc && newDesc.length > 20) {
           // Своей записи в тур здесь нет (слово владельца 23.11: автоматы —
           // только через очередь проверки). Текст модели уходит дверью правки
@@ -625,6 +639,11 @@ KPI: ${task.context.kpi_target ?? 'снизить p95 latency на 25%'}
     ];
 
     const aiResponse = await callAIWithModelDirect(messages, model);
+    if (modelUnavailable(aiResponse)) {
+      // Заглушка водопада — не ответ модели: в память агента её не кладём.
+      errors.push('модель недоступна');
+      return { success: false, changes_made: changes, errors, rollback_available: false, verification_passed: false };
+    }
 
     let optimizations: Array<{ agent: string; issue: string; fix: string }> = [];
     try {
