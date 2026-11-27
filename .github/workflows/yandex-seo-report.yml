@@ -1,0 +1,72 @@
+name: Еженедельный отчёт Вебмастера и Метрики
+
+# ── Зачем ─────────────────────────────────────────────────────────────────
+#
+# Владелец 27.11: «давай сам я что то устал» — цифры Вебмастера и Метрики
+# больше не зависят от токена на чужой машине. Секрет репозитория
+# YANDEX_WEBMASTER_TOKEN (имя снято 27.11 списком секретов, значение
+# workflow не читает и не печатает) доступен только раннеру. Прогон
+# забирает сводку, ИКС, страницы в поиске, карты сайта, очередь переобхода
+# и популярные запросы за 7 дней по обоим хостам vedarai.ru, плюс визиты
+# Метрики за 7 и 28 дней по источникам, поисковым системам, посадочным и
+# целям. Результат — артефакт report.json и report.md на 30 дней.
+#
+# Только чтение: ни один пишущий метод API не вызывается. Прод не нужен —
+# ходим в api.webmaster.yandex.net и api-metrika.yandex.net напрямую.
+# Этот workflow не выкатывает сайт и не ждёт сборку: у него нет связи с
+# «Deploy to Timeweb Cloud».
+#
+# Журнал публичный: в него идёт короткая сводка без значения токена и без
+# чужих сайтов аккаунта. Перед скриптом значение маскируется (::add-mask::),
+# трассировка оболочки выключена (set +x).
+
+on:
+  schedule:
+    # Понедельник 21:00 UTC = вторник 09:00 на Камчатке (UTC+12).
+    - cron: '0 21 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: yandex-seo-report-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Снять отчёт
+        env:
+          YANDEX_WEBMASTER_TOKEN: ${{ secrets.YANDEX_WEBMASTER_TOKEN }}
+        run: |
+          set +x
+          set -euo pipefail
+          if [ -n "${YANDEX_WEBMASTER_TOKEN}" ]; then
+            echo "::add-mask::${YANDEX_WEBMASTER_TOKEN}"
+          fi
+          mkdir -p yandex-seo-out
+          npx tsx scripts/yandex-seo-report.ts yandex-seo-out
+
+      - name: Отчёт — в артефакт
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: yandex-seo-report
+          path: |
+            yandex-seo-out/report.json
+            yandex-seo-out/report.md
+          if-no-files-found: warn
+          retention-days: 30
