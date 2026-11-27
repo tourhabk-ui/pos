@@ -122,10 +122,10 @@ describe('шлюз Timeweb', () => {
 
 describe('Сбер напрямую', () => {
   it('токен OAuth по ключу, затем каталог и вопрос с токеном; ни ключа, ни токена в ответе', async () => {
-    process.env.GIGACHAT_CREDENTIALS = 'c2Jlci1rZXk=';
+    process.env.GIGACHAT_CREDENTIALS = 'Zm9v';
     process.env.SBER_TEST_FLAG = '1';
     const calls = stubFetch((url) => {
-      if (url === GIGACHAT_OAUTH_URL) return json({ access_token: 'tok-secret-123', expires_at: 1 });
+      if (url === GIGACHAT_OAUTH_URL) return json({ access_token: 'tk-1', expires_at: 1 });
       if (url.endsWith('/models')) return json({ data: [{ id: 'GigaChat' }, { id: 'GigaChat-2-Max' }] });
       return json({ choices: [{ message: { content: 'Петропавловск-Камчатский' } }] });
     });
@@ -141,16 +141,16 @@ describe('Сбер напрямую', () => {
     const [oauth, models, chat] = calls;
     expect(oauth.url).toBe(GIGACHAT_OAUTH_URL);
     const h = new Headers(oauth.init.headers);
-    expect(h.get('authorization')).toBe('Basic c2Jlci1rZXk=');
+    expect(h.get('authorization')).toBe('Basic Zm9v');
     expect(h.get('rquid')).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(oauth.init.body).toBe('scope=GIGACHAT_API_PERS');
     expect(models.url).toBe(`${GIGACHAT_API_BASE}/models`);
     expect(chat.url).toBe(`${GIGACHAT_API_BASE}/chat/completions`);
-    for (const c of [models, chat]) expect(new Headers(c.init.headers).get('authorization')).toBe('Bearer tok-secret-123');
+    for (const c of [models, chat]) expect(new Headers(c.init.headers).get('authorization')).toBe('Bearer tk-1');
 
     const out = JSON.stringify(rows);
-    expect(out).not.toContain('tok-secret-123');
-    expect(out).not.toContain('c2Jlci1rZXk=');
+    expect(out).not.toContain('tk-1');
+    expect(out).not.toContain('Zm9v');
   });
 
   it('scope из GIGACHAT_SCOPE — для ключа юрлица', async () => {
