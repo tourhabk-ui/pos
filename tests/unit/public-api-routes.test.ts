@@ -41,6 +41,14 @@ describe('isPublicApiPath — кого Edge пускает без токена',
     expect(isPublicApiPath('/api/payments/tochka/webhook', 'POST')).toBe(true);
   });
 
+  it('вебхук репостера TG→MAX — публичен на POST (был 401 на Edge)', () => {
+    expect(isPublicApiPath('/api/bots/reposter/webhook', 'POST')).toBe(true);
+    expect(isPublicApiPath('/api/bots/reposter/webhook', 'GET')).toBe(false);
+    expect(isPublicApiPath('/api/bots/reposter/setup', 'POST')).toBe(false);
+    expect(isPublicApiPath('/api/bots/reposter/chats', 'GET')).toBe(false);
+    expect(isPublicApiPath('/api/bots/reposter/bulk', 'POST')).toBe(false);
+  });
+
   it('построение пути (POST) — публично, хотя /api/routes открыт только на GET', () => {
     // Тот же класс дыры, что у safety-report: '/api/routes': ['GET'] не
     // покрывает POST /api/routes/build — нужна отдельная запись (28.08).
