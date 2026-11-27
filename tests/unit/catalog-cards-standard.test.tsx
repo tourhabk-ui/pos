@@ -51,7 +51,7 @@ describe('карточка маршрута', () => {
   it('пересказа описания на карточке нет', () => {
     const { container } = render(<RoutePathCard route={route()} />);
     expect(container.textContent).not.toContain('Длинный пересказ');
-    expect(container.querySelector('h3')?.textContent).toBe('Вулкан Горелый');
+    expect(container.querySelector('h2')?.textContent).toBe('Вулкан Горелый');
   });
 
   it('без фото — та же пропорция, что с фото: сетка не прыгает', () => {
@@ -85,7 +85,7 @@ describe('карточка места', () => {
   it('вид, название и сколько ехать — от Петропавловска', () => {
     const { container, getByText } = render(<PlaceCard route={place()} />);
     expect(getByText('Озеро')).toBeTruthy();
-    expect(container.querySelector('h3')?.textContent).toBe('Халактырское озеро');
+    expect(container.querySelector('h2')?.textContent).toBe('Халактырское озеро');
     expect(container.querySelector('[data-testid="place-card-distance"]')?.textContent).toMatch(/^\d+ км от Петропавловска$/);
   });
 
