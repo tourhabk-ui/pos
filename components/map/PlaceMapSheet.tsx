@@ -6,6 +6,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { X, Navigation, Bookmark, Share2, ArrowRight, MapPin } from 'lucide-react';
 import { shareLink, shareOutcomeMessage } from '@/lib/share';
+import { hazardLabelLower } from '@/lib/safety/hazard-labels';
 
 interface InitialData {
   id: string;
@@ -25,6 +26,24 @@ interface DetailData {
   photoUrl: string | null;
   routes: RouteLink[];
   description: string | null;
+  /** Опасности из профиля безопасности места (как `get_place_info`). */
+  hazards: string[];
+}
+
+/** Как прочиталась карточка места: опасности без неё назвать нечем (§4.0). */
+type DetailState = 'loading' | 'ok' | 'failed';
+
+export const SHEET_HAZARDS_NONE = 'Опасности в карточке места не записаны — это не значит, что их нет.';
+export const SHEET_HAZARDS_FAILED = 'Опасности места не загрузились — откройте карточку места.';
+export const SHEET_HAZARDS_LOADING = 'Опасности места загружаются…';
+
+/** Строка опасностей листа места. */
+export function sheetHazardsLine(state: DetailState, hazards: readonly string[]): string {
+  if (state === 'loading') return SHEET_HAZARDS_LOADING;
+  if (state === 'failed') return SHEET_HAZARDS_FAILED;
+  return hazards.length > 0
+    ? `Опасности: ${hazards.map(hazardLabelLower).join(', ')}.`
+    : SHEET_HAZARDS_NONE;
 }
 
 interface Props {
@@ -58,6 +77,10 @@ const LOCATION_LABELS: Record<string, string> = {
 
 export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLabel }: Props) {
   const [detail, setDetail] = useState<DetailData | null>(null);
+  // Чья карточка прочиталась: лист переиспользуется при тапе по другому месту,
+  // и опасности прежнего места под новым названием были бы ложью.
+  const [loaded, setLoaded] = useState<{ id: string; state: 'ok' | 'failed' } | null>(null);
+  const detailState: DetailState = loaded && loaded.id === initialData.id ? loaded.state : 'loading';
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   // Лист карты писал отметку только в localStorage — в личный кабинет она не
   // попадала (владелец 09.08). Тот же контракт, что у витрины и панели точки.
@@ -79,12 +102,18 @@ export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLa
   // Fetch detail async (only online)
   useEffect(() => {
     if (isOffline) return;
-    fetch(`/api/places/${initialData.id}`)
+    const id = initialData.id;
+    fetch(`/api/places/${id}`)
       .then(r => r.json())
       .then((d: unknown) => {
-        if (typeof d !== 'object' || d === null) return;
-        const body = (d as Record<string, unknown>).data as Record<string, unknown> | undefined;
-        if (!body) return;
+        const body = typeof d === 'object' && d !== null
+          ? (d as Record<string, unknown>).data as Record<string, unknown> | undefined
+          : undefined;
+        if (!body) { setLoaded({ id, state: 'failed' }); return; }
+        const safety = typeof body.safety === 'object' && body.safety !== null ? body.safety as Record<string, unknown> : null;
+        const hazards = Array.isArray(safety?.hazardTypes)
+          ? (safety.hazardTypes as unknown[]).filter((h): h is string => typeof h === 'string' && h.trim() !== '')
+          : [];
         const routes = Array.isArray(body.routes)
           ? (body.routes as Array<Record<string, unknown>>).slice(0, 3).map(r => ({
               id: r.id as string,
@@ -95,9 +124,15 @@ export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLa
           photoUrl: body.photoUrl as string | null,
           routes,
           description: typeof body.description === 'string' ? body.description : null,
+          hazards,
         });
+        setLoaded({ id, state: 'ok' });
       })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        // Сеть или разбор ответа — лист говорит «не загрузились», а не молчит.
+        console.error('[place-sheet] карточка места не загрузилась:', err instanceof Error ? err.name : 'unknown');
+        setLoaded({ id, state: 'failed' });
+      });
   }, [initialData.id, isOffline]);
 
   const typeLabel = LOCATION_LABELS[initialData.locationType ?? 'other'] ?? 'Место';
@@ -187,6 +222,14 @@ export function PlaceMapSheet({ initialData, userPos, isOffline, onClose, distLa
           {description && (
             <p className="text-xs text-[var(--text-secondary)] leading-relaxed line-clamp-2 mb-3">
               {description.split('\n')[0]}
+            </p>
+          )}
+
+          {/* Опасности места — как в ответе get_place_info: из профиля
+              безопасности; нет записи — так и сказано, не «безопасно». */}
+          {!isOffline && (
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed mb-3" data-testid="sheet-hazards">
+              {sheetHazardsLine(detailState, detail?.hazards ?? [])}
             </p>
           )}
 

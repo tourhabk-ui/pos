@@ -47,7 +47,7 @@ describe('точка «я» различима', () => {
 
 describe('плашка тревог не накрывает масштаб', () => {
   it('встаёт правее колонки масштаба (left 12 + 44) и левее кнопки «моё место»', () => {
-    const at = PAGE.indexOf('<MapThreatChip />');
+    const at = PAGE.indexOf('<MapThreatChip');
     const wrap = PAGE.slice(PAGE.lastIndexOf('<div', at), at);
     expect(wrap).toMatch(/left-16 right-16/);
     expect(wrap).not.toMatch(/left-3/);

@@ -1,12 +1,19 @@
 'use client';
 
 import { useEffect } from 'react';
+import { usePathname } from 'next/navigation';
 import { geolocationOnce } from '@/lib/geo/current-position';
+import { isMiniAppPath } from '@/lib/embed/widget-frame';
 
 export const LAST_ONLINE_POS_KEY = 'vedar_last_online_pos';
 
 export function LastPositionTracker() {
+  const pathname = usePathname();
+  // В мини-приложении мессенджера место не пишется: отдельного согласия там
+  // нет, и в мосте MAX геолокации нет (docs/CHAT_MINIAPPS_PLAN.md §6.1).
+  const miniApp = isMiniAppPath(pathname);
   useEffect(() => {
+    if (miniApp) return;
     const found = geolocationOnce();
     if (!found || !navigator.permissions) return;
     const geo: NonNullable<typeof found> = found;
@@ -42,7 +49,7 @@ export function LastPositionTracker() {
     timer = setInterval(() => { void saveIfOnline(); }, 3 * 60 * 1000);
 
     return () => { if (timer) clearInterval(timer); };
-  }, []);
+  }, [miniApp]);
 
   return null;
 }

@@ -51,11 +51,13 @@ function writeCache(key: string, data: unknown): void {
 /** Ответ для панели и его возраст (null — свежий из сети); pending — ещё идёт запрос. */
 interface Known<T> { data: T | null; ageMs: number | null; pending?: boolean }
 
-export function MapThreatChip() {
+export function MapThreatChip({ defaultOpen = false }: { defaultOpen?: boolean } = {}) {
   const [summary, setSummary] = useState<MapThreatSummary | null>(null);
   const [feed, setFeed] = useState<Known<SafetyStatusPayload>>({ data: null, ageMs: null });
   const [risk, setRisk] = useState<Known<DangerSummaryPayload> | null>(null);
-  const [open, setOpen] = useState(false);
+  // Ссылка «обстановка на карте» (`/map?show=safety`, payload `map-safety`)
+  // открывает панель по районам сразу.
+  const [open, setOpen] = useState(defaultOpen);
   const panelId = useId();
 
   useEffect(() => {
