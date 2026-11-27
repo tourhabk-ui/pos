@@ -29,10 +29,6 @@ export const LLM_ENDPOINTS: readonly LLMEndpoint[] = [
   // Yandex AI Studio, Responses API: агент на YandexGPT с нашим MCP как
   // инструментом (13.10, «остались российские ИИ»). Тот же контур Яндекса, РФ.
   { host: 'ai.api.cloud.yandex.net', jurisdiction: 'Russia', domestic: true, provider: 'Yandex AI Studio (Responses API, агент с внешним MCP)' },
-  // Сбер GigaChat (27.11, проба по слову владельца «сначала мы его протестим»):
-  // сервер в РФ, получатель — Сбер, трансграничной передачи нет. Пока только
-  // проба `/api/ai/debug-waterfall?probe=gigachat`; в водопадах его нет.
-  { host: 'gigachat.devices.sberbank.ru', jurisdiction: 'Russia', domestic: true, provider: 'Сбер GigaChat (проба)' },
   { host: 'api.deepseek.com', jurisdiction: 'China', domestic: false, provider: 'DeepSeek' },
   { host: 'openrouter.ai', jurisdiction: 'USA', domestic: false, provider: 'OpenRouter (реле флагманов)' },
   { host: 'generativelanguage.googleapis.com', jurisdiction: 'USA', domestic: false, provider: 'Google Gemini' },
@@ -132,7 +128,6 @@ export const SEARCH_ENDPOINTS: readonly LLMEndpoint[] = [
  */
 export const NON_RECEIVER_HOSTS: ReadonlyArray<{ host: string; why: string }> = [
   { host: 'vedarai.ru', why: 'наш собственный домен: уходит в заголовках HTTP-Referer/X-Title, не приёмник' },
-  { host: 'ngw.devices.sberbank.ru', why: 'выдача токена GigaChat (OAuth): получает ключ авторизации и scope, текста запроса не получает' },
 ];
 
 const REGISTERED = new Set(LLM_ENDPOINTS.map((e) => e.host));
