@@ -97,14 +97,15 @@ describe('Seodar 27.11: публичный NAP без улицы', () => {
   });
 });
 
-describe('Seodar 27.11: первая картинка без lazy', () => {
-  it('у первой соседней карточки места есть priority, у медведя в нижнем меню нет loading=lazy', () => {
-    const nearby = read('components/places/PlaceNearby.tsx');
-    expect(nearby).toContain('nearby.map((n, i) =>');
-    expect(nearby).toContain('{...(i === 0 ? { priority: true } : { loading: \'lazy\' as const })}');
+describe('Seodar 27.11: обложка тура на посадочной без героя', () => {
+  it('первая обложка — eager, список мест и нижнее меню остаются lazy', () => {
+    const src = read('components/landings/LandingContent.tsx');
+    expect(src).toContain('eager={firstCoverId === t.id}');
+    expect(src).toContain("tours.find((t) => tourCover(t))?.id");
+    expect(read('components/places/PlaceNearby.tsx')).toContain('loading="lazy"');
+    expect(read('components/places/PlaceNearby.tsx')).not.toContain('priority: true');
     const nav = read('components/shared/BottomNav.tsx');
     const bearAt = nav.indexOf('src="/images/brand/bear-64.webp"');
-    expect(bearAt).toBeGreaterThan(0);
-    expect(nav.slice(bearAt, bearAt + 500)).not.toContain('loading="lazy"');
+    expect(nav.slice(bearAt, bearAt + 500)).toContain('loading="lazy"');
   });
 });

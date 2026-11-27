@@ -26,7 +26,7 @@ export default function PlaceNearby({ nearby, placeId: _ }: Props) {
         className="flex gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-3 md:overflow-visible"
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
       >
-        {nearby.map((n, i) => (
+        {nearby.map(n => (
           <Link
             key={n.id}
             href={`/places/${n.slug ?? n.id}`}
@@ -41,7 +41,7 @@ export default function PlaceNearby({ nearby, placeId: _ }: Props) {
                   fill
                   className="object-cover group-hover:scale-105 transition-transform duration-300"
                   sizes="(max-width: 640px) 160px, 33vw"
-                  {...(i === 0 ? { priority: true } : { loading: 'lazy' as const })}
+                  loading="lazy"
                 />
               ) : (
                 /* Честный градиент по типу места — тот же, что в герое.

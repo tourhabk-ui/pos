@@ -82,7 +82,7 @@ export function LandingToc({ items }: { items: Array<{ id: string; label: string
 export function LandingKuzmich() {
   return (
     <aside className="landing-kuzmich" aria-labelledby="landing-kuzmich" data-landing-kuzmich="">
-      <img src="/images/brand/bear-128.webp" alt="" width={48} height={48} decoding="async" />
+      <img src="/images/brand/bear-128.webp" alt="" width={48} height={48} loading="lazy" decoding="async" />
       <div>
         <h2 id="landing-kuzmich" className="landing-kuzmich-title">Спросите Кузьмича</h2>
         <p><Link href="/kuzmich" className="underline" style={{ color: 'var(--ocean)' }}>Кузьмич</Link> — ИИ-помощник Ведара. Спросите про сезон, дорогу и что взять с собой: он отвечает по данным платформы.</p>
@@ -97,7 +97,7 @@ function tourCover(t: LandingBlockTour): string | null {
   return reviewedTourCover(t.slug, t.cover);
 }
 
-function TourCover({ src }: { src: string | null }) {
+function TourCover({ src, eager }: { src: string | null; eager?: boolean }) {
   if (!src) {
     return <span className="landing-tour-cover landing-tour-cover--plain" aria-hidden="true" />;
   }
@@ -110,7 +110,7 @@ function TourCover({ src }: { src: string | null }) {
       alt=""
       width={640}
       height={400}
-      loading="lazy"
+      {...(eager ? { fetchPriority: 'high' as const } : { loading: 'lazy' as const })}
       decoding="async"
       style={{ objectPosition: tourPhotoPosition(src) }}
     />
@@ -119,6 +119,10 @@ function TourCover({ src }: { src: string | null }) {
 
 export function LandingTours({ landing, tours }: { landing: Landing; tours: LandingBlockTour[] | null }) {
   if (landing.tours.kind === 'none') return null;
+  // Без героя первая обложка — LCP (/chto-vzyat-s-soboj-na-kamchatku и ещё три). Остальные и страницы с героем — lazy, как 23.11.
+  const firstCoverId = tours && !landingDesign(landing.slug).hero
+    ? tours.find((t) => tourCover(t))?.id
+    : undefined;
   return (
     <section className="space-y-3" aria-labelledby="landing-tours" data-landing-tours>
       <h2 id="landing-tours" className="ds-h2 landing-h2" style={{ fontFamily: 'var(--font-playfair)' }}>{tourBlockHeading(landing.tours)}</h2>
@@ -137,7 +141,7 @@ export function LandingTours({ landing, tours }: { landing: Landing; tours: Land
             {tours.map((t) => { const cover = tourCover(t); return (
               <li key={t.id} className="landing-tour-card text-sm" data-landing-tour={t.id}>
                 <Link className="landing-tour-link" href={tourPath(t)}>
-                  <TourCover src={cover} />
+                  <TourCover src={cover} eager={firstCoverId === t.id} />
                   <span className="landing-tour-title">{t.title}</span>
                 </Link>
                 <div className="landing-tour-meta">
