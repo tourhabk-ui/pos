@@ -116,6 +116,7 @@ describe('что видно в узком входе', () => {
     expect(screen.getByText('Офлайн')).toBeTruthy();
     expect(container.querySelector('a[href="/offline/manage"]')).toBeNull();
     expect(screen.queryByText('GPS')).toBeNull();
+    expect(watch).not.toHaveBeenCalled();
     cleanup();
     const full = render(<MapPageClient mapPackBaseUrl={null} />);
     await settle();
