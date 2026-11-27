@@ -46,7 +46,7 @@ describe('/safety: землетрясения и цунами', () => {
     expect(SAFETY_SOURCES.some((s) => s.href === 'https://visitkamchatka.ru/security/')).toBe(true);
     expect(
       SAFETY_SOURCES.some((s) =>
-        s.href.includes('pravila-povedeniya-pri-ugroze-i-vozniknovenii-volny-cunami'),
+        s.href?.includes('pravila-povedeniya-pri-ugroze-i-vozniknovenii-volny-cunami'),
       ),
     ).toBe(true);
     expect(SAFETY_TEXT_LINKS.some((l) => l.text === 'памятке ГУ МЧС по Камчатскому краю')).toBe(true);
