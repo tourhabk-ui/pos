@@ -213,6 +213,10 @@ const nextConfig = {
     '/api/**': [
       './node_modules/pdfkit/js/data/**',
       './node_modules/pdfkit/js/standard-fonts/**',
+      // Корень НУЦ для /api/cron/gigachat-check. Сам клиент берёт PEM из
+      // lib/gigachat/ca.ts (standalone не теряет строку), файл — сверка
+      // и запасной путь, если его всё же прочитали с диска.
+      './certs/russian_trusted_root_ca_pem.crt',
     ],
   },
 
