@@ -4,6 +4,7 @@ import { Mountain, ExternalLink, AlertTriangle, Clock } from 'lucide-react';
 import { ACC_META, type AccColor, volcanoObservationAgeDays, isVolcanoObservationStale, formatObservationAge, volcanoObservationDate } from '@/lib/services/safety/kvert-vona';
 import type { VolcanoAccStatus } from '@/components/places/types';
 import { ASHFALL_RULES, shouldShowAshfallGuidance } from '@/lib/safety/ashfall-guidance';
+import { publicExternalHref } from '@/lib/seo/public-external-href';
 
 /**
  * Бейдж авиационного цветового кода (ACC) вулкана по данным KVERT.
@@ -57,14 +58,18 @@ export default function VolcanoAccBadge({ status }: { status: VolcanoAccStatus }
           {observed && (
             <span>Наблюдение: {observed}{ageDays != null && ` (${formatObservationAge(ageDays)})`}</span>
           )}
-          <a
-            href={status.sourceUrl || 'http://kvert.febras.net/'}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-[var(--ocean)] hover:underline"
-          >
-            KVERT <ExternalLink className="w-3 h-3" />
-          </a>
+          {publicExternalHref(status.sourceUrl) ? (
+            <a
+              href={publicExternalHref(status.sourceUrl)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[var(--ocean)] hover:underline"
+            >
+              KVERT <ExternalLink className="w-3 h-3" />
+            </a>
+          ) : (
+            <span>KVERT</span>
+          )}
         </div>
 
         {stale && (

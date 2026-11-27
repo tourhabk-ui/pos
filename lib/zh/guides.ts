@@ -36,8 +36,6 @@ const MCHS_BEAR_URL =
 const MCHS_WARN_URL =
   'https://41.mchs.gov.ru/deyatelnost/press-centr/operativnaya-informaciya/shtormovye-i-ekstrennye-preduprezhdeniya';
 const MCHS_112_NEWS_URL = 'https://41.mchs.gov.ru/deyatelnost/press-centr/novosti/5849794';
-const KVERT_URL = 'http://kvert.febras.net/';
-const KVERT_COLORS_URL = 'http://kvert.febras.net/color.php';
 const POGODA_PKC_URL = 'https://pogodaiklimat.ru/climate/32583.htm';
 const VISIT_SKI_URL = 'https://visitkamchatka.ru/activities/gornye-lyzhi-i-snoubord/';
 const VISIT_THERMAL_URL = 'https://visitkamchatka.ru/activities/termalnye-istochniki/';
@@ -49,8 +47,8 @@ const KRONOKI_BEAR_URL = 'https://kronoki.ru/ru/visit/information-for-all/rules/
 const KRONOKI_PREP_URL = 'https://kronoki.ru/ru/visit/information-for-all/preparing-for-travel/';
 const COMMANDER_URL = 'https://commanderislands.ru/puteshestvennikam/';
 
-export type ZhGuideLink = { href: string; label: string };
-export type ZhGuideSource = { href: string; label: string };
+export type ZhGuideLink = { href?: string; label: string };
+export type ZhGuideSource = { href?: string; label: string };
 export type ZhGuideFaq = { question: string; answer: string };
 export type ZhGuideSection = {
   id: string;
@@ -214,8 +212,8 @@ export const ZH_WINTER_GUIDE: ZhGuide = {
     { href: VISIT_SKI_URL, label: 'Visit Kamchatka，「高山滑雪和单板滑雪」' },
     { href: VISIT_SURF_URL, label: 'Visit Kamchatka，「全年冲浪」' },
     { href: VISIT_THERMAL_URL, label: 'Visit Kamchatka，「温泉」' },
-    { href: AVACHINSKY_HEIGHT_M.sourceUrl!, label: AVACHINSKY_HEIGHT_M.sourceLabel },
-    { href: MUTNOVSKY_HEIGHT_M.sourceUrl!, label: MUTNOVSKY_HEIGHT_M.sourceLabel },
+    { label: AVACHINSKY_HEIGHT_M.sourceLabel },
+    { label: MUTNOVSKY_HEIGHT_M.sourceLabel },
     { href: 'https://vedarai.ru/kamchatka-v-dekabre', label: 'Ведар，十二月的堪察加' },
     { href: 'https://vedarai.ru/kogda-ehat-na-kamchatku', label: 'Ведар，何时去堪察加' },
     { href: 'https://vedarai.ru/paratunka', label: 'Ведар，帕拉通卡' },
@@ -313,8 +311,8 @@ export const ZH_SAFETY_GUIDE: ZhGuide = {
       ],
       links: [
         { href: '/safety', label: '实时雷达（俄文）' },
-        { href: KVERT_URL, label: 'KVERT 目录' },
-        { href: KVERT_COLORS_URL, label: 'KVERT 航空颜色代码' },
+        { label: 'KVERT 目录' },
+        { label: 'KVERT 航空颜色代码' },
         { href: MCHS_WARN_URL, label: '紧急情况总局：风暴和紧急预警' },
         { href: '/vulkany-kamchatki-yunesko', label: '俄文页：堪察加火山' },
       ],
@@ -372,8 +370,8 @@ export const ZH_SAFETY_GUIDE: ZhGuide = {
     },
     { href: KRONOKI_BEAR_URL, label: '克罗诺茨基保护区，安全观熊' },
     { href: KRONOKI_PREP_URL, label: '克罗诺茨基保护区，出行准备' },
-    { href: KVERT_URL, label: 'KVERT，远东分院火山学与地震学研究所' },
-    { href: KVERT_COLORS_URL, label: 'KVERT，航空颜色代码' },
+    { label: 'KVERT，远东分院火山学与地震学研究所' },
+    { label: 'KVERT，航空颜色代码' },
     { href: VISIT_FAQ_URL, label: 'Visit Kamchatka，常见问题（4G 通讯）' },
     { href: COMMANDER_URL, label: '指挥官群岛国家公园，给旅行者' },
     { href: 'https://vedarai.ru/safety', label: 'Ведар，实时安全页' },

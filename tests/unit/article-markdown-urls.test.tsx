@@ -48,6 +48,13 @@ describe('parseInline', () => {
   it('safeHref пропускает http(s) со скобками', () => {
     expect(safeHref(ELIZOVO)).toBe(ELIZOVO);
   });
+
+  it('KVERT по HTTP и битая форма Госуслуги41 не становятся ссылкой и не остаются голым адресом', () => {
+    expect(safeHref('http://kvert.febras.net/volc?lang=ru&name=Avachinsky')).toBeNull();
+    expect(safeHref('https://gosuslugi41.ru/pgu/volcano_info.htm')).toBeNull();
+    const nodes = parseInline('KVERT, ИВиС ДВО РАН: http://kvert.febras.net/volc?lang=ru&name=Avachinsky');
+    expect(nodes).toEqual([{ t: 'text', v: 'KVERT, ИВиС ДВО РАН: ' }]);
+  });
 });
 
 describe('рендер списка источников', () => {

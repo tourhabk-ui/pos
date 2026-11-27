@@ -77,9 +77,10 @@ export const PARK_PERMIT_CHANNELS: readonly PermitChannel[] = [
     key: 'gosuslugi',
     title: 'Портал Госуслуги41',
     detail:
-      'Электронная форма и оплата рекреационного сбора. По транзитным маршрутам, ' +
-      'где платы нет, разрешение формируется автоматически в течение 15 минут',
-    href: 'https://gosuslugi41.ru/pgu/volcano_info.htm',
+      'Электронная форма и оплата рекреационного сбора — на портале gosuslugi41.ru, ' +
+      'раздел «Спорт и туризм». По транзитным маршрутам, где платы нет, разрешение ' +
+      'формируется автоматически в течение 15 минут. Прямая ссылка на форму сейчас ' +
+      'не открывается (портал отвечает 403), актуальная инструкция — на сайте парка',
   },
   {
     key: 'email',
@@ -201,7 +202,7 @@ const VOLCANOES_DECREE = {
  */
 export const VOLCANOES_DECREE_DOC = {
   title: 'постановление Правительства России от 9 октября 2026 г. № 1323 «О создании национального парка „Вулканы Камчатки“»',
-  url: 'http://government.ru/docs/all/166655/',
+  url: 'https://government.ru/docs/all/166655/',
 } as const;
 
 export const FEDERALIZED_PARKS: readonly FederalizedPark[] = [

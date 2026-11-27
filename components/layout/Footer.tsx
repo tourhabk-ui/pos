@@ -8,6 +8,7 @@ import { Send } from 'lucide-react';
 import { PLATFORM_LINKS as PLATFORM, LEGAL_LINKS as LEGAL } from '@/lib/navigation/platform-links';
 import { ORGANIZATION_PROFILES } from '@/lib/seo/organization-profiles';
 import { KamchatkaGuide } from '@/components/landings/KamchatkaGuide';
+import { PUBLIC_NAP } from '@/lib/legal/requisites';
 
 export function Footer({ showGuide = true }: { showGuide?: boolean } = {}) {
   return (
@@ -132,7 +133,7 @@ export function Footer({ showGuide = true }: { showGuide?: boolean } = {}) {
               SOS
             </Link>
             <p className="text-xs text-[var(--text-muted)]">
-              683024, Камчатский край, г. Петропавловск-Камчатский
+              {PUBLIC_NAP.line}
             </p>
           </div>
         </div>

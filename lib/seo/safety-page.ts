@@ -56,8 +56,6 @@ const KRONOKI_RULES_URL = KRONOTSKY_RULES.sourceUrl;
 const KRONOKI_ORDER_URL = KRONOTSKY_RULES.orderUrl;
 const KRONOKI_BEAR_URL = 'https://kronoki.ru/ru/visit/information-for-all/rules/430.html';
 const KRONOKI_PREP_URL = 'https://kronoki.ru/ru/visit/information-for-all/preparing-for-travel/';
-const KVERT_URL = 'http://kvert.febras.net/';
-const KVERT_COLORS_URL = 'http://kvert.febras.net/color.php';
 const VISIT_FAQ_URL = 'https://visitkamchatka.ru/faq/';
 const COMMANDER_URL = 'https://commanderislands.ru/puteshestvennikam/';
 const VISIT_SECURITY_URL = 'https://visitkamchatka.ru/security/';
@@ -201,7 +199,7 @@ export const SAFETY_RELATED_LINKS = [
 
 export const SAFETY_SOURCES_HEADING = 'Источники';
 
-export const SAFETY_SOURCES: readonly { label: string; href: string }[] = [
+export const SAFETY_SOURCES: readonly { label: string; href?: string }[] = [
   { label: 'ГУ МЧС России по Камчатскому краю, регистрация туристических групп', href: MCHS_REG_URL },
   { label: `${MCHS_SOURCE.authority}, ${MCHS_SOURCE.asOf}`, href: MCHS_SOURCE.memoUrl },
   { label: 'ГУ МЧС России по Камчатскому краю, «Осторожно, бурый медведь!»', href: MCHS_BEAR_URL },
@@ -212,8 +210,9 @@ export const SAFETY_SOURCES: readonly { label: string; href: string }[] = [
   { label: `Кроноцкий заповедник, приказ № ${KRONOTSKY_RULES.order} от ${KRONOTSKY_RULES.orderDateShort} и правила 2026 года`, href: KRONOKI_ORDER_URL },
   { label: 'Кроноцкий заповедник, безопасное наблюдение за медведем', href: KRONOKI_BEAR_URL },
   { label: 'Кроноцкий заповедник, подготовка к путешествию', href: KRONOKI_PREP_URL },
-  { label: 'KVERT, Институт вулканологии и сейсмологии ДВО РАН', href: KVERT_URL },
-  { label: 'KVERT, авиационные цветовые коды', href: KVERT_COLORS_URL },
+  // KVERT официально только по HTTP — в разметке название без ссылки (mixed content).
+  { label: 'KVERT, Институт вулканологии и сейсмологии ДВО РАН' },
+  { label: 'KVERT, авиационные цветовые коды' },
   { label: 'Visit Kamchatka, часто задаваемые вопросы (связь 4G)', href: VISIT_FAQ_URL },
   { label: 'Visit Kamchatka, основные правила безопасности (землетрясение)', href: VISIT_SECURITY_URL },
   { label: 'ГУ МЧС России по Камчатскому краю, правила поведения при угрозе и возникновении волны цунами', href: MCHS_TSUNAMI_URL },
@@ -240,8 +239,6 @@ export const SAFETY_TEXT_LINKS = [
   { text: 'разделе «Связь на маршруте»', href: '/safety/communication', external: false },
   { text: 'странице инцидентов', href: '/safety/incidents', external: false },
   { text: 'сайте заповедника', href: KRONOKI_RULES_URL, external: true },
-  { text: 'сообщениями KVERT', href: KVERT_URL, external: true },
-  { text: 'публикует KVERT', href: KVERT_URL, external: true },
   { text: 'онлайн на сайте МЧС', href: MCHS_ONLINE_FORM_URL, external: true },
   { text: 'на сайте МЧС России', href: MCHS_ONLINE_FORM_URL, external: true },
   { text: 'экстренные предупреждения ГУ МЧС по Камчатскому краю', href: MCHS_WARN_URL, external: true },

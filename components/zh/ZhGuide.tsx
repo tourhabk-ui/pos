@@ -85,7 +85,9 @@ export function ZhGuideView({ guide }: { guide: ZhGuide }) {
           {section.links && section.links.length > 0 && (
             <ul className="text-sm space-y-1">
               {section.links.map((l) => (
-                <li key={l.href}><ExternalOrInternal href={l.href}>{l.label}</ExternalOrInternal></li>
+                <li key={l.href ?? l.label}>
+                  {l.href ? <ExternalOrInternal href={l.href}>{l.label}</ExternalOrInternal> : l.label}
+                </li>
               ))}
             </ul>
           )}
@@ -108,7 +110,9 @@ export function ZhGuideView({ guide }: { guide: ZhGuide }) {
         <h2 id="zh-guide-related" className="ds-h2">{guide.relatedHeading}</h2>
         <ul className="space-y-1">
           {guide.related.map((l) => (
-            <li key={l.href}><ExternalOrInternal href={l.href}>{l.label}</ExternalOrInternal></li>
+            <li key={l.href ?? l.label}>
+              {l.href ? <ExternalOrInternal href={l.href}>{l.label}</ExternalOrInternal> : l.label}
+            </li>
           ))}
         </ul>
       </nav>
@@ -117,10 +121,12 @@ export function ZhGuideView({ guide }: { guide: ZhGuide }) {
         <h2 id="zh-guide-sources" className="ds-h2">{guide.sourcesHeading}</h2>
         <ul className="ds-card p-4 text-sm space-y-2" style={{ color: 'var(--text-primary)' }}>
           {guide.sources.map((s) => (
-            <li key={s.href}>
-              <a className="underline break-all" style={{ color: 'var(--ocean)' }} href={s.href} rel="noopener noreferrer">
-                {s.label}
-              </a>
+            <li key={s.href ?? s.label}>
+              {s.href ? (
+                <a className="underline break-all" style={{ color: 'var(--ocean)' }} href={s.href} rel="noopener noreferrer">
+                  {s.label}
+                </a>
+              ) : s.label}
             </li>
           ))}
         </ul>

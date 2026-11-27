@@ -37,9 +37,11 @@ describe('/routes: ответ для первой поездки', () => {
   });
 
   it('источники — KVERT, Visit Kamchatka и сводка «Кам 24»', () => {
-    const hrefs = ROUTES_VOLCANO_SOURCES.map((s) => s.href).join(' ');
-    expect(hrefs).toMatch(/kvert\.febras\.net\/volc\?lang=ru&name=Avachinsky/);
-    expect(hrefs).toMatch(/kvert\.febras\.net\/volc\?lang=ru&name=Gorely/);
+    const labels = ROUTES_VOLCANO_SOURCES.map((s) => s.label).join(' ');
+    expect(labels).toMatch(/KVERT, ИВиС ДВО РАН, «Авачинский»/);
+    expect(labels).toMatch(/KVERT, ИВиС ДВО РАН, «Горелый»/);
+    const hrefs = ROUTES_VOLCANO_SOURCES.map((s) => s.href ?? '').join(' ');
+    expect(hrefs).not.toMatch(/kvert\.febras\.net/);
     expect(hrefs).toMatch(/visitkamchatka\.ru\/activities\/voskhozhdeniya/);
     expect(hrefs).toMatch(/kam24\.ru\/news\/main\/20261112\/134130/);
   });

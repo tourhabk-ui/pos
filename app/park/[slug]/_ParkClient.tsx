@@ -9,6 +9,7 @@ import { EmergencyAction } from '@/components/shared/EmergencyAction';
 import { VERIFIED_REGIONAL } from '@/lib/safety/emergency-numbers';
 import type { ParkPageData } from '@/lib/parks/park-page';
 import { parkKindLabel } from '@/lib/parks/park-kind';
+import { publicExternalHref } from '@/lib/seo/public-external-href';
 
 /**
  * Региональный номер МЧС на карточке экстренного вызова берётся из ЕДИНОГО
@@ -162,12 +163,17 @@ export default function ParkClient({ park, chronicle = [] }: { park: ParkPageDat
                 {park.permitChannels.email}
               </a>
             )}
-            {park.permitChannels.gosuslugiUrl && (
-              <a href={park.permitChannels.gosuslugiUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ocean)', textDecoration: 'none' }}>
+            {park.permitChannels.gosuslugiUrl && (publicExternalHref(park.permitChannels.gosuslugiUrl) ? (
+              <a href={publicExternalHref(park.permitChannels.gosuslugiUrl)} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ocean)', textDecoration: 'none' }}>
                 <Globe size={13} style={{ flexShrink: 0 }} />
                 Госуслуги 41
               </a>
-            )}
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+                <Globe size={13} style={{ flexShrink: 0 }} />
+                Госуслуги 41
+              </div>
+            ))}
             {park.permitChannels.onlineUrl && (
               <a href={park.permitChannels.onlineUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ocean)', textDecoration: 'none' }}>
                 <Smartphone size={13} style={{ flexShrink: 0 }} />

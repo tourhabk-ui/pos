@@ -106,9 +106,10 @@ describe('текст /safety', () => {
     expect(text).toMatch(/\b112\b/);
     expect(text).not.toMatch(/kamchatourhub/i);
     expect(SAFETY_SOURCES.length).toBeGreaterThanOrEqual(10);
-    expect(SAFETY_SOURCES.some((s) => s.href.includes('41.mchs.gov.ru'))).toBe(true);
-    expect(SAFETY_SOURCES.some((s) => s.href.includes('kronoki.ru'))).toBe(true);
-    expect(SAFETY_SOURCES.some((s) => s.href.includes('kvert.febras.net'))).toBe(true);
+    expect(SAFETY_SOURCES.some((s) => s.href?.includes('41.mchs.gov.ru'))).toBe(true);
+    expect(SAFETY_SOURCES.some((s) => s.href?.includes('kronoki.ru'))).toBe(true);
+    expect(SAFETY_SOURCES.some((s) => s.label.includes('KVERT'))).toBe(true);
+    expect(SAFETY_SOURCES.filter((s) => s.label.includes('KVERT')).every((s) => !s.href)).toBe(true);
   });
 });
 
@@ -157,8 +158,10 @@ describe('рендер без JS: H1, FAQ и ссылки в серверном 
       expect(html).toContain(`href="${l.href}"`);
     }
     for (const s of SAFETY_SOURCES) {
-      expect(html).toContain(s.href);
+      if (s.href) expect(html).toContain(s.href);
+      expect(html).toContain(s.label);
     }
+    expect(html).not.toContain('kvert.febras.net');
   });
 
   it('в клиенте и на странице нет второго H1; loading.tsx не дублирует лид', () => {

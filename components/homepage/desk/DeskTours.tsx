@@ -68,6 +68,8 @@ function Featured({ p }: { p: Plate }) {
           <img
             src={photoSrc(p.imageUrl, 1280)}
             alt={p.title}
+            width={1280}
+            height={800}
             loading="lazy"
             decoding="async"
             className="absolute inset-0 h-full w-full object-cover object-top transition-transform duration-500 group-hover:scale-[1.04]"
@@ -122,6 +124,8 @@ function Row({ p }: { p: Plate }) {
           <img
             src={photoSrc(p.imageUrl, 640)}
             alt={p.title}
+            width={96}
+            height={96}
             loading="lazy"
             decoding="async"
             className="absolute inset-0 h-full w-full object-cover object-top transition-transform duration-300 group-hover:scale-[1.06]"
@@ -157,6 +161,8 @@ function TransferRow({ t }: { t: TransferPlate }) {
           <img
             src={photoSrc(t.imageUrl, 640)}
             alt={t.title}
+            width={96}
+            height={96}
             loading="lazy"
             decoding="async"
             className="absolute inset-0 h-full w-full object-cover object-top transition-transform duration-300 group-hover:scale-[1.06]"
@@ -189,6 +195,8 @@ function StayRow({ t }: { t: StayPlate }) {
         <img
           src={photoSrc(t.imageUrl, 640)}
           alt={t.title}
+          width={96}
+          height={96}
           loading="lazy"
           decoding="async"
           className="absolute inset-0 h-full w-full object-cover object-top transition-transform duration-300 group-hover:scale-[1.06]"

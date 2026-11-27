@@ -741,7 +741,7 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
       {/* Header */}
       <header className="relative z-[700] bg-[var(--bg-card)] border-b border-[var(--border)] sticky top-0">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
+          <Link href="/" aria-label="Ведар — на главную" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
             <Logo size={28} />
           </Link>
           <h1 className="text-lg font-bold text-[var(--text-primary)] hidden sm:block"
@@ -762,6 +762,8 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
           </div>
         </div>
       </header>
+
+      <main>
 
       {/* Фильтры по типу локации (ГДЕ) — z-[600] чтобы быть поверх Leaflet карты.
           На телефоне — одна прокручиваемая строка: двенадцать чипов в перенос
@@ -997,6 +999,8 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
       >
         Я вернулся
       </Link>
+
+      </main>
 
       <BottomNav activePath="/map" />
       <AssistantButton pageContext={{ type: 'map' }} />

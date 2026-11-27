@@ -198,7 +198,7 @@ describe('слова условий', () => {
     const text = lines.join('\n');
     for (const c of PARK_PERMIT_CHANNELS) expect(text).toContain(c.title);
     expect(text).toContain(GREEN_BUTTON.androidUrl);
-    expect(text).toContain('https://gosuslugi41.ru/pgu/volcano_info.htm');
+    expect(text).toContain('gosuslugi41.ru');
     expect(text).toContain('visit@park-vulcany.ru');
   });
   it('ссылка в строке способа не кончается знаком препинания', () => {

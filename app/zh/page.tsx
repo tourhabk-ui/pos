@@ -34,6 +34,7 @@ import {
 } from '@/lib/mcp/zh-layer';
 import { MCP_CONNECT_OPTIONS } from '@/lib/mcp/connect';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { publicExternalHref } from '@/lib/seo/public-external-href';
 import { loadCnyRate } from '@/lib/currency/cbr-rate';
 
 export const dynamic = 'force-dynamic';
@@ -158,13 +159,18 @@ export default async function ZhEntryPage() {
                   {g.caveat && <p style={{ color: 'var(--text-secondary)' }}>{g.caveat}</p>}
                   <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                     {ZH_GUIDE_BASIS_NOTE[g.basis]}。{ZH_CONNECT.sourceLabel}：
-                    {g.sources.map((src, i) => (
+                    {g.sources.map((src, i) => {
+                      const href = publicExternalHref(src.url);
+                      return (
                       <span key={src.url}>
                         {i > 0 && '、'}
-                        <a className="underline break-all" style={{ color: 'var(--ocean)' }} href={src.url} rel="nofollow noopener noreferrer">{src.url}</a>
+                        {href ? (
+                          <a className="underline break-all" style={{ color: 'var(--ocean)' }} href={href} rel="nofollow noopener noreferrer">{src.url}</a>
+                        ) : null}
                         {src.published && `（${src.published}）`}
                       </span>
-                    ))}
+                      );
+                    })}
                     （{g.checkedOn} {ZH_CONNECT.checkedLabel}）
                   </p>
                 </li>

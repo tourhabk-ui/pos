@@ -60,7 +60,7 @@ afterEach(cleanup);
 
 /** Карточка по имени — статья, в которой стоит заголовок. */
 function card(title: string): HTMLElement {
-  const h = screen.getByRole('heading', { level: 3, name: title });
+  const h = screen.getByRole('heading', { level: 2, name: title });
   const article = h.closest('article');
   if (!article) throw new Error(`карточка «${title}» не найдена`);
   return article as HTMLElement;

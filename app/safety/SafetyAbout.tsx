@@ -140,11 +140,13 @@ export default function SafetyAbout() {
         </h2>
         <ol className="flex flex-col gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
           {SAFETY_SOURCES.map((s, i) => (
-            <li key={s.href}>
+            <li key={s.href ?? s.label}>
               {i + 1}.{' '}
-              <a href={s.href} target="_blank" rel="noopener noreferrer" className="underline" style={{ color: 'var(--ocean)' }}>
-                {s.label}
-              </a>
+              {s.href ? (
+                <a href={s.href} target="_blank" rel="noopener noreferrer" className="underline" style={{ color: 'var(--ocean)' }}>
+                  {s.label}
+                </a>
+              ) : s.label}
             </li>
           ))}
         </ol>

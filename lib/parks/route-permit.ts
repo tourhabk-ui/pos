@@ -31,6 +31,7 @@
 import { pool } from '@/lib/db-pool';
 import { routeInParkSql } from '@/lib/parks/route-in-park';
 import { CONDITIONS_NOT_RECORDED_RU, RECORDED_UNKNOWN_RU, ambiguousTerritoryRu } from '@/lib/parks/route-permit-card';
+import { publicExternalHref } from '@/lib/seo/public-external-href';
 import {
   permitRuleFor,
   PARK_PERMIT_CHANNELS,
@@ -261,7 +262,10 @@ function recordedParts(p: ParkPermitRecord): string[] {
   if (p.permitUrl) parts.push(`страница условий — ${p.permitUrl}`);
   if (p.officeAddress) parts.push(`офис — ${p.officeAddress}${p.officeHours ? ` (${p.officeHours})` : ''}`);
   if (p.email) parts.push(`почта — ${p.email}`);
-  if (p.gosuslugiUrl) parts.push(`Госуслуги41 — ${p.gosuslugiUrl}`);
+  if (p.gosuslugiUrl) {
+    const href = publicExternalHref(p.gosuslugiUrl);
+    parts.push(href ? `Госуслуги41 — ${href}` : 'Госуслуги41');
+  }
   if (p.onlineUrl) parts.push(`онлайн — ${p.onlineUrl}`);
   return parts;
 }
