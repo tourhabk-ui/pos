@@ -194,6 +194,8 @@ export default function AccommodationDetailClient({ accommodationId, initialData
               src={data.images[0].url}
               alt={data.images[0].alt ?? data.name}
               fill
+              // Первый экран карточки (аудит 27.11): без ленивой загрузки.
+              priority
               className="object-cover"
               sizes="(max-width: 896px) 100vw, 896px"
             />

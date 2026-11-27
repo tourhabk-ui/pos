@@ -5772,6 +5772,8 @@ function PlanningTab({ onStartTrail, intro }: { onStartTrail?: (routeId: string)
             src="/images/hero/bears-kurilskoye.jpg"
             alt="Камчатка"
             fill
+            // Единственный снимок первого экрана (аудит 27.11): без ленивой загрузки.
+            priority
             sizes="(max-width: 640px) 100vw, 600px"
             className="object-cover"
           />

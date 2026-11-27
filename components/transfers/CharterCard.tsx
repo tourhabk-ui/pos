@@ -30,7 +30,8 @@ import {
  * перевозчик её не называл (§4.0). Номер телефона показан здесь и в ответы
  * Кузьмича и MCP не уходит (pd-guard) — им даётся ссылка на карточку.
  */
-export function CharterCard({ carrier }: { carrier: CharterCarrier }) {
+/** `priority` — первая карточка списка /transfers (аудит 27.11), остальные ленивые. */
+export function CharterCard({ carrier, priority = false }: { carrier: CharterCarrier; priority?: boolean }) {
   const hero = carrier.photos[0];
   const fleet = describeFleet(carrier.vehicles, carrier.seatClasses);
   const phoneLabel = formatContactPhone(carrier.phone);
@@ -52,6 +53,7 @@ export function CharterCard({ carrier }: { carrier: CharterCarrier }) {
             src={photoSrc(hero.url, 640)}
             alt={`${carrier.name}: фото машины`}
             fill
+            priority={priority}
             sizes="(max-width: 768px) 100vw, 672px"
             className="object-cover group-hover:scale-[1.04] transition-transform duration-700 ease-out"
           />
