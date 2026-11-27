@@ -4,6 +4,8 @@ import { useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Siren } from 'lucide-react';
+import { isMiniAppPath } from '@/lib/embed/widget-frame';
+import { miniAppBridge } from '@/lib/miniapp/bridge';
 
 /**
  * SOS — единственная реализация на всю платформу.
@@ -82,6 +84,17 @@ export function EmergencyAction({ variant = 'header', onOfflineFallback, classNa
         e.preventDefault();
         if (onOfflineFallback) onOfflineFallback();
         else router.push('/emergency');
+        return;
+      }
+      // Внутри мини-приложения MAX (узкий вход `/map/compact`) — /sos во
+      // внешнем браузере: в WebView мессенджера не подтверждены ни
+      // геолокация, ни звонок, ни service worker (docs/CHAT_MINIAPPS_PLAN.md
+      // §4, п. 9; слово владельца 27.11 «2 да»). Рядом — строка с 112
+      // (EmergencyMiniAppLine ниже). Моста нет или он не открыл ссылку —
+      // обычный путь на /sos, а не тишина.
+      if (typeof window !== 'undefined' && isMiniAppPath(window.location.pathname)) {
+        const bridge = miniAppBridge();
+        if (bridge && bridge.openLink(new URL('/sos', window.location.origin).href)) e.preventDefault();
       }
     },
     [router, onOfflineFallback],
@@ -172,6 +185,27 @@ export function EmergencyAction({ variant = 'header', onOfflineFallback, classNa
       <Siren size={variant === 'header' ? 15 : 18} strokeWidth={2.2} aria-hidden />
       <span>SOS</span>
     </Link>
+  );
+}
+
+/** Подпись к звонку 112 внутри мессенджера (план §4, п. 9). */
+export const MINIAPP_SOS_NOTE = 'в мессенджере место может не передаться';
+
+/**
+ * Строка с 112 под шапкой мини-приложения — рядом с кнопкой SOS, а не вместо
+ * неё (план §4, п. 9). Живёт в этом файле намеренно: ссылка на 112 —
+ * действие SOS, и вторая её копия где-то ещё разошлась бы с этой
+ * (tests/unit/sos-always-reachable.test.ts). Сплошная, без стекла.
+ */
+export function EmergencyMiniAppLine() {
+  return (
+    <p className="px-4 py-2 text-xs leading-snug text-[var(--text-secondary)] bg-[var(--bg-card)] border-b border-[var(--border)]"
+      data-emergency-miniapp-line>
+      <a href="tel:112" className="inline-flex items-center min-h-[44px] font-bold text-[var(--danger)] underline underline-offset-2">
+        Позвонить 112
+      </a>
+      {' — '}{MINIAPP_SOS_NOTE}. Кнопка SOS откроет страницу помощи в браузере.
+    </p>
   );
 }
 

@@ -41,7 +41,7 @@ import dynamic from 'next/dynamic';
 import { IdleMount } from '@/components/map/IdleMount';
 import Logo from '@/components/shared/Logo';
 import BottomNav from '@/components/shared/BottomNav';
-import EmergencyAction from '@/components/shared/EmergencyAction';
+import EmergencyAction, { EmergencyMiniAppLine } from '@/components/shared/EmergencyAction';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { PLACE_KIND_COLOR } from '@/lib/map/place-marker-icons';
@@ -805,6 +805,8 @@ export default function MapPageClient({ mapPackBaseUrl = null, focus = null, ope
           </div>
         </div>
       </header>
+      {/* Узкий вход (мини-приложение MAX): 112 рядом с SOS — план §4, п. 9. */}
+      {compact && <EmergencyMiniAppLine />}
 
       <main>
 

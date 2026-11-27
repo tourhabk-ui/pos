@@ -35,7 +35,11 @@ vi.mock('next/dynamic', () => ({
 vi.mock('next/link', () => ({ default: (p: { href: string; children: React.ReactNode; 'aria-label'?: string }) => <a href={p.href} aria-label={p['aria-label']}>{p.children}</a> }));
 vi.mock('@/contexts/ThemeContext', () => ({ useTheme: () => ({ isDark: false, toggleTheme: vi.fn() }) }));
 vi.mock('@/components/shared/BottomNav', () => ({ default: () => <nav data-testid="bottom-nav" /> }));
-vi.mock('@/components/shared/EmergencyAction', () => ({ default: () => <button type="button">SOS</button> }));
+vi.mock('@/components/shared/EmergencyAction', () => ({
+  default: () => <button type="button">SOS</button>,
+  EmergencyMiniAppLine: () => <p data-testid="sos-112-line" />,
+}));
+vi.mock('next/script', () => ({ default: () => null }));
 vi.mock('@/components/shared/AssistantButton', () => ({ AssistantButton: () => <div data-testid="assistant" /> }));
 vi.mock('@/components/shared/Logo', () => ({ default: () => null }));
 vi.mock('@/hooks/use-mesh', () => ({ useMesh: () => ({ peers: [] }) }));
@@ -86,8 +90,9 @@ describe('страница /map/compact', () => {
     pageMocks.loadMapFocus.mockResolvedValue(FOCUS);
     const el = await MapCompactPage({ searchParams: Promise.resolve({ WebAppStartParam: 'place-mutnovsky' }) });
     expect(pageMocks.loadMapFocus).toHaveBeenCalledWith('mutnovsky');
-    expect(el.type).toBe(MapPageClient);
-    expect(el.props).toMatchObject({ compact: true, focus: FOCUS, openSafety: false });
+    const kids = React.Children.toArray((el.props as { children: React.ReactNode }).children) as React.ReactElement[];
+    const client = kids.find((k) => k.type === MapPageClient);
+    expect(client?.props).toMatchObject({ compact: true, focus: FOCUS, openSafety: false });
   });
 
   it('в поиск не идёт, каноническая страница — /map', () => {
@@ -106,6 +111,8 @@ describe('что видно в узком входе', () => {
     expect(screen.queryByTestId('bottom-nav')).toBeNull();
     expect(screen.queryByTestId('assistant')).toBeNull();
     expect(screen.getAllByRole('button', { name: 'SOS' })).toHaveLength(1);
+    // Рядом с SOS — строка со звонком 112 (план §4, п. 9; tests/unit/miniapp-sos).
+    expect(screen.getByTestId('sos-112-line')).toBeTruthy();
     expect(screen.getByTestId('sheet').textContent).toBe('Вулкан Мутновский');
   });
 
@@ -134,6 +141,7 @@ describe('что видно в узком входе', () => {
     await settle();
     expect(watch).toHaveBeenCalled();
     expect(screen.getByLabelText('Личный кабинет')).toBeTruthy();
+    expect(screen.queryByTestId('sos-112-line')).toBeNull();
     expect(screen.getByTestId('bottom-nav')).toBeTruthy();
   });
 });
