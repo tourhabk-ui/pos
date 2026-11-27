@@ -111,6 +111,7 @@ export const MANUAL_ENDPOINTS: Record<string, SchedulerDeclaration> = {
   'planner-material-census': { kind: 'manual', writes: false, note: 'чем планировщику наполнять день: туров и маршрутов по КАЖДОЙ паре «зона × активность», теми же предикатами, какими ищет движок. Заведена 20.09 под вопрос «ослабить ли activity_type»: ослабление вслепую кладёт рыболовный тур в вулканический день, а какие пары пусты структурно — видно только числами' },
   'tour-photos-census':        { kind: 'manual', writes: false, note: 'почему у поста о туре нет снимка: что лежит в operator_tours.photos, доступен ли каждый снимок тем же способом, каким его берёт Telegram, и что Bot API отвечал в прошлые разы (записанные отказы из журнала)' },
   'ai-models':                 { kind: 'manual', writes: false, note: 'какие модели реально доступны нашим ключам — чтобы override выбирали не по памяти' },
+  'gigachat-check':            { kind: 'manual', writes: false, note: 'проверка ключа Freemium API GigaChat и один вопрос модели с прода (российский IP Timeweb): с иностранного адреса шлюзы Сбера недоступны. Без поиска в сети; в ответе — упоминает ли модель Ведар. Ключ и токен не возвращаются. Зовётся вручную с CRON_SECRET' },
   // 'deepseek-model-probe' объявления здесь не несёт: его зовёт
   // deepseek-model-probe.yml по маркеру — объявление было бы вторым ответом
   // на тот же вопрос (тот же довод, что у 'tochka-check' и 'ai-channel-check').
