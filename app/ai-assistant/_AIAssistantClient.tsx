@@ -18,6 +18,7 @@ import { paceIsShowable } from '@/lib/routes/route-contradiction';
 import { tourPhotoPosition } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
 import { randomUuid } from '@/lib/security/random-uuid';
+import { browserOffline, isOfflineFailure, offlineKuzmichAnswer } from '@/lib/kuzmich/offline-answer';
 
 interface TourSuggestion {
   id: number;
@@ -310,9 +311,15 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
   }
 
   async function sendMessage(text: string) {
-    if (!text.trim() || loading || limitReached || isOffline) return;
+    if (!text.trim() || loading || limitReached) return;
+    const earlier = messages.filter((m) => m.role === 'user').map((m) => m.content);
     setMessages(prev => [...prev, { role: 'user', content: text }]);
     setInput('');
+    // Без сети запрос не уходит: ответ — памятка Спасателя, записанная заранее.
+    if (isOffline || browserOffline()) {
+      setMessages(prev => [...prev, { role: 'assistant', content: offlineKuzmichAnswer(text, earlier) }]);
+      return;
+    }
     setLoading(true);
 
     try {
@@ -362,12 +369,10 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
         searchFallback: isAiErrorReply(reply) ? text : undefined,
       }]);
       if (routes?.length) setRouteSaveState('idle');
-    } catch {
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: 'Сервер недоступен. При опасности звоните 112 (МЧС).',
-        searchFallback: text,
-      }]);
+    } catch (err) {
+      setMessages(prev => [...prev, isOfflineFailure(err)
+        ? { role: 'assistant', content: offlineKuzmichAnswer(text, earlier) }
+        : { role: 'assistant', content: 'Сервер недоступен. При опасности звоните 112 (МЧС).', searchFallback: text }]);
     } finally {
       setLoading(false);
       setTimeout(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
@@ -561,7 +566,7 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
             <div className="flex items-center gap-2 mb-2 px-3 py-2 rounded-lg text-xs font-medium"
               style={{ background: 'color-mix(in srgb, var(--warning) 10%, var(--bg-card))', color: 'var(--warning)', border: '1px solid color-mix(in srgb, var(--warning) 25%, transparent)' }}>
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-              Сеть недоступна. AI-консьерж работает в режиме чтения. SOS: 112
+              Сеть недоступна. Кузьмич отвечает памятками по безопасности, записанными заранее. SOS: 112
             </div>
           )}
           <form onSubmit={e => { e.preventDefault(); void sendMessage(input.trim()); }} className="flex gap-2">
@@ -569,7 +574,7 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
               value={input}
               onChange={e => setInput(e.target.value)}
               placeholder="Спросите Кузьмича..."
-              disabled={loading || limitReached || isOffline}
+              disabled={loading || limitReached}
               className="flex-1 min-h-[44px] px-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30"
             />
             {/* Voice button */}
@@ -589,7 +594,7 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
             {/* Send button */}
             <button
               type="submit"
-              disabled={loading || !input.trim() || limitReached || isOffline}
+              disabled={loading || !input.trim() || limitReached}
               className="min-h-[44px] min-w-[44px] px-3 bg-[var(--accent)] text-white rounded-lg disabled:opacity-50 flex items-center justify-center hover:opacity-90 transition-opacity"
             >
               <Send className="w-5 h-5" />
