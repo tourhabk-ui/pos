@@ -13,17 +13,22 @@ import { recordDateIso } from '@/lib/seo/record-modified';
 import { FISH_TEXT_REVISION } from '@/lib/fish/fish-sources';
 import { FISH_SALMON_RUN_WINDOW, FISH_SEASONS } from '@/lib/facts/kamchatka';
 
-export const FISH_PAGE_DATE = '2026-11-24';
+export const FISH_PAGE_DATE = '2026-11-27';
 
 export const FISH_PAGE_TITLE = 'Рыбалка на Камчатке: виды, сезон и правила';
 
 export const FISH_PAGE_DESCRIPTION =
-  'Рыбалка на Камчатке: какая рыба и когда идёт, где ловить, как оформить путёвку, принцип «поймал — отпустил», снасти и как добраться.';
+  'Царь лососей — чавыча (king salmon). Рыбалка на Камчатке: какая рыба и когда идёт, где ловить, как оформить путёвку и принцип «поймал — отпустил».';
 
 export const FISH_PAGE_H1 = 'Рыбалка на Камчатке';
 
 export const FISH_LEAD =
   'Рыбалка на Камчатке возможна почти весь год: лососей ловят летом и осенью по путёвке на реках Быстрой, Жупановой и Опале, в Авачинском заливе — палтуса и треску, зимой — навагу из-подо льда. Виды, сроки и правила — ниже.';
+
+/** Прямой ответ на викторину «царь лососей» (GSC, позиция 3,8 без кликов). */
+export const FISH_KING_SALMON_ANSWER =
+  'Царь лососей на Камчатке — чавыча, самый крупный тихоокеанский лосось; NOAA Fisheries называет этот вид королевским лососем (king salmon). Подробнее — в карточке чавычи.';
+
 
 export const FISH_AUTHOR = 'Редакция Vedar';
 
@@ -42,6 +47,7 @@ const KAMTODAY_ONLINE_URL =
 const VISIT_NATIONAL_ROUTE_URL = 'https://visitkamchatka.ru/national-route/';
 const RYBAK_AMATEUR_2026_URL =
   'https://rybak-kamchatky.ru/news/5355-ob-organizacii-lyubitelskogo-rybolovstva-v-kamchatskom-krae-v-2026-godu.html';
+const NOAA_CHINOOK_URL = 'https://www.fisheries.noaa.gov/species/chinook-salmon';
 
 export const FISH_SECTIONS: readonly { id: string; heading: string; paragraphs: readonly string[] }[] = [
   {
@@ -191,6 +197,10 @@ export const FISH_SOURCES = [
     label: '«Рыбак Камчатки», «Об организации любительского рыболовства в Камчатском крае в 2026 году» (05.01.2026), Министерство рыбного хозяйства края',
     href: RYBAK_AMATEUR_2026_URL,
   },
+  {
+    label: 'NOAA Fisheries, Chinook Salmon (чавыча, king salmon)',
+    href: NOAA_CHINOOK_URL,
+  },
 ] as const;
 
 /**
@@ -253,6 +263,7 @@ export function fishVisibleText(): string {
   const parts = [
     FISH_PAGE_H1,
     FISH_LEAD,
+    FISH_KING_SALMON_ANSWER,
     FISH_AUTHOR,
     ...FISH_SECTIONS.flatMap((s) => [s.heading, ...s.paragraphs]),
     FISH_FAQ_HEADING,

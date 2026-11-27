@@ -5,6 +5,7 @@ import { FlightBoardView } from '@/components/flights/FlightBoardView';
 import { loadPkcBoard } from '@/lib/flights/pkc-board';
 import { loadAirportMetar } from '@/lib/flights/metar';
 import { defaultOgImages } from '@/lib/seo/og-image';
+import { FLIGHTS_PAGE_DESCRIPTION, FLIGHTS_PAGE_TITLE } from '@/lib/seo/flights-meta';
 
 /**
  * Табло аэропорта Елизово — задержки и отмены (карт-бланш владельца 29.10, #2788).
@@ -20,14 +21,13 @@ import { defaultOgImages } from '@/lib/seo/og-image';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Табло аэропорта Елизово — задержки и отмены рейсов',
-  description:
-    'Задержки и отмены рейсов аэропорта Елизово (PKC): вылет и прилёт по табло аэропорта, камчатское время, погода у полосы по сводке METAR.',
+  title: FLIGHTS_PAGE_TITLE,
+  description: FLIGHTS_PAGE_DESCRIPTION,
   alternates: { canonical: 'https://vedarai.ru/flights' },
   openGraph: {
     images: defaultOgImages(),
-    title: 'Табло аэропорта Елизово',
-    description: 'Задержки и отмены рейсов по табло аэропорта.',
+    title: FLIGHTS_PAGE_TITLE,
+    description: FLIGHTS_PAGE_DESCRIPTION,
     url: 'https://vedarai.ru/flights',
     siteName: 'Ведар',
     locale: 'ru_RU',
