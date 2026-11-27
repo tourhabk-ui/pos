@@ -22,7 +22,7 @@
  * кронов (`diagnoseCronAuth`), чтобы разработчик видел, что именно не дошло.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { callAIWaterfallDebug } from '@/lib/ai/providers';
+import { callAIWaterfallDebug, probeGigaChat } from '@/lib/ai/providers';
 import { getSystemPrompt } from '@/lib/ai/prompts';
 import type { ChatMessage } from '@/lib/ai/prompts';
 import { verifyCronSecret, diagnoseCronAuth } from '@/lib/auth/cron';
@@ -53,6 +53,13 @@ export async function GET(request: NextRequest) {
       { error: 'Unauthorized', ...diagnoseCronAuth(request) },
       { status: 401 },
     );
+  }
+
+  // Проба GigaChat отдельно от водопада (владелец 27.11: «сначала мы его
+  // протестим»): только её строки, без вызова остальных провайдеров.
+  if (request.nextUrl.searchParams.get('probe') === 'gigachat') {
+    const results = await probeGigaChat();
+    return NextResponse.json({ success: true, probe: 'gigachat', results, place: runPlace() });
   }
 
   const testMessage = request.nextUrl.searchParams.get('q') || 'Привет, расскажи коротко про вулканы Камчатки';

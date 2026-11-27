@@ -280,12 +280,17 @@ describe('D2 — незнакомый хост ловится, а не игно�
     expect(NON_RECEIVER_HOSTS.length).toBeLessThanOrEqual(5);
   });
 
-  it('у каждой записи реестра есть юрисдикция, домашний сток по-прежнему один', () => {
+  it('у каждой записи реестра есть юрисдикция, домашние стоки названы поимённо', () => {
     for (const e of LLM_ENDPOINTS) expect(e.jurisdiction.length, e.host).toBeGreaterThan(2);
-    // Два домашних хоста, оба Яндекса (13.10, «остались российские ИИ»):
+    // Два домашних хоста Яндекса (13.10, «остались российские ИИ»):
     // YandexGPT и AI Studio Responses API — один вендор, одна юрисдикция;
-    // модель угрозы не менялась, ПД в эти промпты не идут.
-    expect(LLM_ENDPOINTS.filter((e) => e.domestic).map((e) => e.host)).toEqual(['llm.api.cloud.yandex.net', 'ai.api.cloud.yandex.net']);
+    // модель угрозы не менялась, ПД в эти промпты не идут. Третий — Сбер
+    // GigaChat (27.11, «сначала мы его протестим»): сервер и получатель в РФ,
+    // пока только проба без ПД. Шлюз Timeweb домашним не стал: его получатель —
+    // производитель модели запроса.
+    expect(LLM_ENDPOINTS.filter((e) => e.domestic).map((e) => e.host))
+      .toEqual(['llm.api.cloud.yandex.net', 'ai.api.cloud.yandex.net', 'gigachat.devices.sberbank.ru']);
+    expect(LLM_ENDPOINTS.find((e) => e.host === 'api.timeweb.ai')?.domestic).toBe(false);
   });
 });
 

@@ -52,7 +52,11 @@ describe('секрет не утекает', () => {
   it('ни префикса, ни хвоста ключа в ответе нет', () => {
     // История роута: до 01.09 он отдавал первые 12 символов ключа OpenRouter
     // без секрета вовсе. Возврат этого — не регресс диагностики, а утечка.
-    const body = SRC.slice(SRC.indexOf('const envKeys'), SRC.indexOf('return NextResponse.json'));
+    // Конец — ответ ПОСЛЕ карты ключей: выше стоит ответ пробы GigaChat (27.11),
+    // и срез до первого ответа был бы пуст — проверка смотрела бы в пустоту.
+    const from = SRC.indexOf('const envKeys');
+    const body = SRC.slice(from, SRC.indexOf('return NextResponse.json', from));
+    expect(body).toMatch(/keyIdentity\(process\.env\[k\]\)/);
     expect(body).not.toMatch(/slice\(\s*0\s*,\s*\d+\s*\)/);
     expect(body).not.toMatch(/process\.env\[k\]\s*\?\.\s*slice/);
   });
