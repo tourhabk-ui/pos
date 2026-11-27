@@ -84,8 +84,15 @@ export const SKILL_AREAS = Object.freeze([
 export const PR_SKILL = 'pr-drive';
 const PR_TOOLS = new Set(['mcp__github__create_pull_request']);
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
-/** `git commit`, в том числе `git -c core.hooksPath=/dev/null commit` и после `cd … &&`. */
-const GIT_COMMIT = /(?:^|[\s;&|(])git(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+commit\b/;
+/**
+ * `git commit`, в том числе `git -c core.hooksPath=/dev/null commit` и после
+ * `cd … &&`. Им же пользуется проверка перед коммитом (commit-gate.mjs).
+ * `git` — в начале команды: в начале строки или после `;`, `&&`, `||`, `|`,
+ * `(` (перед ним можно `VAR=…`). Слова «git commit» внутри текста — в echo,
+ * grep, heredoc — коммитом не считаются: иначе на них зря гонялся бы tsc.
+ */
+export const GIT_COMMIT =
+  /(?:^|[;&|(\n])\s*(?:[A-Za-z_]\w*=\S*\s+)*git(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+commit\b/;
 
 /** Скиллы области файла: путь от корня репозитория, `/` как разделитель. */
 export function skillsForFile(rel) {
@@ -105,7 +112,7 @@ function relPath(file, root) {
 }
 
 /** Изменённые файлы рабочей копии: всё, что может уйти в коммит. */
-function changedFiles(cwd) {
+export function changedFiles(cwd) {
   const out = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '-z'], { cwd, encoding: 'utf8' });
   const files = [];
   const parts = out.split('\0');
