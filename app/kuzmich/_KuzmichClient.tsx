@@ -29,6 +29,7 @@ import { StopTurnButton, RetryTurnButton, TurnSteps } from '@/components/kuzmich
 import { readChatAnswer } from '@/lib/kuzmich/turn-steps';
 import AnswerSources from '@/components/kuzmich/AnswerSources';
 import type { AnswerSource } from '@/lib/kuzmich/answer-sources';
+import { OfflineError, browserOffline, isOfflineFailure, offlineKuzmichAnswer } from '@/lib/kuzmich/offline-answer';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -480,6 +481,8 @@ export default function KuzmichClient() {
     let stopped = false;
 
     try {
+      // Без сети запрос не уходит: ответ — памятка, записанная заранее.
+      if (browserOffline()) throw new OfflineError();
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
         signal: controller.signal,
@@ -515,7 +518,13 @@ export default function KuzmichClient() {
       // Остановил сам человек — не «нет связи». Ждавшие в очереди строки
       // возвращаются в поле ввода, а не уходят сами: он мог передумать.
       stopped = isAbortError(err);
-      const fail: Message = { role: 'assistant', content: stopped ? TURN_STOPPED_TEXT : 'Нет связи. Попробуйте позже.' };
+      const earlier = prior.filter((m) => m.role === 'user').map((m) => m.content);
+      const fail: Message = {
+        role: 'assistant',
+        content: stopped ? TURN_STOPPED_TEXT
+          : isOfflineFailure(err) ? offlineKuzmichAnswer(text.trim(), earlier)
+          : 'Нет связи. Попробуйте позже.',
+      };
       messagesRef.current = [...messagesRef.current, fail];
       setMessages(prev => [...prev, fail]);
     } finally {
