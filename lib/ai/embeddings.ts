@@ -130,6 +130,8 @@ async function loadEmbeddingCache(): Promise<CachedRoute[]> {
     return embeddingCache;
   }
 
+  // Только видимые (ревью #3831): скрытый совет из Telegram-группы или скрытый
+  // дубль не должен уходить в семантический поиск Кузьмича после переиндексации.
   const result = await query<{
     id: string;
     title: string;
@@ -143,7 +145,8 @@ async function loadEmbeddingCache(): Promise<CachedRoute[]> {
   }>(
     `SELECT id, title, description, category, source_url, source_name, lat, lng, embedding
      FROM agent_route_knowledge
-     WHERE embedding IS NOT NULL`
+     WHERE embedding IS NOT NULL
+       AND is_visible = TRUE`
   );
 
   embeddingCache = result.rows.map((row) => ({

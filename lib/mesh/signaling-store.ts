@@ -1,5 +1,6 @@
 // Used ONLY via app/api/mesh/signal/route.ts — never import in client code
 
+import { randomBytes } from 'node:crypto';
 import { roomsAreNeighbors } from './rooms';
 
 const encoder = new TextEncoder();
@@ -10,16 +11,34 @@ interface SignalingConn {
   controller: ReadableStreamDefaultController<Uint8Array>;
   /** Адрес, с которого открыт поток; null — не установлен. */
   ip: string | null;
+  /**
+   * Ключ потока (скан безопасности 25.11). Выдаётся первым кадром потока и
+   * только его владельцу; POST сигналинга без него не принимается, а
+   * отправителем сообщения сервер ставит устройство этого ключа. Прежде
+   * отправителем считался `from`, который пишет сам клиент.
+   */
+  token: string;
 }
 
 // Global singleton — works within a single Docker process
 const globalForMesh = globalThis as typeof globalThis & {
   _meshConnections?: Map<string, SignalingConn>;
+  _meshTokens?: Map<string, string>;
 };
 if (!globalForMesh._meshConnections) {
   globalForMesh._meshConnections = new Map();
 }
 const connections = globalForMesh._meshConnections;
+if (!globalForMesh._meshTokens) {
+  globalForMesh._meshTokens = new Map();
+}
+/** Ключ потока → deviceId. Запись живёт, пока жив поток этого ключа. */
+const tokens = globalForMesh._meshTokens;
+
+/** Ключ потока: 24 случайных байта, как у ключей статуса заявок. */
+function newToken(): string {
+  return randomBytes(24).toString('base64url');
+}
 
 /** Жив ли поток: запись в закрытый поток бросает. */
 function isAlive(conn: SignalingConn): boolean {
@@ -47,14 +66,31 @@ export function registerDevice(
   room: string,
   controller: ReadableStreamDefaultController<Uint8Array>,
   ip: string | null = null,
-): boolean {
+): { token: string } | null {
   const prev = connections.get(deviceId);
   if (prev && prev.controller !== controller && prev.ip !== ip && isAlive(prev)) {
-    return false;
+    return null;
   }
-  connections.set(deviceId, { deviceId, room, controller, ip });
+  if (prev) tokens.delete(prev.token);
+  const token = newToken();
+  connections.set(deviceId, { deviceId, room, controller, ip, token });
+  tokens.set(token, deviceId);
   broadcastToRoom(room, { type: 'peer-joined', deviceId }, deviceId);
-  return true;
+  return { token };
+}
+
+/**
+ * Устройство по ключу потока; null — ключа нет или поток заменён
+ * переподключением (у нового потока новый ключ).
+ */
+export function senderOfToken(token: string): { deviceId: string; room: string } | null {
+  if (typeof token !== 'string' || token.length < 16) return null;
+  // Поиск по хеш-таблице, а не сверка строк в цикле: время ответа не зависит
+  // от того, сколько символов ключа угадано.
+  const deviceId = tokens.get(token);
+  const conn = deviceId ? connections.get(deviceId) : undefined;
+  if (!conn || conn.token !== token) return null;
+  return { deviceId: conn.deviceId, room: conn.room };
 }
 
 /** Где зарегистрировано устройство; null — не на связи. */
@@ -75,6 +111,7 @@ export function removeDevice(
   if (conn && (!controller || conn.controller === controller)) {
     broadcastToRoom(conn.room, { type: 'peer-left', deviceId }, deviceId);
     connections.delete(deviceId);
+    tokens.delete(conn.token);
   }
 }
 
@@ -86,6 +123,7 @@ export function sendToDevice(targetId: string, message: unknown): boolean {
     return true;
   } catch {
     connections.delete(targetId);
+    tokens.delete(conn.token);
     return false;
   }
 }
@@ -107,6 +145,7 @@ function broadcastToRoom(room: string, message: unknown, excludeId?: string): vo
         conn.controller.enqueue(frame);
       } catch {
         connections.delete(conn.deviceId);
+        tokens.delete(conn.token);
       }
     }
   }

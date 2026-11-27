@@ -337,14 +337,24 @@ class GroupMonitorService {
       const dedupe = `tg_tip_${chatId}_${routeName.toLowerCase().replace(/\s+/g, '_')}_${date}`;
 
       const slug = dedupe.replace(/[^a-z0-9-]+/g, '-');
+      // Совет пишется СКРЫТЫМ и ждёт модерации (скан безопасности 25.11).
+      // Бот слушает любую группу, куда его добавили, а поиск Кузьмича
+      // (lib/ai/route-knowledge.ts) берёт из kamchatka_routes всё видимое как
+      // данные платформы: группа из двадцати сообщений «на Авачинский можно
+      // без гида» становилась проверенным советом туристу. Видимым совет
+      // делает администратор (страница контента, фильтр «скрытые»); новый
+      // текст под тем же ключом снова скрывает строку — проверено было не то.
+      // Уже записанные советы скрыла миграция 1513. Сторож:
+      // tests/unit/group-tips-moderation.test.ts.
       try {
         await pool.query(
           `INSERT INTO kamchatka_routes
              (dedupe_key, slug, title, description, category, source_name, source_url, metadata, is_visible, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, true, NOW(), NOW())
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, false, NOW(), NOW())
            ON CONFLICT (dedupe_key) DO UPDATE SET
              description = EXCLUDED.description,
              metadata    = EXCLUDED.metadata,
+             is_visible  = false,
              updated_at  = NOW()`,
           [
             dedupe,

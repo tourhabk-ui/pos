@@ -60,17 +60,17 @@ describe('меш: чужой deviceId не перехватывается', () =
 
   it('живой поток с другого адреса не перезаписывается', () => {
     const victimCtrl = ctrl();
-    expect(registerDevice('victim', 'vol-532-1588', victimCtrl, '10.0.0.1')).toBe(true);
-    expect(registerDevice('victim', 'vol-600-1600', ctrl(), '10.9.9.9')).toBe(false);
+    expect(registerDevice('victim', 'vol-532-1588', victimCtrl, '10.0.0.1')).not.toBeNull();
+    expect(registerDevice('victim', 'vol-600-1600', ctrl(), '10.9.9.9')).toBeNull();
     expect(roomOfDevice('victim')).toBe('vol-532-1588');
   });
 
   it('переподключение с того же адреса и замена мёртвого потока разрешены', () => {
     registerDevice('victim', 'vol-532-1588', ctrl(), '10.0.0.1');
-    expect(registerDevice('victim', 'vol-533-1588', ctrl(), '10.0.0.1')).toBe(true);
+    expect(registerDevice('victim', 'vol-533-1588', ctrl(), '10.0.0.1')).not.toBeNull();
     const dead = ctrl(false);
     registerDevice('x', 'vol-532-1588', dead, '10.0.0.2');
-    expect(registerDevice('x', 'vol-532-1588', ctrl(), '10.0.0.3')).toBe(true);
+    expect(registerDevice('x', 'vol-532-1588', ctrl(), '10.0.0.3')).not.toBeNull();
   });
 
   it('закрытие старого потока не выбрасывает новый', () => {
@@ -97,24 +97,75 @@ describe('меш: сообщение только между соседями', 
   const ids = ['near', 'far', 'victim'];
   afterEach(() => ids.forEach((id) => removeDevice(id)));
 
-  it('сосед доставляет, дальний и незарегистрированный — нет', async () => {
+  it('сосед доставляет, дальний и без ключа — нет', async () => {
     const victimCtrl = ctrl();
     registerDevice('victim', 'vol-532-1588', victimCtrl, '10.0.0.1');
-    registerDevice('near', 'vol-533-1589', ctrl(), '10.0.0.2');
-    registerDevice('far', 'vol-600-1600', ctrl(), '10.0.0.3');
+    const near = registerDevice('near', 'vol-533-1589', ctrl(), '10.0.0.2')!;
+    const far = registerDevice('far', 'vol-600-1600', ctrl(), '10.0.0.3')!;
 
-    const ok = await (await signalPost(signalReq({ to: 'victim', message: { type: 'offer', from: 'near' } }))).json();
+    const ok = await (await signalPost(signalReq({ token: near.token, to: 'victim', message: { type: 'offer', sdp: {} } }))).json();
     expect(ok.delivered).toBe(true);
 
-    const farRes = await (await signalPost(signalReq({ to: 'victim', message: { type: 'offer', from: 'far' } }))).json();
+    const farRes = await (await signalPost(signalReq({ token: far.token, to: 'victim', message: { type: 'offer', sdp: {} } }))).json();
     expect(farRes.delivered).toBe(false);
 
-    const ghost = await (await signalPost(signalReq({ to: 'victim', message: { type: 'offer', from: 'nobody' } }))).json();
-    expect(ghost.delivered).toBe(false);
+    // Без ключа живого потока — отказ, даже если `from` назван соседом.
+    const ghost = await signalPost(signalReq({ to: 'victim', message: { type: 'offer', from: 'near' } }));
+    expect(ghost.status).toBe(401);
+    const forged = await signalPost(signalReq({ token: 'x'.repeat(32), to: 'victim', message: { type: 'offer', from: 'near' } }));
+    expect(forged.status).toBe(401);
   });
 
   it('слишком большое сообщение — 413', async () => {
     const res = await signalPost(signalReq({ to: 'victim', message: { from: 'near', blob: 'x'.repeat(70 * 1024) } }));
     expect(res.status).toBe(413);
+  });
+});
+
+/** Кадры, ушедшие в поток: разобранные JSON из `data: ...`. */
+function frames(c: ReturnType<typeof ctrl>): Array<Record<string, unknown>> {
+  const enqueue = (c as unknown as { enqueue: { mock: { calls: unknown[][] } } }).enqueue;
+  const dec = new TextDecoder();
+  return enqueue.mock.calls
+    .map((call) => dec.decode(call[0] as Uint8Array))
+    .filter((t) => t.startsWith('data: '))
+    .map((t) => JSON.parse(t.slice(6)) as Record<string, unknown>);
+}
+
+describe('меш: отправителя ставит сервер, пересылается только обмен WebRTC (скан 25.11)', () => {
+  const ids = ['near', 'victim', 'other'];
+  afterEach(() => ids.forEach((id) => removeDevice(id)));
+
+  it('`from` из сообщения заменяется устройством ключа', async () => {
+    const victimCtrl = ctrl();
+    registerDevice('victim', 'vol-532-1588', victimCtrl, '10.0.0.1');
+    const near = registerDevice('near', 'vol-533-1589', ctrl(), '10.0.0.2')!;
+    registerDevice('other', 'vol-532-1588', ctrl(), '10.0.0.4');
+
+    await signalPost(signalReq({ token: near.token, to: 'victim', message: { type: 'ice', from: 'other', candidate: { candidate: 'c' }, extra: 'x' } }));
+    const last = frames(victimCtrl).at(-1)!;
+    expect(last).toEqual({ type: 'ice', from: 'near', candidate: { candidate: 'c' } });
+  });
+
+  it('события сервера подделать нельзя', async () => {
+    const victimCtrl = ctrl();
+    registerDevice('victim', 'vol-532-1588', victimCtrl, '10.0.0.1');
+    const near = registerDevice('near', 'vol-533-1589', ctrl(), '10.0.0.2')!;
+    const before = frames(victimCtrl).length;
+
+    for (const type of ['peer-left', 'room-peers', 'peer-joined', 'session']) {
+      const res = await (await signalPost(signalReq({ token: near.token, to: 'victim', message: { type, deviceId: 'other', peers: ['x'] } }))).json();
+      expect(res.delivered, type).toBe(false);
+    }
+    expect(frames(victimCtrl).length).toBe(before);
+  });
+
+  it('переподключение выдаёт новый ключ, старый больше не принимается', async () => {
+    registerDevice('victim', 'vol-532-1588', ctrl(), '10.0.0.1');
+    const first = registerDevice('near', 'vol-533-1589', ctrl(), '10.0.0.2')!;
+    const second = registerDevice('near', 'vol-533-1589', ctrl(), '10.0.0.2')!;
+    expect(second.token).not.toBe(first.token);
+    const stale = await signalPost(signalReq({ token: first.token, to: 'victim', message: { type: 'offer', sdp: {} } }));
+    expect(stale.status).toBe(401);
   });
 });
