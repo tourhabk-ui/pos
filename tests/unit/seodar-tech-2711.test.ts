@@ -8,6 +8,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { METEOALERT_PAGE } from '@/lib/services/safety/meteoalert';
 import { PARK_PERMIT_CHANNELS, VOLCANOES_DECREE_DOC } from '@/lib/safety/park-permit';
+import { publicExternalHref } from '@/lib/seo/public-external-href';
+import { PUBLIC_NAP } from '@/lib/legal/requisites';
 
 const root = process.cwd();
 const read = (p: string) => readFileSync(join(root, p), 'utf-8');
@@ -30,13 +32,16 @@ describe('Seodar 27.11: внешние ссылки', () => {
     expect(read('lib/safety/park-permit.ts')).not.toContain('volcano_info.htm');
   });
 
-  it('официальный сайт KVERT остаётся http: https у него не открывается', () => {
+  it('пользовательские ссылки на KVERT сняты: https у сайта не открывается', () => {
+    expect(publicExternalHref('http://kvert.febras.net/')).toBeUndefined();
+    expect(publicExternalHref('http://kvert.febras.net/color.php')).toBeUndefined();
+    expect(publicExternalHref('https://visitkamchatka.ru/security/')).toBe('https://visitkamchatka.ru/security/');
     const safety = read('lib/seo/safety-page.ts');
-    expect(safety).toContain("const KVERT_URL = 'http://kvert.febras.net/'");
-    expect(safety).toContain("const KVERT_COLORS_URL = 'http://kvert.febras.net/color.php'");
-    const lead = read('lib/seo/routes-volcano-lead.ts');
-    expect(lead).toContain("href: 'http://kvert.febras.net/volc?lang=ru&name=Avachinsky'");
-    expect(lead).not.toContain('https://kvert.febras.net/');
+    expect(safety).toContain("label: 'KVERT, Институт вулканологии и сейсмологии ДВО РАН'");
+    expect(safety).not.toMatch(/href: KVERT_/);
+    expect(read('lib/seo/routes-volcano-lead.ts')).not.toContain('kvert.febras.net');
+    // Серверная лента по-прежнему ходит по HTTP.
+    expect(read('lib/agents/kvert-sync.ts')).toContain("const DEFAULT_KVERT_URL = 'http://kvert.febras.net/van/index.php?type=3&lend=en'");
   });
 });
 
@@ -76,5 +81,30 @@ describe('Seodar 27.11: доступность и ориентиры', () => {
     const hero = read('components/homepage/desk/DeskHero.tsx');
     expect(hero).toContain('width={2400}');
     expect(hero).toContain('height={1600}');
+  });
+});
+
+describe('Seodar 27.11: публичный NAP без улицы', () => {
+  it('/contact, /about, подвал и Organization показывают только город и край', () => {
+    expect(PUBLIC_NAP.line).toBe('683024, Камчатский край, г. Петропавловск-Камчатский');
+    expect(PUBLIC_NAP.line).not.toMatch(/Октября|17\/1|street/i);
+    for (const f of ['app/contact/page.tsx', 'app/about/page.tsx', 'components/layout/Footer.tsx', 'app/layout.tsx']) {
+      const src = read(f);
+      expect(src, f).toContain('PUBLIC_NAP');
+      expect(src, f).not.toContain('17/1');
+      expect(src, f).not.toContain('streetAddress');
+    }
+  });
+});
+
+describe('Seodar 27.11: первая картинка без lazy', () => {
+  it('у первой соседней карточки места есть priority, у медведя в нижнем меню нет loading=lazy', () => {
+    const nearby = read('components/places/PlaceNearby.tsx');
+    expect(nearby).toContain('nearby.map((n, i) =>');
+    expect(nearby).toContain('{...(i === 0 ? { priority: true } : { loading: \'lazy\' as const })}');
+    const nav = read('components/shared/BottomNav.tsx');
+    const bearAt = nav.indexOf('src="/images/brand/bear-64.webp"');
+    expect(bearAt).toBeGreaterThan(0);
+    expect(nav.slice(bearAt, bearAt + 500)).not.toContain('loading="lazy"');
   });
 });

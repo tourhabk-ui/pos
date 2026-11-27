@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertTriangle } from 'lucide-react';
 import type { RouteClosure } from '@/lib/routes/closures';
+import { publicExternalHref } from '@/lib/seo/public-external-href';
 
 /** Плашка о закрытии маршрута — в серверном HTML, с источниками и датой. */
 export function ClosureNotice({ closure }: { closure: RouteClosure }) {
@@ -20,7 +21,9 @@ export function ClosureNotice({ closure }: { closure: RouteClosure }) {
           {closure.sources.map((s, i) => (
             <React.Fragment key={s.url}>
               {i > 0 && ', '}
-              <a href={s.url} target="_blank" rel="noopener noreferrer" className="underline">{s.label}</a>
+              {publicExternalHref(s.url) ? (
+                <a href={publicExternalHref(s.url)} target="_blank" rel="noopener noreferrer" className="underline">{s.label}</a>
+              ) : s.label}
             </React.Fragment>
           ))}
         </p>

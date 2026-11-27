@@ -82,7 +82,7 @@ export function LandingToc({ items }: { items: Array<{ id: string; label: string
 export function LandingKuzmich() {
   return (
     <aside className="landing-kuzmich" aria-labelledby="landing-kuzmich" data-landing-kuzmich="">
-      <img src="/images/brand/bear-128.webp" alt="" width={48} height={48} loading="lazy" decoding="async" />
+      <img src="/images/brand/bear-128.webp" alt="" width={48} height={48} decoding="async" />
       <div>
         <h2 id="landing-kuzmich" className="landing-kuzmich-title">Спросите Кузьмича</h2>
         <p><Link href="/kuzmich" className="underline" style={{ color: 'var(--ocean)' }}>Кузьмич</Link> — ИИ-помощник Ведара. Спросите про сезон, дорогу и что взять с собой: он отвечает по данным платформы.</p>

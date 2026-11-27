@@ -304,7 +304,9 @@ describe('справочник парков', () => {
     expect(document.body.textContent).toMatch(/Офис: город Елизово, улица Завойко, 33/);
     expect(document.body.textContent).toMatch(/пн–сб 9:00–18:00, вс 9:00–16:00, перерыв 13:00–14:00/);
     expect(screen.getByRole('link', { name: 'visit@park-vulcany.ru' }).getAttribute('href')).toBe('mailto:visit@park-vulcany.ru');
-    expect(screen.getByRole('link', { name: /Госуслуги 41/ }).getAttribute('href')).toBe('https://gosuslugi41.ru/pgu/volcano_info.htm');
+    expect(screen.getByText(/Госуслуги 41/)).toBeTruthy();
+    expect(screen.queryByRole('link', { name: /Госуслуги 41/ })).toBeNull();
+    expect(document.body.innerHTML).not.toContain('volcano_info.htm');
     expect(document.body.textContent).toMatch(/территория Авачинского перевала — зона свободного посещения/);
     expect(descriptionVoice(park.description ?? '').voice).toBe('plain');
   });

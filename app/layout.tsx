@@ -11,7 +11,7 @@ import '@fontsource-variable/playfair-display/wght-italic.css';
 import '@fontsource-variable/inter/wght.css';
 import '@fontsource-variable/jetbrains-mono/wght.css';
 import { defaultOgImages } from '@/lib/seo/og-image';
-import { REQUISITES } from '@/lib/legal/requisites';
+import { PUBLIC_NAP, REQUISITES } from '@/lib/legal/requisites';
 import { ORGANIZATION_PROFILES, ORGANIZATION_SAME_AS } from '@/lib/seo/organization-profiles';
 import { siteVerification } from '@/lib/seo/site-verification';
 import { headers } from 'next/headers';
@@ -281,9 +281,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 "address": {
                   "@type": "PostalAddress",
                   "addressCountry": "RU",
-                  "addressRegion": "Камчатский край",
-                  "addressLocality": "Петропавловск-Камчатский",
-                  "postalCode": "683024"
+                  "addressRegion": PUBLIC_NAP.addressRegion,
+                  "addressLocality": PUBLIC_NAP.addressLocality,
+                  "postalCode": PUBLIC_NAP.postalCode
                 },
                 "areaServed": "Камчатский край",
                 "knowsAbout": [

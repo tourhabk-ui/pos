@@ -183,7 +183,6 @@ export default function BottomNav({ activePath, onNavClick }: BottomNavProps) {
                   width={48}
                   height={48}
                   alt=""
-                  loading="lazy"
                   decoding="async"
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 />

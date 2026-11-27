@@ -5774,6 +5774,7 @@ function PlanningTab({ onStartTrail, intro }: { onStartTrail?: (routeId: string)
             fill
             sizes="(max-width: 640px) 100vw, 600px"
             className="object-cover"
+            priority
           />
           <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, transparent 30%, rgba(0,0,0,0.75))' }} />
           <div className="absolute bottom-0 left-0 right-0 p-4">
