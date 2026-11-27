@@ -95,8 +95,11 @@ export function FlightBoardView({ board, metar }: { board: PkcBoard; metar?: Met
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-4">
       <header>
-        <p className="text-xs uppercase tracking-widest text-[var(--text-muted)]">Аэропорт Елизово · PKC</p>
+        <p className="text-xs uppercase tracking-widest text-[var(--text-muted)]">Аэропорт Елизово · Петропавловск-Камчатский · PKC</p>
         <h1 className="ds-h1" style={{ fontFamily: 'var(--font-playfair)' }}>Табло аэропорта Елизово</h1>
+        <p className="mt-2 text-[var(--text-primary)] leading-relaxed" data-lead-answer>
+          Онлайн-табло вылета и прилёта аэропорта Елизово (Петропавловск-Камчатский, PKC). Рейсы, задержки и отмены — по табло аэропорта; время камчатское. Причину задержки табло не называет.
+        </p>
         <p className="mt-1 text-sm text-[var(--text-secondary)]">
           {allFailed
             ? `Табло аэропорта спрошено в ${fetched.time} по Камчатке и не прочиталось.`
