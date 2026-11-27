@@ -13,6 +13,7 @@ import {
   isOfflineFailure, offlineKuzmichAnswer,
 } from '@/lib/kuzmich/offline-answer';
 import { ITEM_LOSS_PROTOCOL, LOCAL_PROTOCOLS } from '@/lib/safety/rescue-protocols';
+import { waitingReply } from '@/lib/kuzmich/offline-queue';
 
 vi.mock('next/image', () => ({ default: (p: { alt: string }) => <img alt={p.alt} /> }));
 vi.mock('next/navigation', async (orig) => ({
@@ -66,6 +67,8 @@ describe('экраны Кузьмича без сети', () => {
   beforeEach(() => {
     posts = [];
     online = false;
+    sessionStorage.clear();
+    localStorage.clear();
     Element.prototype.scrollIntoView = vi.fn();
     Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => online });
     vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
@@ -133,14 +136,15 @@ describe('экраны Кузьмича без сети', () => {
     expect(screen.queryByText(/отвечаю памяткой/)).toBeNull();
   });
 
-  it('/ai-assistant: без сети поле не заблокировано, ответ — памятка или честное «нет ответа»', async () => {
+  it('/ai-assistant: без сети поле не заблокировано, ответ — памятка или вопрос ждёт связи', async () => {
     render(<AIAssistantPage />);
     const box = await screen.findByPlaceholderText('Спросите Кузьмича...');
     await waitFor(() => expect((box as HTMLInputElement).disabled).toBe(false));
     expect(screen.getByText(/Кузьмич отвечает памятками по безопасности, записанными заранее/)).toBeTruthy();
     fireEvent.change(box, { target: { value: 'Какая завтра погода?' } });
     fireEvent.submit(box.closest('form')!);
-    expect(await screen.findByText(OFFLINE_NO_ANSWER)).toBeTruthy();
+    // Ответа в телефоне нет — вопрос ждёт связи (шаг 3, kuzmich-offline-queue).
+    expect(await screen.findByText(waitingReply('tab'))).toBeTruthy();
     fireEvent.change(box, { target: { value: 'холодно, замёрзли' } });
     fireEvent.submit(box.closest('form')!);
     expect(await screen.findByText(/Снять мокрое/)).toBeTruthy();

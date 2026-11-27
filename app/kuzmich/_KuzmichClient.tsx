@@ -29,7 +29,9 @@ import { StopTurnButton, RetryTurnButton, TurnSteps } from '@/components/kuzmich
 import { readChatAnswer } from '@/lib/kuzmich/turn-steps';
 import AnswerSources from '@/components/kuzmich/AnswerSources';
 import type { AnswerSource } from '@/lib/kuzmich/answer-sources';
-import { OfflineError, browserOffline, isOfflineFailure, offlineKuzmichAnswer } from '@/lib/kuzmich/offline-answer';
+import { OfflineError, browserOffline, isOfflineFailure, offlineKuzmichReply } from '@/lib/kuzmich/offline-answer';
+import { askedOfflineCaption, waitingReply, waitingStrip, type AskedOffline } from '@/lib/kuzmich/offline-queue';
+import { useKuzmichWaiting } from '@/hooks/use-kuzmich-waiting';
 import { readSavedRouteFacts } from '@/lib/offline/route-facts';
 
 // ── Типы ──────────────────────────────────────────────────────────
@@ -69,6 +71,8 @@ interface Message {
   bookingForm?: BookingFormData; // inline-форма бронирования
   sources?: AnswerSource[];      // источники ответа (#3412, п. 1)
   bookingConfirmed?: { id: number; tour: string; accessToken: string };
+  /** Вопрос задан без сети и ушёл из очереди, когда связь вернулась. */
+  askedOffline?: AskedOffline;
 }
 
 // ── Быстрые чипы ──────────────────────────────────────────────────
@@ -312,6 +316,9 @@ export default function KuzmichClient() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState('');
+  // История разговора прочитана (или не прочиталась): до этого вопрос из
+  // очереди не уходит — пришедшая позже история затёрла бы его на экране.
+  const [historyDone, setHistoryDone] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageNote, setImageNote] = useState<string | null>(null);
@@ -353,7 +360,8 @@ export default function KuzmichClient() {
       })
       // История не загрузилась — чат начинается с чистого листа, а отказ уходит
       // в ловушку ошибок, а не глотается (§4.0).
-      .catch((err: unknown) => reportClientError('error', err));
+      .catch((err: unknown) => reportClientError('error', err))
+      .finally(() => setHistoryDone(true));
   }, []);
 
   useEffect(() => {
@@ -402,7 +410,12 @@ export default function KuzmichClient() {
   const messagesRef = useRef(messages);
   const imageFileRef = useRef<File | null>(null);
   const imagePreviewRef = useRef<string | null>(null);
-  const sendRef = useRef<(text: string) => Promise<void>>(async () => {});
+  const sendRef = useRef<(text: string, asked?: AskedOffline) => Promise<void>>(async () => {});
+  // Вопросы без сети (шаг 3): ждут во вкладке и уходят по признаку связи.
+  const waitingApi = useKuzmichWaiting('kuzmich', sessionId || null, !loading && historyDone,
+    (text, asked) => { void sendRef.current(text, asked); });
+  const waitingRef = useRef(waitingApi);
+  useEffect(() => { waitingRef.current = waitingApi; });
   // «Остановить» (#3412, п. 3): обрывает ожидание ответа этого хода.
   const abortRef = useRef<AbortController | null>(null);
   const [asking, setAsking] = useState('');
@@ -438,7 +451,7 @@ export default function KuzmichClient() {
     return () => clearTimeout(t);
   }, [sessionId]);
 
-  const send = useCallback(async (text: string) => {
+  const send = useCallback(async (text: string, asked?: AskedOffline) => {
     if (!text.trim() && !imageFileRef.current) return;
     if (busyRef.current) {
       if (text.trim()) {
@@ -468,6 +481,7 @@ export default function KuzmichClient() {
       role: 'user',
       content: text.trim() || '(фото)',
       ...(previewUrl ? { imagePreview: previewUrl } : {}),
+      ...(asked ? { askedOffline: asked } : {}),
     };
     const prior = messagesRef.current.slice(-10).map(m => ({ role: m.role, content: m.content }));
     messagesRef.current = [...messagesRef.current, userMsg];
@@ -515,17 +529,22 @@ export default function KuzmichClient() {
       };
       messagesRef.current = [...messagesRef.current, assistantMsg];
       setMessages(prev => [...prev, assistantMsg]);
+      // Сервер ответил — связь есть: ждавшие её вопросы уходят следом.
+      waitingRef.current.connected();
     } catch (err) {
       // Остановил сам человек — не «нет связи». Ждавшие в очереди строки
       // возвращаются в поле ввода, а не уходят сами: он мог передумать.
       stopped = isAbortError(err);
       const earlier = prior.filter((m) => m.role === 'user').map((m) => m.content);
-      const fail: Message = {
-        role: 'assistant',
-        content: stopped ? TURN_STOPPED_TEXT
-          : isOfflineFailure(err) ? offlineKuzmichAnswer(text.trim(), earlier, readSavedRouteFacts())
-          : 'Нет связи. Попробуйте позже.',
-      };
+      let content = stopped ? TURN_STOPPED_TEXT : 'Нет связи. Попробуйте позже.';
+      if (!stopped && isOfflineFailure(err)) {
+        const reply = offlineKuzmichReply(text.trim(), earlier, readSavedRouteFacts());
+        // Ответа в телефоне нет — вопрос ждёт связи. Вопрос с фото не ждёт:
+        // без снимка он ушёл бы не тем вопросом.
+        const kept = reply.kind === 'none' && !fileNow ? waitingRef.current.add(text, asked?.at) : null;
+        content = kept ? waitingReply(kept, reply.lead) : reply.text;
+      }
+      const fail: Message = { role: 'assistant', content };
       messagesRef.current = [...messagesRef.current, fail];
       setMessages(prev => [...prev, fail]);
     } finally {
@@ -643,6 +662,9 @@ export default function KuzmichClient() {
                       {/* Ссылки — только в ответе Кузьмича (владелец 03.10). */}
                       {msg.role === 'assistant' ? <ChatText text={msg.content} /> : msg.content}
                     </div>
+                  )}
+                  {msg.role === 'user' && msg.askedOffline && (
+                    <p className="self-end text-xs text-[var(--text-muted)]">{askedOfflineCaption(msg.askedOffline)}</p>
                   )}
                   {msg.role === 'assistant' && <AnswerSources sources={msg.sources} />}
                   {msg.role === 'assistant' && msg.content && <SpeakButton text={msg.content} />}
@@ -781,6 +803,15 @@ export default function KuzmichClient() {
             <Send size={16} aria-hidden="true" />
           </button>
         </div>
+        {waitingApi.waiting.length > 0 && (
+          <div className="px-4 pb-3 flex flex-wrap items-center gap-x-3 gap-y-1" aria-live="polite">
+            <p className="text-xs text-[var(--text-muted)]">{waitingStrip(waitingApi.waiting.length)}</p>
+            <button type="button" onClick={waitingApi.clear}
+              className="min-h-[44px] text-xs text-[var(--ocean)] hover:underline">
+              Не отправлять
+            </button>
+          </div>
+        )}
         {queued.length > 0 && (
           <div className="px-4 pb-3" aria-live="polite">
             <p className="text-xs text-[var(--text-muted)]">

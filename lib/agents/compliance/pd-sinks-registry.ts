@@ -97,6 +97,7 @@ export const DEVICE_STORAGE: readonly DeviceStorageEntry[] = [
   // --- его данные до закрытия вкладки
   { file: 'app/watch/WatchClient.tsx', personal: 'own-session', holds: 'телефон руководителя группы — им открывается контроль выхода' },
   { file: 'app/request-resume/_ResumeClient.tsx', personal: 'own-session', holds: 'ключ заявки и её комментарий до отправки' },
+  { file: 'lib/kuzmich/offline-queue.ts', personal: 'own-session', holds: 'вопросы Кузьмичу, заданные без сети, до отправки' },
 
   // --- его данные нарочно остаются на устройстве
   {

@@ -18,7 +18,9 @@ import { paceIsShowable } from '@/lib/routes/route-contradiction';
 import { tourPhotoPosition } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
 import { randomUuid } from '@/lib/security/random-uuid';
-import { browserOffline, isOfflineFailure, offlineKuzmichAnswer } from '@/lib/kuzmich/offline-answer';
+import { browserOffline, isOfflineFailure, offlineKuzmichReply } from '@/lib/kuzmich/offline-answer';
+import { askedOfflineCaption, waitingReply, waitingStrip, type AskedOffline } from '@/lib/kuzmich/offline-queue';
+import { useKuzmichWaiting } from '@/hooks/use-kuzmich-waiting';
 import { readSavedRouteFacts } from '@/lib/offline/route-facts';
 
 interface TourSuggestion {
@@ -58,6 +60,8 @@ interface ChatMessage {
   searchFallback?: string;
   /** Сервер распознал признаки ЧП — ответ содержит SOS-блок, рендерим заметно. */
   emergency?: boolean;
+  /** Вопрос задан без сети и ушёл из очереди, когда связь вернулась. */
+  askedOffline?: AskedOffline;
 }
 
 // Фолбэк-ответы AI-конвейера: чат не смог — даём человеку прямой путь в каталог.
@@ -251,6 +255,9 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
   const endRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<{ stop(): void } | null>(null);
   const { isDark, toggleTheme } = useTheme();
+  // Вопросы без сети (шаг 3): ждут во вкладке и уходят по признаку связи.
+  const waitingApi = useKuzmichWaiting('ai-assistant', sessionId, !loading && !limitReached,
+    (text, asked) => { void sendMessage(text, asked); });
 
   useEffect(() => {
     setIsOffline(!navigator.onLine);
@@ -311,14 +318,23 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
     setListening(false);
   }
 
-  async function sendMessage(text: string) {
+  // Ответ без сети: памятка, факты маршрута — или вопрос встаёт ждать связи.
+  function offlineReply(text: string, earlier: readonly string[], asked?: AskedOffline): string {
+    const reply = offlineKuzmichReply(text, earlier, readSavedRouteFacts());
+    const kept = reply.kind === 'none' ? waitingApi.add(text, asked?.at) : null;
+    return kept ? waitingReply(kept, reply.lead) : reply.text;
+  }
+
+  async function sendMessage(text: string, asked?: AskedOffline) {
     if (!text.trim() || loading || limitReached) return;
     const earlier = messages.filter((m) => m.role === 'user').map((m) => m.content);
-    setMessages(prev => [...prev, { role: 'user', content: text }]);
+    setMessages(prev => [...prev, { role: 'user', content: text, ...(asked ? { askedOffline: asked } : {}) }]);
     setInput('');
     // Без сети запрос не уходит: ответ — памятка Спасателя, записанная заранее.
-    if (isOffline || browserOffline()) {
-      setMessages(prev => [...prev, { role: 'assistant', content: offlineKuzmichAnswer(text, earlier, readSavedRouteFacts()) }]);
+    // Спрашиваем браузер, а не состояние экрана: в момент события online
+    // состояние ещё старое, и вопрос из очереди встал бы ждать снова.
+    if (browserOffline()) {
+      setMessages(prev => [...prev, { role: 'assistant', content: offlineReply(text, earlier, asked) }]);
       return;
     }
     setLoading(true);
@@ -370,9 +386,12 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
         searchFallback: isAiErrorReply(reply) ? text : undefined,
       }]);
       if (routes?.length) setRouteSaveState('idle');
+      // Сервер ответил — связь есть: ждавшие её вопросы уходят следом.
+      waitingApi.connected();
     } catch (err) {
-      setMessages(prev => [...prev, isOfflineFailure(err)
-        ? { role: 'assistant', content: offlineKuzmichAnswer(text, earlier, readSavedRouteFacts()) }
+      const content = isOfflineFailure(err) ? offlineReply(text, earlier, asked) : null;
+      setMessages(prev => [...prev, content !== null
+        ? { role: 'assistant', content }
         : { role: 'assistant', content: 'Сервер недоступен. При опасности звоните 112 (МЧС).', searchFallback: text }]);
     } finally {
       setLoading(false);
@@ -457,6 +476,9 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
                   </div>
                 )}
               </div>
+              {msg.role === 'user' && msg.askedOffline && (
+                <p className="text-xs text-[var(--text-muted)] mr-9">{askedOfflineCaption(msg.askedOffline)}</p>
+              )}
 
               {/* Route cards */}
               {msg.role === 'assistant' && msg.routes && msg.routes.length > 0 && (
@@ -568,6 +590,15 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
               style={{ background: 'color-mix(in srgb, var(--warning) 10%, var(--bg-card))', color: 'var(--warning)', border: '1px solid color-mix(in srgb, var(--warning) 25%, transparent)' }}>
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
               Сеть недоступна. Кузьмич отвечает памятками по безопасности, записанными заранее. SOS: 112
+            </div>
+          )}
+          {waitingApi.waiting.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-3 mb-2" aria-live="polite">
+              <p className="text-xs text-[var(--text-muted)]">{waitingStrip(waitingApi.waiting.length)}</p>
+              <button type="button" onClick={waitingApi.clear}
+                className="min-h-[44px] text-xs text-[var(--ocean)] hover:underline">
+                Не отправлять
+              </button>
             </div>
           )}
           <form onSubmit={e => { e.preventDefault(); void sendMessage(input.trim()); }} className="flex gap-2">
