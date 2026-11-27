@@ -34,10 +34,12 @@ describe('/map открывается обзором края', () => {
     const vedarAt = SRC.indexOf('<VedarMap\n');
     expect(vedarAt).toBeGreaterThan(0);
     const vedar = SRC.slice(vedarAt, vedarAt + 3000);
-    expect(vedar).toMatch(/center=\{OVERVIEW_CENTER\}\s*\n\s*zoom=\{OVERVIEW_ZOOM\}/);
+    // Обзор — всегда, кроме ссылки на место (`/map?place=…`, рендером в
+    // tests/unit/map-page-focus.test.tsx).
+    expect(vedar).toMatch(/center=\{focusCenter \?\? OVERVIEW_CENTER\}\s*\n\s*zoom=\{focusCenter \? PLACE_FOCUS_ZOOM : OVERVIEW_ZOOM\}/);
     const fallbackAt = SRC.indexOf('<LeafletMap', vedarAt);
     const fallback = SRC.slice(fallbackAt, fallbackAt + 300);
-    expect(fallback).toMatch(/center=\{OVERVIEW_CENTER\}\s*\n\s*zoom=\{OVERVIEW_ZOOM_LEAFLET\}/);
+    expect(fallback).toMatch(/center=\{focusCenter \?\? OVERVIEW_CENTER\}\s*\n\s*zoom=\{focusCenter \? PLACE_FOCUS_ZOOM_LEAFLET : OVERVIEW_ZOOM_LEAFLET\}/);
     expect(SRC).toMatch(/const OVERVIEW_ZOOM_LEAFLET = OVERVIEW_ZOOM \+ 1;/);
   });
 });

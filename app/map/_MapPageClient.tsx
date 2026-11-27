@@ -66,6 +66,8 @@ import { clipAtWord } from '@/lib/text/clip-at-word';
 import { withClosure } from '@/lib/safety/place-closure';
 import { useInsetAbove, useInsetBelow } from '@/hooks/useInsetBelow';
 import { geolocationWatch } from '@/lib/geo/current-position';
+import type { MapFocus } from '@/lib/map/map-target';
+import { MapFocusNotice } from '@/components/map/MapFocusNotice';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
   ssr: false,
@@ -214,11 +216,28 @@ function styleGeometry(g: MapMarkerGeometry | null | undefined): MapMarkerGeomet
 interface MapPageClientProps {
   /** Адрес хранилища пакетов, с сервера — см. app/map/page.tsx. */
   mapPackBaseUrl?: string | null;
+  /**
+   * Место по ссылке (`?place=`, payload MAX `place-…`) — с сервера, из базы
+   * (lib/map/map-focus.ts). null — ссылка не про место.
+   */
+  focus?: MapFocus | null;
+  /** Ссылка «обстановка на карте» — панель угроз по районам открыта сразу. */
+  openSafety?: boolean;
 }
 
-export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientProps = {}) {
+/**
+ * Масштаб карты на месте по ссылке: виден сам объект и его окрестность.
+ * Leaflet на ступень крупнее, как и обзор (OVERVIEW_ZOOM_LEAFLET).
+ */
+const PLACE_FOCUS_ZOOM = 10;
+const PLACE_FOCUS_ZOOM_LEAFLET = PLACE_FOCUS_ZOOM + 1;
+
+export default function MapPageClient({ mapPackBaseUrl = null, focus = null, openSafety = false }: MapPageClientProps = {}) {
   const { isDark, toggleTheme } = useTheme();
-  const [activeFilter, setActiveFilter] = useState<string>(ON_ROUTE_FILTER);
+  const focusPlace = focus?.state === 'place' ? focus.place : null;
+  // Место по ссылке видно при любом фильтре: «на маршруте» его могло бы
+  // спрятать, и человек открыл бы ссылку на пустое место карты.
+  const [activeFilter, setActiveFilter] = useState<string>(focusPlace ? 'all' : ON_ROUTE_FILTER);
   const [allRoutes, setAllRoutes] = useState<RoutePoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
@@ -227,7 +246,11 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
   // VedarMap»): своя карта отдаёт готовое место слоем vedar-places, а не id
   // из живого списка allRoutes — карточка строится прямо из тапа, детали
   // подтягивает сама (PlaceMapSheet, /api/places/[id]).
-  const [vedarPlaceHit, setVedarPlaceHit] = useState<VedarMapPlaceHit | null>(null);
+  // Место по ссылке открывается тем же листом, что и тап по карте.
+  const [vedarPlaceHit, setVedarPlaceHit] = useState<VedarMapPlaceHit | null>(() => (focusPlace
+    ? { id: focusPlace.id, name: focusPlace.title, kind: focusPlace.locationType, lat: focusPlace.lat, lng: focusPlace.lng }
+    : null));
+  const focusCenter: [number, number] | null = focusPlace ? [focusPlace.lat, focusPlace.lng] : null;
   // Пакеты своей карты — те же, что на полевом экране (builtRegionPacks):
   // обзор всего края плюс районы и клетки, подкладываются по видимой
   // области. Своя карта включается по НАЛИЧИЮ обзорного пакета, Leaflet —
@@ -548,8 +571,8 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
 
         {/* Карта на весь экран */}
         <LeafletMap
-          center={MAP_CENTER}
-          zoom={MAP_ZOOM_ONLINE}
+          center={focusCenter ?? MAP_CENTER}
+          zoom={focusCenter ? PLACE_FOCUS_ZOOM_LEAFLET : MAP_ZOOM_ONLINE}
           markers={allMarkers}
           height="100dvh"
           onMarkerClick={handleMarkerClick}
@@ -822,8 +845,8 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
                 oceanUrl: overviewSource.oceanUrl,
                 attribution: '© Copernicus DEM (ESA)',
               } : null}
-              center={OVERVIEW_CENTER}
-              zoom={OVERVIEW_ZOOM}
+              center={focusCenter ?? OVERVIEW_CENTER}
+              zoom={focusCenter ? PLACE_FOCUS_ZOOM : OVERVIEW_ZOOM}
               height="calc(100vh - 180px)"
               showUserLocation={showMyLocation}
               packs={regionPacks}
@@ -852,8 +875,8 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
             </IdleMount>
           ) : (
             <LeafletMap
-              center={OVERVIEW_CENTER}
-              zoom={OVERVIEW_ZOOM_LEAFLET}
+              center={focusCenter ?? OVERVIEW_CENTER}
+              zoom={focusCenter ? PLACE_FOCUS_ZOOM_LEAFLET : OVERVIEW_ZOOM_LEAFLET}
               markers={allMarkers}
               // Низ рамки — над таб-баром телефона (--bottom-nav-h, на
               // компьютере 0). Без вычета рамка уходила под бар на 33 px, и
@@ -892,7 +915,8 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
               кнопка «моё место»: плашка встаёт между ними, а не поверх
               «+»/«−» (владелец 02.10: «тревоги перекрывают кнопку масштаб»). */}
           <div className="absolute top-3 left-16 right-16 z-[500] flex flex-col items-start gap-2">
-            <MapThreatChip />
+            <MapThreatChip defaultOpen={openSafety} />
+            <MapFocusNotice focus={focus} />
             {userPos && <MapWeatherChip lat={userPos.lat} lng={userPos.lng} />}
             {/* Сбой своей карты — здесь, в той же колонке, что и тревоги:
                 в углу карты строку накрывает эта колонка (тот же урок, что

@@ -52,7 +52,7 @@ describe('плашка на карте', () => {
   const map = read('app/map/_MapPageClient.tsx');
 
   it('подключена на /map и берёт общий источник', () => {
-    expect(map).toMatch(/<MapThreatChip \/>/);
+    expect(map).toMatch(/<MapThreatChip defaultOpen=\{openSafety\} \/>/);
     expect(chip).toMatch(/fetch\('\/api\/public\/safety-status'\)/);
     expect(chip).toMatch(/mapThreatSummary\(/);
   });

@@ -90,7 +90,8 @@ describe('карта: слой и страница', () => {
   });
 
   it('первый экран — по-прежнему места с маршрутом, не толчки', () => {
-    expect(PAGE).toMatch(/useState<string>\(ON_ROUTE_FILTER\)/);
+    // Ссылка на место открывает «Все» (tests/unit/map-page-focus.test.tsx).
+    expect(PAGE).toMatch(/useState<string>\((?:focusPlace \? 'all' : )?ON_ROUTE_FILTER\)/);
   });
 
   it('«не прочитали» называется словами, а не нулём', () => {
