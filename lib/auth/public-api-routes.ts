@@ -78,6 +78,12 @@ export const PUBLIC_API_ROUTES: Record<string, PublicApiMethods> = {
   '/api/a2a': 'ALL',
   '/api/telegram': 'ALL',          // Telegram webhook
   '/api/max': 'ALL',               // MAX bot webhook
+  // Репостер TG→MAX. До 27.11 записи не было, и Edge отвечал 401
+  // анонимному POST от Telegram — даже после setWebhook посты не доходили.
+  // Секрет сверяет хендлер (REPOSTER_WEBHOOK_SECRET, заголовок
+  // X-Telegram-Bot-Api-Secret-Token): без секрета 503, несовпадение 403.
+  // /setup, /chats и /bulk в реестр не входят — только admin.
+  '/api/bots/reposter/webhook': ['POST'],
   '/api/exolve/events': ['POST'],  // события SMS от МТС Exolve (статусы доставки, входящие); секрет в URL сверяется внутри
   '/api/operators': ['GET'],        // публичный каталог партнёров
   '/api/assistant': ['GET', 'POST'],  // «АI-помощник Камчатки» — история + чат
