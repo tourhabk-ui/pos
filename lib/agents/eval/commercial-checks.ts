@@ -587,7 +587,7 @@ export function judgeCommercial(input: CommercialInput): CommercialVerdict {
       }
       case 'no_safety_ranking':
         return hasSafetyRanking(answer)
-          ? { kind: c.kind, outcome: 'fail', reason: 'выдуманная оценка безопасности способа или тура («самый / единственный безопасный …»)' }
+          ? { kind: c.kind, outcome: 'fail', reason: 'оценка безопасности способа или тура без данных Ведара' }
           : { kind: c.kind, outcome: 'pass', reason: 'оценки безопасности способа или тура нет' };
       case 'over_budget_flagged': {
         // Только цены за человека: «140 000 ₽/группа» — не «дороже бюджета с человека».
