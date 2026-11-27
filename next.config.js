@@ -6,15 +6,13 @@
 // не ослабляется ни на символ.
 const DEV_EVAL = process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : '';
 
-// CSP страниц сайта (блок `/:path((?!widget/).*)` в headers ниже; почему в нём
-// что — комментарии там же). Вынесен в константу, чтобы узкий вход карты для
-// мини-приложения MAX получал тот же заголовок плюс один адрес, а не копию.
-const PAGE_CSP = `default-src 'self'; script-src 'self' 'unsafe-inline'${DEV_EVAL} https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru https://mc.yandex.com https://yastatic.net https://telegram.org; style-src 'self' 'unsafe-inline' https://*.yandex.ru; frame-src 'self' blob: https://oauth.telegram.org https://web.telegram.org https://t.me https://mc.yandex.ru https://mc.yandex.com https://mc.webvisor.com https://mc.webvisor.org; img-src 'self' data: https: blob:; connect-src 'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.com https://mc.yandex.md https://mc.webvisor.com https://mc.webvisor.org wss://mc.yandex.ru wss://mc.yandex.com wss://mc.webvisor.com wss://mc.webvisor.org https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tile.opentopomap.org https://*.tile.opentopomap.org https://s3.twcstorage.ru https://web.telegram.org https://oauth.telegram.org; font-src 'self' data: https://*.yandex.ru; worker-src 'self' blob:; child-src 'self' blob: https://mc.yandex.ru https://mc.yandex.com https://mc.webvisor.com https://mc.webvisor.org; media-src 'self' https://s3.twcstorage.ru;`;
 // Мост мини-приложения MAX (lib/miniapp/bridge.ts, MAX_BRIDGE_SRC): только для
 // `/map/compact` — слово владельца 27.11 «1 да» (план CHAT_MINIAPPS_PLAN §6.1:
-// «скрипты подключаются только при признаке оболочки»).
+// «скрипты подключаются только при признаке оболочки»). CSP узкого входа —
+// тот же заголовок страниц плюс один адрес в script-src: собирается в
+// headers() из общего блока, а не копией строки.
 const MAX_BRIDGE_ORIGIN = 'https://st.max.ru';
-const MINIAPP_MAP_CSP = PAGE_CSP.replace(/script-src ([^;]*);/, (_m, src) => `script-src ${src} ${MAX_BRIDGE_ORIGIN};`);
+const withMaxBridge = (csp) => csp.replace(/script-src ([^;]*);/, (_m, src) => `script-src ${src} ${MAX_BRIDGE_ORIGIN};`);
 
 // Permissions-Policy (аудит 16.11, #3463): что странице и встроенным в неё
 // фреймам позволено просить у устройства. Своему сайту — только то, чем он
@@ -482,7 +480,7 @@ const nextConfig = {
   },
 
   async headers() {
-    return [
+    const rules = [
       // HTML-страницы не должны кэшироваться на CDN/прокси —
       // «статус дня» и персональные данные не должны отдаваться из edge-кэша.
       //
@@ -584,7 +582,7 @@ const nextConfig = {
           // к уже стоявшему mc.yandex.ru добавлены yastatic.net, mc.yandex.com,
           // mc.webvisor.com / mc.webvisor.org и blob: во frame-src/child-src.
           // Региональные зоны не добавляем. img-src https: уже покрывает /watch/.
-          { key: 'Content-Security-Policy', value: PAGE_CSP },
+          { key: 'Content-Security-Policy', value: `default-src 'self'; script-src 'self' 'unsafe-inline'${DEV_EVAL} https://api-maps.yandex.ru https://*.yandex.ru https://mc.yandex.ru https://mc.yandex.com https://yastatic.net https://telegram.org; style-src 'self' 'unsafe-inline' https://*.yandex.ru; frame-src 'self' blob: https://oauth.telegram.org https://web.telegram.org https://t.me https://mc.yandex.ru https://mc.yandex.com https://mc.webvisor.com https://mc.webvisor.org; img-src 'self' data: https: blob:; connect-src 'self' https://*.yandex.ru https://*.yandex.net https://mc.yandex.ru https://mc.yandex.com https://mc.yandex.md https://mc.webvisor.com https://mc.webvisor.org wss://mc.yandex.ru wss://mc.yandex.com wss://mc.webvisor.com wss://mc.webvisor.org https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tile.opentopomap.org https://*.tile.opentopomap.org https://s3.twcstorage.ru https://web.telegram.org https://oauth.telegram.org; font-src 'self' data: https://*.yandex.ru; worker-src 'self' blob:; child-src 'self' blob: https://mc.yandex.ru https://mc.yandex.com https://mc.webvisor.com https://mc.webvisor.org; media-src 'self' https://s3.twcstorage.ru;` },
           // worker-src (01.09): MapLibre GL поднимает воркеры из blob:-URL
           // собственного бандла. Без явного worker-src браузер берёт
           // default-src 'self' и запрещает blob: — воркера нет, тайлы не
@@ -603,13 +601,6 @@ const nextConfig = {
           // списка занимает месяцы.
           { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' },
         ],
-      },
-      // Узкий вход карты для мини-приложения MAX: тот же CSP страниц плюс мост
-      // MAX в script-src. Блок стоит ПОСЛЕ общего: из двух совпавших правил с
-      // одним заголовком Next берёт последнее.
-      {
-        source: '/map/compact',
-        headers: [{ key: 'Content-Security-Policy', value: MINIAPP_MAP_CSP }],
       },
       // Контентные фото меняются только новым файлом (нарезка — коммитом),
       // поэтому кэшируем надолго: повторный визит с поля не должен тянуть
@@ -657,6 +648,15 @@ const nextConfig = {
         ],
       },
     ];
+    // Узкий вход карты для мини-приложения MAX: CSP страниц плюс мост MAX в
+    // script-src. Правило стоит ПОСЛЕ общего: из двух совпавших правил с
+    // одним заголовком Next берёт последнее.
+    const pageCsp = rules
+      .find((r) => r.source === '/:path((?!widget/).*)')
+      ?.headers.find((h) => h.key === 'Content-Security-Policy')?.value;
+    if (!pageCsp) throw new Error('next.config.js: CSP страниц не найдена — узкому входу карты не из чего собрать свою');
+    rules.push({ source: '/map/compact', headers: [{ key: 'Content-Security-Policy', value: withMaxBridge(pageCsp) }] });
+    return rules;
   },
 }
 
