@@ -19,6 +19,7 @@ import { tourPhotoPosition } from '@/lib/tours/photo-focus';
 import { tourPath } from '@/lib/tours/tour-url';
 import { randomUuid } from '@/lib/security/random-uuid';
 import { browserOffline, isOfflineFailure, offlineKuzmichAnswer } from '@/lib/kuzmich/offline-answer';
+import { readSavedRouteFacts } from '@/lib/offline/route-facts';
 
 interface TourSuggestion {
   id: number;
@@ -317,7 +318,7 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
     setInput('');
     // Без сети запрос не уходит: ответ — памятка Спасателя, записанная заранее.
     if (isOffline || browserOffline()) {
-      setMessages(prev => [...prev, { role: 'assistant', content: offlineKuzmichAnswer(text, earlier) }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: offlineKuzmichAnswer(text, earlier, readSavedRouteFacts()) }]);
       return;
     }
     setLoading(true);
@@ -371,7 +372,7 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
       if (routes?.length) setRouteSaveState('idle');
     } catch (err) {
       setMessages(prev => [...prev, isOfflineFailure(err)
-        ? { role: 'assistant', content: offlineKuzmichAnswer(text, earlier) }
+        ? { role: 'assistant', content: offlineKuzmichAnswer(text, earlier, readSavedRouteFacts()) }
         : { role: 'assistant', content: 'Сервер недоступен. При опасности звоните 112 (МЧС).', searchFallback: text }]);
     } finally {
       setLoading(false);

@@ -30,6 +30,7 @@ import { readChatAnswer } from '@/lib/kuzmich/turn-steps';
 import AnswerSources from '@/components/kuzmich/AnswerSources';
 import type { AnswerSource } from '@/lib/kuzmich/answer-sources';
 import { OfflineError, browserOffline, isOfflineFailure, offlineKuzmichAnswer } from '@/lib/kuzmich/offline-answer';
+import { readSavedRouteFacts } from '@/lib/offline/route-facts';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -522,7 +523,7 @@ export default function KuzmichClient() {
       const fail: Message = {
         role: 'assistant',
         content: stopped ? TURN_STOPPED_TEXT
-          : isOfflineFailure(err) ? offlineKuzmichAnswer(text.trim(), earlier)
+          : isOfflineFailure(err) ? offlineKuzmichAnswer(text.trim(), earlier, readSavedRouteFacts())
           : 'Нет связи. Попробуйте позже.',
       };
       messagesRef.current = [...messagesRef.current, fail];
