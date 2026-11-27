@@ -5,10 +5,16 @@
  * Агенты больше не просто "разговаривают" — они действуют.
  *
  * Инструменты:
- *  - runDiagnosticQuery   — выполняет безопасный SELECT для самодиагностики
- *  - applySchemaFix       — применяет SQL-патч к БД (только DDL/safe DML)
  *  - sendBoardAlert       — Telegram-уведомление администратору о действии агента
  *  - scanSQLErrors        — сканирует agency-файлы и возвращает список ошибок
+ *
+ * runDiagnosticQuery и applySchemaFix УДАЛЕНЫ 27.11 (разбор #1428, слово
+ * владельца «удалить если её никто не вызывает»). Их не звал никто, кроме
+ * тестов, но обе исполняли SQL, который пишет вызывающий: первая — любой
+ * SELECT (чтение любой таблицы, включая ПД, и функции с побочным действием),
+ * вторая — любой DDL с отсевом по списку запрещённого (`DROP SCHEMA`, `ALTER`,
+ * `GRANT` проходили). Схема меняется только миграцией (CLAUDE.md §4), а
+ * диагностика прода — переписями `/api/cron/*` с заранее написанным SQL.
  */
 
 import fs from 'fs';
@@ -117,103 +123,6 @@ const AGENCIES_DIR = path.join(process.cwd(), 'lib', 'agents', 'agencies');
  * `scanSQLErrors` оставлен как ПЕРЕПИСЬ — он только читает и ничего не пишет.
  */
 
-/** Потолок строк диагностики: инструмент для взгляда, а не для выгрузки. */
-export const DIAGNOSTIC_ROW_LIMIT = 20;
-
-/**
- * Ограничение ставится ОБЁРТКОЙ, а не дописыванием ` LIMIT 20` в хвост.
- *
- * Дописывание ломается ровно там, где диагностику и пишут: у запроса с CTE
- * (`WITH ... SELECT`), с `UNION`, с завершающей точкой с запятой. Обёртка
- * подзапросом работает с любым SELECT, включая эти три случая, и не требует
- * разбирать чужой SQL регулярками.
- *
- * До 06.09 потолка не было вовсе: `rows.slice(0, 20)` обрезал УЖЕ полученный
- * результат, то есть `SELECT * FROM большая_таблица` сначала целиком приезжал
- * в память и только потом обрезался. Срез выглядел ограничением, не будучи им.
- */
-export function withDiagnosticLimit(sql: string): string {
-  const one = sql.trim().replace(/;\s*$/, '');
-  return `SELECT * FROM (${one}) AS diagnostic_scope LIMIT ${DIAGNOSTIC_ROW_LIMIT}`;
-}
-
-/**
- * Выполняет безопасный SELECT-запрос для диагностики.
- */
-export async function runDiagnosticQuery(
-  sql: string,
-  label: string = 'diagnostic'
-): Promise<ToolResult> {
-  const normalized = sql.trim().toUpperCase();
-  const forbidden = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE', 'CREATE'];
-
-  for (const kw of forbidden) {
-    if (normalized.startsWith(kw) || normalized.includes(`; ${kw}`)) {
-      return {
-        success: false,
-        message: `Запрос отклонён: содержит запрещённую операцию ${kw}`,
-      };
-    }
-  }
-
-  // Ровно один запрос. Точка с запятой в середине — это второй запрос, а
-  // проверка запрещённых слов выше смотрит только на начало и на `; KEYWORD`.
-  if (/;/.test(sql.trim().replace(/;\s*$/, ''))) {
-    return { success: false, message: 'Запрос отклонён: диагностика выполняет ровно один запрос' };
-  }
-
-  try {
-    const result = await pool.query(withDiagnosticLimit(sql));
-    await logToolAction('db_diagnostic', { label, row_count: result.rowCount });
-    return {
-      success: true,
-      // Полного числа строк мы больше НЕ ЗНАЕМ — и не выдаём потолок за него.
-      message: `Диагностика завершена. Строк получено: ${result.rowCount ?? 0} (потолок ${DIAGNOSTIC_ROW_LIMIT})`,
-      details: { rows: result.rows, row_count: result.rowCount, row_limit: DIAGNOSTIC_ROW_LIMIT },
-    };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    await logToolAction('db_diagnostic', { label, error: msg });
-    return { success: false, message: `Ошибка запроса: ${msg}` };
-  }
-}
-
-/**
- * Применяет безопасный SQL-патч к БД.
- */
-export async function applySchemaFix(
-  description: string,
-  sql: string
-): Promise<ToolResult> {
-  const normalized = sql.trim().toUpperCase();
-  const dangerous = ['DROP TABLE', 'TRUNCATE', 'DELETE FROM', 'UPDATE '];
-
-  for (const kw of dangerous) {
-    if (normalized.includes(kw)) {
-      return {
-        success: false,
-        message: `Патч отклонён: содержит опасную операцию "${kw}"`,
-      };
-    }
-  }
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query(sql);
-    await client.query('COMMIT');
-    await logToolAction('schema_fix', { description, sql: sql.substring(0, 500) });
-    return { success: true, message: `Патч применён: ${description}` };
-  } catch (err) {
-    await client.query('ROLLBACK');
-    const msg = err instanceof Error ? err.message : String(err);
-    await logToolAction('schema_fix', { description, error: msg });
-    return { success: false, message: `Ошибка патча: ${msg}` };
-  } finally {
-    client.release();
-  }
-}
-
 // Per-key cooldown to suppress repeated alerts (e.g. Infra probing AI every hour)
 const _alertCooldowns = new Map<string, number>();
 const ALERT_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours
@@ -301,20 +210,18 @@ export function scanSQLErrors(): { file: string; issues: string[] }[] {
 // 73% AI-агентов имеют избыточные права. Явный whitelist «агентство → какими
 // инструментами можно пользоваться» блокирует нежелательные действия (напр.
 // rescue-agency не пишет схему БД и не патчит чужие файлы). Принцип наименьших
-// привилегий: диагностика + алерт — почти всем; запись (fix/schema) — только
-// admin/evolution/quality.
+// привилегий: перепись исходников и алерт — живым агентствам. Инструментов
+// записи (схемы, исходников) и исполнения чужого SQL здесь нет вовсе с 27.11.
 
 export const BOARD_TOOLS = [
-  'runDiagnosticQuery',
-  'applySchemaFix',
   'sendBoardAlert',
   'scanSQLErrors',
 ] as const;
 
 export type BoardToolName = (typeof BOARD_TOOLS)[number];
 
-// Только чтение/диагностика + право сообщить администратору.
-const READONLY_SCOPE: BoardToolName[] = ['runDiagnosticQuery', 'scanSQLErrors', 'sendBoardAlert'];
+// Только чтение (перепись исходников) + право сообщить администратору.
+const READONLY_SCOPE: BoardToolName[] = ['scanSQLErrors', 'sendBoardAlert'];
 
 export const AGENCY_TOOL_SCOPE: Record<string, BoardToolName[]> = {
   // Только существующие агентства (находка аудита 08.09).
@@ -365,10 +272,6 @@ export async function executeBoardTool(
   }
 
   switch (tool) {
-    case 'runDiagnosticQuery':
-      return runDiagnosticQuery(args[0] as string, args[1] as string | undefined);
-    case 'applySchemaFix':
-      return applySchemaFix(args[0] as string, args[1] as string);
     case 'sendBoardAlert':
       return sendBoardAlert(args[0] as string, args[1] as string, args[2] as string);
     case 'scanSQLErrors': {
