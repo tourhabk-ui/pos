@@ -53,6 +53,37 @@ export function buttonActionText(content: string): string {
   return parts.join('\n');
 }
 
+/**
+ * Колбэки, пришедшие пропсами: `function C({ onApprove, onReject }: Props)`,
+ * `const C = ({ onSave }) =>` и обращения `props.onX`. Кнопка, которая зовёт
+ * такой колбэк, мутацию не делает сама — её делает родитель (разбор находок
+ * #1428: очереди модерации зовут onApprove/onReject, а POST с requireAdmin
+ * идёт из _ModerationClient).
+ */
+export function propCallbacks(content: string): Set<string> {
+  const names = new Set<string>();
+  for (const m of content.matchAll(/(?:function\s+[A-Z]\w*\s*|=\s*(?:async\s*)?)\(\s*\{([^}]*)\}/g)) {
+    for (const part of m[1].split(',')) {
+      const name = part.split(/[:=]/)[0].trim();
+      if (/^on[A-Z]\w*$/.test(name)) names.add(name);
+    }
+  }
+  for (const m of content.matchAll(/\bprops\.(on[A-Z]\w*)/g)) names.add(m[1]);
+  return names;
+}
+
+/**
+ * Каждая кнопка со словом действия в обработчике зовёт колбэк родителя.
+ * Хотя бы одна — нет (меняет только свой стейт) — делегирования нет.
+ */
+function actionsDelegated(content: string): boolean {
+  const callbacks = propCallbacks(content);
+  if (callbacks.size === 0) return false;
+  const handlers = [...content.matchAll(/onClick=\{([^}]*)\}/g)].map((m) => m[1]).filter((h) => ACTION_WORDS.test(h));
+  if (handlers.length === 0) return false;
+  return handlers.every((h) => [...callbacks].some((c) => new RegExp(`\\b(?:props\\.)?${c}\\b`).test(h)));
+}
+
 /** JSX-атрибут placeholder — подсказка в поле ввода, а не заглушка в данных. */
 function stripPlaceholderAttrs(src: string): string {
   return src.replace(/placeholder\s*=\s*(?:"[^"]*"|'[^']*'|\{[^}]*\})/g, 'placeholder=""');
@@ -114,8 +145,10 @@ export function detectMockPatterns(filePath: string, content: string): GrowthIss
   // Кнопки копирования/навигации/раскрытия мутаций не делают по замыслу, а
   // экран на серверных пропсах может мутировать через server action.
   const onlyUiButtons = NON_MUTATING_UI.test(content);
+  // Кнопки зовут колбэки родителя (onApprove из пропсов) — мутация у родителя.
+  const delegated = actionsDelegated(content);
   if (isClient && hasActionWords && /onClick=/.test(content)
-      && !hasFetch && !hasMutation && !onlyUiButtons && !serverProps) {
+      && !hasFetch && !hasMutation && !onlyUiButtons && !serverProps && !delegated) {
     issues.push({
       category: 'ux',
       severity: 'medium',

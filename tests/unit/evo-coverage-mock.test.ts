@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import { selectReviewTargets, riskScore, type LedgerEntry } from '@/lib/agents/evo/coverage-ledger';
-import { detectMockPatterns, buttonActionText } from '@/lib/agents/evo/mock-detector';
+import { detectMockPatterns, buttonActionText, propCallbacks } from '@/lib/agents/evo/mock-detector';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -277,5 +277,55 @@ describe('detectMockPatterns — действие ищется на кнопке
       <p>Оплата — после подтверждения</p>
       <button onClick={onClose}><X /></button>`);
     expect(/подтверд/i.test(t)).toBe(false);
+  });
+});
+
+/**
+ * Ложняк разбора находок #1428 (27.11): очереди модерации — кнопки зовут
+ * onApprove/onReject из пропсов, а POST с requireAdmin идёт из родителя
+ * (_ModerationClient). Колбэк родителя — мутация, а не пустышка.
+ */
+describe('detectMockPatterns — колбэк из пропсов считается мутацией', () => {
+  const TITLE = 'Кнопки действий без мутации';
+  for (const file of ['components/admin/PricingRuleQueue.tsx', 'components/admin/TourEditQueue.tsx']) {
+    it(`${file} — НЕ находка (решение уходит родителю)`, () => {
+      const src = readFileSync(join(process.cwd(), file), 'utf8');
+      expect(detectMockPatterns(file, src).some((f) => f.title === TITLE)).toBe(false);
+    });
+  }
+
+  it('родитель этих очередей действительно делает POST — иначе ложняк был бы не ложняком', () => {
+    const parent = readFileSync(join(process.cwd(), 'app/hub/admin/moderation/_ModerationClient.tsx'), 'utf8');
+    expect(parent).toMatch(/\/api\/admin\/moderation\/pricing-rules\//);
+    expect(parent).toMatch(/\/api\/admin\/moderation\/tour-edits\//);
+    expect(parent).toMatch(/method:\s*'POST'/);
+  });
+
+  it('props.onX тоже колбэк родителя', () => {
+    const src = `'use client';
+    export function Q(props: Props) {
+      return <button onClick={() => props.onApprove(1)}>Одобрить</button>;
+    }`;
+    expect(detectMockPatterns('components/x/Q.tsx', src).some((f) => f.title === TITLE)).toBe(false);
+  });
+
+  it('колбэки есть, но кнопка действия меняет только свой стейт — находка', () => {
+    const src = `'use client';
+    export function Q({ onRetry }: Props) {
+      const [ok, setOk] = useState(false);
+      return <><button onClick={onRetry}>Повторить</button>
+        <button onClick={() => setOk(true) /* confirm */}>Подтвердить</button></>;
+    }`;
+    expect(propCallbacks(src)).toEqual(new Set(['onRetry']));
+    expect(detectMockPatterns('components/x/Q.tsx', src).some((f) => f.title === TITLE)).toBe(true);
+  });
+
+  it('одна кнопка зовёт родителя, другая — нет: находка остаётся', () => {
+    const src = `'use client';
+    export function Q({ onApprove }: Props) {
+      return <><button onClick={() => onApprove(1)}>Одобрить</button>
+        <button onClick={() => setRejected(true)}>Отклонить</button></>;
+    }`;
+    expect(detectMockPatterns('components/x/Q.tsx', src).some((f) => f.title === TITLE)).toBe(true);
   });
 });
