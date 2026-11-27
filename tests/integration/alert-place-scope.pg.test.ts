@@ -771,20 +771,6 @@ withPg('кого накрывает предупреждение', () => {
   });
 
   // ── Морская тревога не висит на горных местах (решение владельца 09.10, #2293) ──
-  it('волнение моря по северной зоне: озеро — да, вулканы и горы — нет', async () => {
-    const id = await insertAlert({
-      type: 'weather', title: 'Экстренное предупреждение на 8-9 октября 2026 г. (опасное волнение моря)', zones: ['northern'],
-    });
-    expect(await coveredBy(id)).toEqual([FAR_NORTH.id]);
-  });
-
-  it('перелив кос морской водой по северной зоне: озеро — да, вулканы и горы — нет (#3859)', async () => {
-    const id = await insertAlert({
-      type: 'weather', title: 'Экстренное предупреждение на 27 ноября 2026 г. (переливание песчаных кос морской водой)', zones: ['northern'],
-    });
-    expect(await coveredBy(id)).toEqual([FAR_NORTH.id]);
-  });
-
   it('ветер вместе с волнением моря — не морская: вулкан её получает', async () => {
     const id = await insertAlert({
       type: 'weather', title: 'Экстренное предупреждение (сильный ветер, опасное волнение моря, тест)', zones: ['northern'],
@@ -794,16 +780,71 @@ withPg('кого накрывает предупреждение', () => {
     expect(covered.length).toBe(5);
   });
 
-  it('«прибрежные события» Росгидромета на весь край: город у моря — да, вулкан — нет', async () => {
-    const id = await insertAlert({
-      type: 'weather', title: 'Росгидромет: прибрежные события — жёлтый уровень (юг края)',
-      zones: ['avachinsky', 'eastern', 'western', 'northern'],
+  /**
+   * С 26.11 (слово владельца «2в», #3859) морская тревога не висит и на
+   * внутренних местах: озеро, горячий источник, смотровая, историческое место.
+   * Перелив кос 27.11 лёг на источники и Шаманскую поляну Эссо и на Курильское
+   * озеро. Свои места сцена кладёт и убирает сама: общий мир теста меряет охват
+   * счётом.
+   */
+  describe('морская тревога: берег — да, горы и внутренние места — нет', () => {
+    const SHORE_NORTH = { id: 'Пляж северного берега (тест 2в)', ark: 'c0000000-0000-4000-8000-000000000071', lat: 57.900, lng: 159.900, type: 'beach', zone: 'northern' };
+    const SHORE_SOUTH = { id: 'Бухта южного берега (тест 2в)', ark: 'c0000000-0000-4000-8000-000000000072', lat: 53.000, lng: 158.600, type: 'bay', zone: 'avachinsky' };
+    const SPRING = { id: 'Горячие источники в глубине края (тест 2в)', ark: 'c0000000-0000-4000-8000-000000000073', lat: 55.927, lng: 158.679, type: 'hot_spring', zone: 'northern' };
+    const HISTORICAL = { id: 'Историческая поляна в глубине края (тест 2в)', ark: 'c0000000-0000-4000-8000-000000000074', lat: 55.930, lng: 158.690, type: 'historical', zone: 'northern' };
+    const VIEW = { id: 'Смотровая в глубине края (тест 2в)', ark: 'c0000000-0000-4000-8000-000000000075', lat: 55.935, lng: 158.700, type: 'viewpoint', zone: 'northern' };
+    const OWN = [SHORE_NORTH, SHORE_SOUTH, SPRING, HISTORICAL, VIEW];
+
+    beforeAll(async () => {
+      for (const p of OWN) {
+        await pool.query(
+          `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+           VALUES ($1, $1, $2, $3, $4, $5, $6, TRUE)`,
+          [p.id, p.lat, p.lng, p.ark, p.type, p.zone],
+        );
+        await pool.query(`INSERT INTO location_real_time_status (agent_route_id) VALUES ($1)`, [p.ark]);
+      }
     });
-    const covered = await coveredBy(id);
-    expect(covered).toContain(CITY.id);
-    expect(covered).toContain(FAR_NORTH.id);
-    expect(covered).not.toContain(SHIVELUCH.id);
-    expect(covered).not.toContain(KLYUCHEVSKOY.id);
+
+    afterAll(async () => {
+      for (const p of OWN) {
+        await pool.query(`DELETE FROM location_real_time_status WHERE agent_route_id = $1`, [p.ark]);
+        await pool.query(`DELETE FROM places WHERE id = $1`, [p.id]);
+      }
+    });
+
+    it('волнение моря по северной зоне: пляж — да; озеро, источник, поляна, смотровая, вулканы и горы — нет', async () => {
+      const id = await insertAlert({
+        type: 'weather', title: 'Экстренное предупреждение на 8-9 октября 2026 г. (опасное волнение моря)', zones: ['northern'],
+      });
+      expect(await coveredBy(id)).toEqual([SHORE_NORTH.id]);
+    });
+
+    it('перелив кос морской водой по северной зоне: тот же охват (#3859)', async () => {
+      const id = await insertAlert({
+        type: 'weather', title: 'Экстренное предупреждение на 27 ноября 2026 г. (переливание песчаных кос морской водой)', zones: ['northern'],
+      });
+      expect(await coveredBy(id)).toEqual([SHORE_NORTH.id]);
+    });
+
+    it('«прибрежные события» Росгидромета на весь край: оба берега — да; озеро, источники, вулканы — нет', async () => {
+      const id = await insertAlert({
+        type: 'weather', title: 'Росгидромет: прибрежные события — жёлтый уровень (юг края)',
+        zones: ['avachinsky', 'eastern', 'western', 'northern'],
+      });
+      const covered = await coveredBy(id);
+      expect(covered).toContain(SHORE_NORTH.id);
+      expect(covered).toContain(SHORE_SOUTH.id);
+      for (const p of [FAR_NORTH, SPRING, HISTORICAL, VIEW, SHIVELUCH, KLYUCHEVSKOY]) expect(covered, p.id).not.toContain(p.id);
+    });
+
+    it('та же тревога с ветром — не морская: внутренние места её получают', async () => {
+      const id = await insertAlert({
+        type: 'weather', title: 'Экстренное предупреждение (сильный ветер, переливание кос морской водой, тест 2в)', zones: ['northern'],
+      });
+      const covered = await coveredBy(id);
+      for (const p of [SPRING, HISTORICAL, VIEW, FAR_NORTH, SHORE_NORTH]) expect(covered, p.id).toContain(p.id);
+    });
   });
 
   it('сервер узнаёт морскую тревогу так же, как isMarineAlert', async () => {
