@@ -1,3 +1,8 @@
+---
+name: make-interfaces-feel-better
+description: "Polish the small details that make an interface feel finished: concentric border radius, optical alignment, shadows instead of borders, interruptible and staggered animations, font smoothing, tabular numbers, text wrapping, image outlines, press feedback, minimum hit area. Use when building a new component that needs polish, reviewing an existing component for quality issues, or when a design looks almost right but something feels off."
+---
+
 # make-interfaces-feel-better
 
 A systematic approach to refining interfaces through intentional detail work across typography, surfaces, animations, and performance.
