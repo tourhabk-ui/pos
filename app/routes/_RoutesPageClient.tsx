@@ -516,7 +516,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
         `max-w-*` — правка в утилите удвоила бы поля там и сломала
         полноширинные экраны.
       */}
-      <div className="ds-page pt-20 pb-10">
+      <main className="ds-page pt-20 pb-10">
       {/* Витрина (lib/layout/page-width, 14.11): до этого каталог мест и
           маршрутов шёл во всю ширину монитора. */}
       <div className={pageContainer('showcase')}>
@@ -925,7 +925,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
         )}
 
       </div>
-      </div>
+      </main>
     </>
   );
 }

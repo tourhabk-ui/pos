@@ -38,8 +38,9 @@ export const METEOALERT_URL =
   'https://meteoalert.meteoinfo.ru/russia/informer/ajax_informer_1.php'
   + '?lon_0=151.45312540233135&lon_1=175.60546942055228&lat_0=50.018751221459&lat_1=65.25793871571221';
 
-/** Страница, на которую ведёт тревога: карта предупреждений Гидрометцентра. */
-export const METEOALERT_PAGE = 'https://meteoinfo.ru/warnings';
+/** Страница, на которую ведёт тревога: бюллетень опасных явлений Гидрометцентра.
+ *  Старый адрес /warnings с 27.11.2026 отдаёт 404; актуальный — /hazardsbull (200). */
+export const METEOALERT_PAGE = 'https://meteoinfo.ru/hazardsbull';
 
 export const METEOALERT_PREFIX = 'meteoalert';
 

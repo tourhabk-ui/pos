@@ -87,6 +87,8 @@ export default function PlaceCard({ route, eager = false }: { route: RouteItem; 
           <img
             src={photoSrc}
             alt={route.photoAlt || route.title}
+            width={800}
+            height={600}
             loading={eager ? 'eager' : 'lazy'}
             fetchPriority={eager ? 'high' : undefined}
             decoding="async"
@@ -138,12 +140,12 @@ export default function PlaceCard({ route, eager = false }: { route: RouteItem; 
           )}
         </div>
         <Link href={placeHref} className="block">
-          <h3
+          <h2
             className="line-clamp-2 font-semibold leading-snug text-[var(--text-primary)] transition-colors group-hover:text-[var(--accent)]"
             style={{ fontFamily: 'var(--font-playfair)', fontSize: '1.0625rem' }}
           >
             {route.title}
-          </h3>
+          </h2>
         </Link>
         {km != null && (
           <p className="inline-flex items-center gap-1 text-[13px] text-[var(--text-secondary)] tabular-nums" data-testid="place-card-distance">

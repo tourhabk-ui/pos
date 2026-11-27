@@ -226,9 +226,11 @@ export function BookingFormCard({
             </label>
             <div className="flex items-center border border-[var(--border)] rounded-lg overflow-hidden">
               <button type="button" onClick={() => setParticipants(p => Math.max(1, p - 1))}
+                aria-label="Уменьшить число человек"
                 className="px-3 py-2 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors text-sm">-</button>
               <span className="flex-1 text-center text-sm text-[var(--text-primary)]">{participants}</span>
               <button type="button" onClick={() => setParticipants(p => Math.min(50, p + 1))}
+                aria-label="Увеличить число человек"
                 className="px-3 py-2 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors text-sm">+</button>
             </div>
           </div>
@@ -718,9 +720,9 @@ export default function KuzmichClient() {
           <div className="px-4 pt-3 flex items-center gap-2">
             <div className="relative">
               <Image src={imagePreview} alt="Фото" width={56} height={56} className="rounded-lg object-cover h-14 w-14" />
-              <button onClick={clearImage}
+              <button type="button" onClick={clearImage} aria-label="Убрать фото"
                 className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[var(--danger)] flex items-center justify-center">
-                <X className="w-2.5 h-2.5 text-white" />
+                <X className="w-2.5 h-2.5 text-white" aria-hidden="true" />
               </button>
             </div>
             <div className="min-w-0">
@@ -748,8 +750,9 @@ export default function KuzmichClient() {
             disabled={preparingImage}
             className="p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors shrink-0 disabled:opacity-50"
             title={preparingImage ? 'Готовим фото...' : 'Отправить фото'}
+            aria-label={preparingImage ? 'Готовим фото' : 'Прикрепить фото'}
           >
-            {preparingImage ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
+            {preparingImage ? <Loader2 size={18} className="animate-spin" aria-hidden="true" /> : <Camera size={18} aria-hidden="true" />}
           </button>
 
           <Sparkles className="w-5 h-5 text-[var(--accent)] shrink-0" />
@@ -763,8 +766,9 @@ export default function KuzmichClient() {
             className="flex-1 min-w-0 bg-transparent text-[var(--text-primary)] placeholder:text-[var(--text-muted)] text-base sm:text-sm outline-none"
           />
           <button type="button" onClick={() => send(input)} disabled={!input.trim() && !imageFile}
+            aria-label="Отправить"
             className="p-2 rounded-lg bg-[var(--accent)] text-white disabled:opacity-40 transition-opacity hover:opacity-90">
-            <Send size={16} />
+            <Send size={16} aria-hidden="true" />
           </button>
         </div>
         {queued.length > 0 && (

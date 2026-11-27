@@ -46,7 +46,7 @@ export default function SafetyPage() {
       <JsonLd data={safetyArticleJsonLd(SITE)} />
       {/* H1 и прямой ответ — в серверном HTML сразу, затем живая обстановка
           (радар), затем статья и FAQ. Бот без JS читает лид в первых абзацах. */}
-      <div className="ds-page px-4" style={{ maxWidth: 680, margin: '0 auto', paddingBottom: 96 }}>
+      <main className="ds-page px-4" style={{ maxWidth: 680, margin: '0 auto', paddingBottom: 96 }}>
         <SectionSwipeBar items={SAFETY_SECTION_ITEMS} label="Разделы безопасности" className="-mx-4" />
         <SafetyIntro />
         <SafetyLiveIntro />
@@ -54,7 +54,7 @@ export default function SafetyPage() {
           <SafetyLive />
         </Suspense>
         <SafetyAbout />
-      </div>
+      </main>
       <BottomNav activePath="/safety" />
     </>
   );

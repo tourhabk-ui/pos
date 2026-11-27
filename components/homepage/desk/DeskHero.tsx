@@ -165,6 +165,8 @@ export function DeskHero({ brief }: { brief: DeskBrief }) {
         src={photoSrc('/images/hero/IMG_20260316_133142.jpg', 1280)}
         srcSet={photoSrcSet('/images/hero/IMG_20260316_133142.jpg')}
         alt="Скалы Три Брата в Авачинской бухте, на горизонте вулканы"
+        width={2400}
+        height={1600}
         fetchPriority="high"
         sizes="100vw"
         className="absolute inset-0 h-full w-full -z-20 object-cover object-[50%_30%]"
