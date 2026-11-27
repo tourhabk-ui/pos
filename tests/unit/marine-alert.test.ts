@@ -8,7 +8,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  isMarineAlert, LAND_TITLE, MARINE_ALERT_SQL, MARINE_TITLE, MOUNTAIN_PLACE_SQL, MOUNTAIN_PLACE_TYPES,
+  INLAND_PLACE_TYPES, isMarineAlert, LAND_TITLE, MARINE_ALERT_SQL, MARINE_EXEMPT_PLACE_SQL, MARINE_EXEMPT_PLACE_TYPES,
+  MARINE_TITLE, MOUNTAIN_PLACE_TYPES,
 } from '@/lib/safety/marine-alert';
 import { ALERT_MATCH_SQL } from '@/lib/services/safety/alert-place-scope';
 import { LOCATION_TYPES } from '@/lib/places/location-types';
@@ -68,6 +69,23 @@ describe('горные места — слово владельца 09.10', () =
   });
 });
 
+describe('внутренние места — слово владельца 26.11 «2в» (#3859)', () => {
+  it('озёра, горячие источники, смотровые и исторические места морской тревоги не получают', () => {
+    expect([...INLAND_PLACE_TYPES].sort()).toEqual(['historical', 'hot_spring', 'lake', 'viewpoint']);
+    expect([...MARINE_EXEMPT_PLACE_TYPES].sort()).toEqual([...MOUNTAIN_PLACE_TYPES, ...INLAND_PLACE_TYPES].sort());
+  });
+
+  it('каждый тип есть в справочнике типов мест', () => {
+    for (const t of INLAND_PLACE_TYPES) expect(LOCATION_TYPES[t], t).toBeDefined();
+  });
+
+  it('бухта, пляж, мыс, остров, село и место без типа морскую тревогу получают', () => {
+    for (const t of ['bay', 'beach', 'cape', 'island', 'settlement', '']) {
+      expect((MARINE_EXEMPT_PLACE_TYPES as readonly string[]).includes(t), t).toBe(false);
+    }
+  });
+});
+
 describe('SQL держит то же правило', () => {
   it('шаблоны в SQL — те же, что в isMarineAlert', () => {
     expect(MARINE_ALERT_SQL).toContain(MARINE_TITLE.source);
@@ -75,8 +93,8 @@ describe('SQL держит то же правило', () => {
     expect(MARINE_ALERT_SQL).toContain(`ea.alert_type = 'weather'`);
   });
 
-  it('правило мест исключает пару «морская тревога × горное место»', () => {
-    expect(ALERT_MATCH_SQL).toContain(`AND NOT (${MARINE_ALERT_SQL} AND ${MOUNTAIN_PLACE_SQL})`);
+  it('правило мест исключает пару «морская тревога × горное или внутреннее место»', () => {
+    expect(ALERT_MATCH_SQL).toContain(`AND NOT (${MARINE_ALERT_SQL} AND ${MARINE_EXEMPT_PLACE_SQL})`);
   });
 
   it('маршрутное зеркало отдаёт тип места колонкой — иначе общее правило упадёт на маршрутах', () => {

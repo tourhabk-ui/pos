@@ -30,7 +30,7 @@ import { TOURIST_BAN_SQL } from '@/lib/services/safety/tourist-ban';
 import { KRAI_SOUTH_MAX_LAT, KRAI_SOUTH_ZONE } from '@/lib/safety/krai-south';
 import { KURIL_NORTH_BOX_SQL } from '@/lib/safety/kuril-north';
 import { KRAI_FAR_MATCH_SQL } from '@/lib/safety/krai-far';
-import { MARINE_ALERT_SQL, MOUNTAIN_PLACE_SQL } from '@/lib/safety/marine-alert';
+import { MARINE_ALERT_SQL, MARINE_EXEMPT_PLACE_SQL } from '@/lib/safety/marine-alert';
 
 /**
  * Когда у события и у точки есть координаты И тип события таков, что
@@ -505,8 +505,9 @@ export const ALERT_MATCH_SQL = `
     -- округа доходило зоной до Ключевской и Шивелуча. Морская тревога —
     -- погодная, поэтому в другие ветки не попадает, и ограничения здесь
     -- достаточно. У маршрутов типа места нет (collect-signals) — их правило
-    -- не трогает.
-    AND NOT (${MARINE_ALERT_SQL} AND ${MOUNTAIN_PLACE_SQL})
+    -- не трогает. С 26.11 (слово владельца «2в», #3859) — и внутренние места:
+    -- озёра, горячие источники, смотровые, исторические места.
+    AND NOT (${MARINE_ALERT_SQL} AND ${MARINE_EXEMPT_PLACE_SQL})
   )
 `;
 

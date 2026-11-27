@@ -14,10 +14,11 @@
  *
  * «Не вешать на горные места»: вулканы, горы, перевалы, ледники, плато,
  * гейзеры и термальные поля морскую тревогу не получают (пещеры — с 16.10,
- * см. MOUNTAIN_PLACE_TYPES). Бухты, пляжи, мысы,
- * острова, сёла, места без типа и остальные — получают, как раньше. В общей
- * ленте (/safety, safety_status) тревога остаётся. Маршруты правило не
- * трогает: оно про места.
+ * см. MOUNTAIN_PLACE_TYPES). С 26.11 (слово владельца «2в», #3859) — и
+ * внутренние: озёра, горячие источники, смотровые, исторические места
+ * (INLAND_PLACE_TYPES). Бухты, пляжи, мысы, острова, сёла, места без типа и
+ * остальные — получают, как раньше. В общей ленте (/safety, safety_status)
+ * тревога остаётся. Маршруты правило не трогает: оно про места.
  *
  * ── Что считается морской тревогой ─────────────────────────────────────────
  *
@@ -59,6 +60,22 @@ export const LAND_TITLE = /ветер|ветр|шквал|ураган|смер�
  */
 export const MOUNTAIN_PLACE_TYPES = ['volcano', 'mountain', 'pass', 'glacier', 'plateau', 'geyser', 'thermal', 'cave'] as const;
 
+/**
+ * Внутренние места: морская тревога их тоже не касается (слово владельца 26.11
+ * «2в», #3859).
+ *
+ * Перелив кос 27.11 лёг на горячие источники и Шаманскую поляну Эссо, на
+ * смотровую «Вид на Эссо» и на Курильское озеро — за сотню километров от моря,
+ * через зону края. Расстояния до берега в данных нет, поэтому правило — по
+ * типу, как у горных мест. Цена названа владельцу: озеро у самого берега,
+ * прибрежный источник или смотровая на мысу морскую тревогу тоже больше не
+ * получают. В общей ленте края она остаётся.
+ */
+export const INLAND_PLACE_TYPES = ['lake', 'hot_spring', 'viewpoint', 'historical'] as const;
+
+/** Места без морской тревоги: горные (09.10) и внутренние (26.11). */
+export const MARINE_EXEMPT_PLACE_TYPES = [...MOUNTAIN_PLACE_TYPES, ...INLAND_PLACE_TYPES] as const;
+
 /** Морская ли тревога — то же правило, что MARINE_ALERT_SQL. */
 export function isMarineAlert(alertType: string | null | undefined, title: string | null | undefined): boolean {
   const t = (title ?? '').toLowerCase();
@@ -72,6 +89,6 @@ export const MARINE_ALERT_SQL = `(
   AND lower(COALESCE(ea.title, '')) !~ $land$${LAND_TITLE.source}$land$
 )`;
 
-/** Место `ark` горное. Место без типа горным не считается. */
-export const MOUNTAIN_PLACE_SQL =
-  `COALESCE(ark.location_type, '') IN (${MOUNTAIN_PLACE_TYPES.map((t) => `'${t}'`).join(', ')})`;
+/** Место `ark` морской тревоги не получает: горное или внутреннее. Место без типа — получает. */
+export const MARINE_EXEMPT_PLACE_SQL =
+  `COALESCE(ark.location_type, '') IN (${MARINE_EXEMPT_PLACE_TYPES.map((t) => `'${t}'`).join(', ')})`;
