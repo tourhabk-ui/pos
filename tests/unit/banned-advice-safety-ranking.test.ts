@@ -56,6 +56,11 @@ describe('осторожный совет и отрицание остаются
     expect(hasSafetyRanking(phrase)).toBe(false);
   });
 
+  it('перед «и безопасный» — только прилагательное, не любое слово', () => {
+    expect(hasSafetyRanking('Облёт — самый быстрый и безопасный способ.')).toBe(true);
+    expect(hasSafetyRanking('Сам гид и безопасный маршрут подскажет.')).toBe(false);
+  });
+
   it('у «безопаснее всего» и «самым безопасным будет» совет без тире тоже остаётся', () => {
     for (const phrase of ['Безопаснее всего остаться в укрытии до утра.', 'Самым безопасным будет отложить поход.']) {
       expect(hasSafetyRanking(phrase), phrase).toBe(false);
