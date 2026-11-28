@@ -42,18 +42,18 @@ describe('явные ссылки на справочник /fish', () => {
 });
 
 describe('EN/ZH: мелкие технические правки hreflang', () => {
-  it('/zh/harbin объявляет язык самоссылкой: русской пары нет', () => {
+  it('/zh/harbin: языка русской пары нет, x-default — русская главная', () => {
     expect(harbinHreflang('https://vedarai.ru/')).toEqual({
       'zh-CN': `https://vedarai.ru${HARBIN_PATH}`,
-      'x-default': `https://vedarai.ru${HARBIN_PATH}`,
+      'x-default': 'https://vedarai.ru/',
     });
   });
 
-  it('зимний китайский гид без ruPath: /articles/zima не пара — там цены каталога', () => {
+  it('зимний китайский гид без ruPath: /articles/zima не пара — там цены каталога; x-default — русская главная', () => {
     expect(ZH_WINTER_GUIDE.ruPath).toBeNull();
     expect(zhGuideHreflang(ZH_WINTER_GUIDE, 'https://vedarai.ru')).toEqual({
       'zh-CN': 'https://vedarai.ru/zh/kamchatka-zimoj',
-      'x-default': 'https://vedarai.ru/zh/kamchatka-zimoj',
+      'x-default': 'https://vedarai.ru/',
     });
   });
 });

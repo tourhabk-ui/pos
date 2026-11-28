@@ -390,9 +390,11 @@ export function formatZhGuideDate(iso: string): string {
 
 export function zhGuideHreflang(guide: ZhGuide, site: string): Record<string, string> {
   const root = site.replace(/\/+$/, '');
+  // x-default — русская каноническая (как у /zh и каталога). Нет точной пары —
+  // русская главная, а не самоссылка на китайскую страницу.
   const langs: Record<string, string> = {
     'zh-CN': `${root}${guide.path}`,
-    'x-default': guide.ruPath ? `${root}${guide.ruPath}` : `${root}${guide.path}`,
+    'x-default': guide.ruPath ? `${root}${guide.ruPath}` : `${root}/`,
   };
   if (guide.ruPath) langs.ru = `${root}${guide.ruPath}`;
   return langs;

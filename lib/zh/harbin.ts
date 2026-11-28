@@ -18,11 +18,11 @@ import { orderZhTours, withZhTitles, type ZhTourRow } from '@/lib/zh/entry';
 
 export const HARBIN_PATH = '/zh/harbin';
 
-/** Русской пары нет: самоссылка языка и x-default. */
+/** Русской пары нет: язык — самоссылка, x-default — русская главная (как у /zh). */
 export function harbinHreflang(site = 'https://vedarai.ru'): Record<string, string> {
   const root = site.replace(/\/+$/, '');
   const url = `${root}${HARBIN_PATH}`;
-  return { 'zh-CN': url, 'x-default': url };
+  return { 'zh-CN': url, 'x-default': `${root}/` };
 }
 
 
