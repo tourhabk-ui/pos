@@ -142,20 +142,37 @@ const LEVEL_WORD = { 1: 'жёлтый', 2: 'оранжевый', 3: 'красн�
  * «3 предупреждения · высший уровень — оранжевый» и явления «Ветер, дождь».
  * Свёрнут текст, а не сигнал: сколько их и насколько опасно — видно сразу.
  * Список пуст — null: сворачивать нечего.
+ *
+ * Явления — только короткие названия («Ветер», «Сильный дождь»). 28.11
+ * владелец прислал снимок: заголовками предупреждений пришли целые тексты
+ * МЧС и ГИМС, и строка явлений растянулась на экран, переведённая в нижний
+ * регистр («гу мчс россии»). Длинный заголовок — не название явления: он
+ * остаётся в развёрнутом списке, а в сводку не идёт. Коротких нет — null.
  */
 export function warningsSummary(items: ReadonlyArray<{ title: string; severity: 1 | 2 | 3 }>): {
-  line: string; phenomena: string; highest: 1 | 2 | 3;
+  line: string; phenomena: string | null; highest: 1 | 2 | 3;
 } | null {
   if (items.length === 0) return null;
   const highest = items.reduce<1 | 2 | 3>((m, w) => (w.severity > m ? w.severity : m), 1);
-  const names = [...new Set(items.map((w) => w.title.split(' — ')[0].trim().toLowerCase()).filter(Boolean))];
+  const names = [...new Set(
+    items
+      .map((w) => w.title.split(' — ')[0].trim())
+      .filter((n) => n.length > 0 && n.length <= PHENOMENON_MAX_CHARS)
+      .map((n) => n.toLowerCase()),
+  )];
   const phenomena = names.join(', ');
   return {
     line: `${items.length} ${pluralWarnings(items.length)} · высший уровень — ${LEVEL_WORD[highest]}`,
-    phenomena: phenomena.charAt(0).toUpperCase() + phenomena.slice(1),
+    phenomena: phenomena ? phenomena.charAt(0).toUpperCase() + phenomena.slice(1) : null,
     highest,
   };
 }
+
+/**
+ * Название явления в сводке: «Метель», «Сильный дождь со снегом». Длиннее —
+ * это уже текст сообщения.
+ */
+const PHENOMENON_MAX_CHARS = 30;
 
 /** Время из местного ISO «2026-10-20T07:59» → «07:59». */
 export function hhmm(iso: string | null | undefined): string | null {
