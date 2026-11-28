@@ -39,6 +39,7 @@ vi.mock('next/headers', () => ({
   cookies: async () => ({
     get: (name: string) => (name === 'auth_token' && cookieToken ? { value: cookieToken } : undefined),
   }),
+  headers: async () => new Headers(),
 }));
 
 class RedirectSignal extends Error {

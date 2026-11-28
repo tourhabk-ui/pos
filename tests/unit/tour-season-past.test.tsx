@@ -25,6 +25,8 @@ import { NextRequest } from 'next/server';
 
 const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('@/lib/db-pool', () => ({ pool: { query } }));
+// Страница тура читает заголовки ради канала в подвале; пустые — Telegram.
+vi.mock('next/headers', () => ({ headers: async () => new Headers() }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn(), prefetch: vi.fn() }),
   usePathname: () => '/catalog/tours/62',

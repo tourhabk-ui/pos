@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
 import { tourClosure } from '@/lib/routes/closures';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { metaDescription } from '@/lib/seo/meta-description';
@@ -19,6 +20,7 @@ import { zhTourAlternatePath } from '@/lib/zh/content';
 import { loadPlaceOffersForTour } from '@/lib/places/place-tours';
 import { splitPrefillId } from '@/lib/booking/request-prefill';
 import { loadActiveTourPromotions, promotionView } from '@/lib/tours/tour-promotion';
+import { newsChannelForRequest, type NewsChannelLink } from '@/lib/seo/news-channel';
 
 export const revalidate = 3600;
 
@@ -161,13 +163,19 @@ export default async function CatalogTourDetailPage({ params }: Props) {
     graph.push(node);
   }
 
+  // Новостной канал подвала: в РФ — MAX, иначе Telegram. Считается здесь, на
+  // сервере: клиентская карточка заголовков не читает. HTML карточки отдаётся
+  // с no-store, а заголовки в корневом layout делают маршрут рендером на
+  // запрос — один снимок со ссылкой канала на час для всех стран не кэшируется.
+  const newsChannel: NewsChannelLink = newsChannelForRequest(await headers());
+
   return (
     <>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLdHtml(structuredData) }}
       />
-      <TourDetailClient prefill={prefill} tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} seasonWindow={seasonWindow} seasonNote={seasonNote} placeOffers={placeOffers} calendarRange={calendarRangeOf(dates?.first, dates?.last)} promotions={promotions} closure={tourClosure((tour as { slug?: string | null }).slug)} />
+      <TourDetailClient newsChannel={newsChannel} prefill={prefill} tour={tour} reviews={reviews} askSeatsFirst={askSeatsFirst} seasonWindow={seasonWindow} seasonNote={seasonNote} placeOffers={placeOffers} calendarRange={calendarRangeOf(dates?.first, dates?.last)} promotions={promotions} closure={tourClosure((tour as { slug?: string | null }).slug)} />
     </>
   );
 }

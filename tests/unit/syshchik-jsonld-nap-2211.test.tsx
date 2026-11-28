@@ -96,15 +96,25 @@ describe('Редакция Vedar на посадочных партий 4 и п�
 });
 
 describe('NAP: подвал и Organization sameAs', () => {
-  it('в подвале поддержка @kuzmichai_bot, канал Telegram и канал MAX _biz', () => {
+  // Новостной канал в подвале один: без пропа — Telegram, по стране
+  // посетителя — проп с сервера (lib/seo/news-channel, слово владельца 28.11).
+  it('в подвале поддержка @kuzmichai_bot и канал Telegram; MAX — не обязателен', () => {
     const { container } = render(<Footer />);
     const hrefs = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(hrefs).toContain(ORGANIZATION_PROFILES.telegramSupport);
     expect(hrefs).toContain(ORGANIZATION_PROFILES.telegramChannel);
-    expect(hrefs).toContain(ORGANIZATION_PROFILES.maxChannel);
     expect(container.textContent).toContain('@kuzmichai_bot');
     expect(container.innerHTML).not.toMatch(/kamchatourhub/);
     expect(hrefs.some((h) => h?.includes('kamchatourhub'))).toBe(false);
+  });
+
+  it('подвал с каналом MAX — ссылка на канал MAX _biz, без Telegram-канала; поддержка на месте', () => {
+    const { container } = render(<Footer newsChannel={{ href: ORGANIZATION_PROFILES.maxChannel, label: 'Канал в MAX' }} />);
+    const hrefs = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(hrefs).toContain(ORGANIZATION_PROFILES.maxChannel);
+    expect(hrefs).not.toContain(ORGANIZATION_PROFILES.telegramChannel);
+    expect(hrefs).toContain(ORGANIZATION_PROFILES.telegramSupport);
+    expect(container.textContent).toContain('Канал в MAX');
   });
 
   it('sameAs содержит канал Telegram, канал MAX _biz, бота поддержки и канал Дзена', () => {

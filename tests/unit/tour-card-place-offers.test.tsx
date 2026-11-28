@@ -20,8 +20,11 @@ vi.mock('next/navigation', () => ({
   notFound: () => { throw new Error('notFound'); },
   permanentRedirect: () => { throw new Error('redirect'); },
 }));
+const { footerProps, lang } = vi.hoisted(() => ({ footerProps: [] as unknown[], lang: { v: null as string | null } }));
+// Страница тура читает заголовки ради канала в подвале (lib/seo/news-channel).
+vi.mock('next/headers', () => ({ headers: async () => new Headers(lang.v ? { 'accept-language': lang.v } : {}) }));
 vi.mock('@/components/layout/Header', () => ({ Header: () => null }));
-vi.mock('@/components/layout/Footer', () => ({ Footer: () => null }));
+vi.mock('@/components/layout/Footer', () => ({ Footer: (p: unknown) => { footerProps.push(p); return null; } }));
 vi.mock('@/components/marketplace/BookingFormClient', () => ({ default: () => null }));
 vi.mock('@/components/marketplace/TourReviewForm', () => ({ default: () => null }));
 vi.mock('@/components/marketplace/MessageOperatorButton', () => ({ default: () => null }));
@@ -43,7 +46,7 @@ const TOUR = {
 };
 const PLACE = { id: 'p-ava', name: 'Авачинский перевал', slug: 'avachinskiy-pereval', ark_id: null };
 
-afterEach(() => { cleanup(); });
+afterEach(() => { cleanup(); footerProps.length = 0; lang.v = null; });
 
 describe('карточка тура рисует строку «ещё N предложений»', () => {
   it('ссылка на туры места — после блока оператора и до отзывов', () => {
@@ -66,6 +69,40 @@ describe('карточка тура рисует строку «ещё N пре�
       expect(screen.queryByRole('link', { name: 'посмотреть' })).toBeNull();
       cleanup();
     }
+  });
+});
+
+describe('новостной канал подвала карточки — с сервера (слово владельца 28.11)', () => {
+  it('карточка кладёт в подвал канал, пришедший пропом', () => {
+    const channel = { href: 'https://max.ru/id4101147649_biz', label: 'Канал в MAX' };
+    render(<TourDetailClient tour={TOUR as never} reviews={[]} newsChannel={channel} />);
+    expect(footerProps.length).toBeGreaterThan(0);
+    for (const p of footerProps) expect((p as { newsChannel?: unknown }).newsChannel).toBe(channel);
+  });
+
+  it('страница считает канал по заголовкам запроса: ru-RU — MAX, без заголовков — Telegram', async () => {
+    const props = async () => {
+      vi.resetModules();
+      vi.doMock('@/lib/tours/tour-detail-query', () => ({
+        loadTourCard: async () => ({ tour: TOUR, byId: false }),
+        getTourReviews: async () => [],
+      }));
+      vi.doMock('@/lib/tours/open-dates', () => ({ countTourDates: async () => null, availabilityFromDates: () => undefined, offerAvailability: () => null }));
+      vi.doMock('@/lib/partners/reach', () => ({ reachForTour: async () => null }));
+      vi.doMock('@/lib/places/place-tours', () => ({ loadPlaceOffersForTour: async () => null }));
+      vi.doMock('@/lib/seo/tour-structured-data', () => ({ buildTourStructuredData: () => ({}) }));
+      vi.doMock('@/lib/zh/content', () => ({ zhTourAlternatePath: async () => null }));
+      const Card = vi.fn(() => null);
+      vi.doMock('@/app/catalog/tours/[id]/_TourDetailClient', () => ({ default: Card }));
+      const { default: Page } = await import('@/app/catalog/tours/[id]/page');
+      render(await Page({ params: Promise.resolve({ id: '62' }) }));
+      cleanup();
+      return (Card.mock.calls[0] as unknown as [{ newsChannel: unknown }])[0].newsChannel;
+    };
+    lang.v = 'ru-RU';
+    expect(await props()).toEqual({ href: 'https://max.ru/id4101147649_biz', label: 'Канал в MAX' });
+    lang.v = null;
+    expect(await props()).toEqual({ href: 'https://t.me/kamchatka_real', label: 'Telegram-канал' });
   });
 });
 

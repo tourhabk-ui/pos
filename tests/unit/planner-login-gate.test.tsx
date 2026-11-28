@@ -12,9 +12,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import React from 'react';
 
-const { cookie, verifyMock } = vi.hoisted(() => ({ cookie: { v: null as string | null }, verifyMock: vi.fn() }));
+const { cookie, verifyMock, lang } = vi.hoisted(() => ({ cookie: { v: null as string | null }, verifyMock: vi.fn(), lang: { v: null as string | null } }));
 vi.mock('next/headers', () => ({
   cookies: async () => ({ get: (name: string) => (name === 'auth_token' && cookie.v ? { value: cookie.v } : undefined) }),
+  headers: async () => new Headers(lang.v ? { 'accept-language': lang.v } : {}),
 }));
 vi.mock('@/lib/auth/jwt', async (orig) => ({ ...(await orig<typeof import('@/lib/auth/jwt')>()), verifySessionToken: verifyMock }));
 vi.mock('@/components/layout/Header', () => ({ Header: () => null }));
@@ -25,7 +26,7 @@ vi.mock('@/app/planner/_PlannerClient', () => ({
 import PlannerPage, { metadata } from '@/app/planner/page';
 import { safePlannerReturn, plannerLoginHref } from '@/lib/planner/login-gate';
 
-beforeEach(() => { cookie.v = null; verifyMock.mockReset(); });
+beforeEach(() => { cookie.v = null; lang.v = null; verifyMock.mockReset(); });
 afterEach(cleanup);
 
 async function page() {
@@ -62,6 +63,18 @@ describe('страница /planner', () => {
     expect(screen.getByText(/Это не значит, что вы не вошли/)).toBeTruthy();
     expect(screen.queryByRole('link', { name: /Войти/ })).toBeNull();
     expect(screen.getByRole('link', { name: /Обновить/ }).getAttribute('href')).toBe('/planner');
+  });
+
+  it('подвал экрана входа — канал по запросу: ru-RU — MAX, иначе Telegram', async () => {
+    lang.v = 'ru-RU';
+    await page();
+    expect(screen.getByRole('link', { name: 'Канал в MAX' }).getAttribute('href')).toBe('https://max.ru/id4101147649_biz');
+    expect(screen.queryByRole('link', { name: 'Telegram-канал' })).toBeNull();
+    cleanup();
+    lang.v = 'en';
+    await page();
+    expect(screen.getByRole('link', { name: 'Telegram-канал' }).getAttribute('href')).toBe('https://t.me/kamchatka_real');
+    expect(screen.queryByRole('link', { name: 'Канал в MAX' })).toBeNull();
   });
 
   it('вошёл — планер с его id', async () => {

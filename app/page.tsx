@@ -3,6 +3,7 @@ import { headers } from 'next/headers'
 import { Header } from '@/components/layout/Header'
 import { HOME_CONTAINER } from '@/lib/home/desktop-layout'
 import { Footer } from '@/components/layout/Footer'
+import { newsChannelForRequest } from '@/lib/seo/news-channel'
 import { KamchatkaGuide } from '@/components/landings/KamchatkaGuide'
 import { OnSiteBanner } from '@/components/geo/OnSiteBanner'
 import { SectionErrorBoundary } from '@/components/shared/SectionErrorBoundary'
@@ -123,6 +124,8 @@ export default async function Page() {
       return null;
     }),
   ]);
+  // Новостной канал в подвале: в РФ — MAX, иначе Telegram (lib/seo/news-channel).
+  const newsChannel = newsChannelForRequest(await headers());
 
   return (
     <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh] flex flex-col">
@@ -163,7 +166,7 @@ export default async function Page() {
       {/* hidden md:block: это дерево получает и телефон с неопознанным UA, а
           футер из десятков ссылок на телефоне — 2000 пикселей (#43). */}
       <div className="hidden md:block">
-        <Footer showGuide={false} />
+        <Footer showGuide={false} newsChannel={newsChannel} />
       </div>
       {/* §2/§10.09 (issue #1839): это дерево рендерится не только настоящему
           десктопу, но и любому UA, который серверная эвристика выше не

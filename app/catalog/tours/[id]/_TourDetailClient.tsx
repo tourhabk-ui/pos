@@ -2,6 +2,7 @@
 
 import { ClosureNotice } from '@/components/routes/ClosureNotice';
 import type { RouteClosure } from '@/lib/routes/closures';
+import type { NewsChannelLink } from '@/lib/seo/news-channel';
 import { tourHeadingTail } from '@/lib/seo/h1-templates';
 import { RecordModified } from '@/components/seo/RecordModified';
 import { kuzmichAskHref } from '@/lib/kuzmich/ask-link';
@@ -375,7 +376,7 @@ function SectionTitle({ children, icon: Icon, iconColor }: {
 
 /* ─── Main Component ─── */
 
-export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null, seasonNote = null, placeOffers = null, calendarRange = null, promotions = [], prefill = {}, closure = null }: { prefill?: { date?: string; guests?: number }; closure?: RouteClosure | null; tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null; seasonNote?: string | null; placeOffers?: PlaceOffersView | null; /** Первая и последняя дата календаря — подпись сезона, когда он не записан (#3487). */ calendarRange?: CalendarRange | null; promotions?: TourPromotionView[] }) {
+export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = false, seasonWindow = null, seasonNote = null, placeOffers = null, calendarRange = null, promotions = [], prefill = {}, closure = null, newsChannel }: { prefill?: { date?: string; guests?: number }; closure?: RouteClosure | null; /** Новостной канал подвала — считает сервер по заголовкам запроса (lib/seo/news-channel). */ newsChannel: NewsChannelLink; tour: TourFull; reviews?: TourReview[]; askSeatsFirst?: boolean; seasonWindow?: SeasonWindowView | null; seasonNote?: string | null; placeOffers?: PlaceOffersView | null; /** Первая и последняя дата календаря — подпись сезона, когда он не записан (#3487). */ calendarRange?: CalendarRange | null; promotions?: TourPromotionView[] }) {
   const router = useRouter();
   const dayStatus = useDayStatus();
   const [wishlisted, setWishlisted] = useState(false);
@@ -1397,7 +1398,7 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
       {/* Футер — только desktop (§2): юрлицо, ИНН, оферта и контакты на
           странице, где продаём (аудит П6, #30). */}
       <div className="hidden md:block">
-        <Footer />
+        <Footer newsChannel={newsChannel} />
       </div>
 
       {lightbox !== null && allPhotos.length > 0 && (
