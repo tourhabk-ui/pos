@@ -95,10 +95,50 @@ export const PROTECTED_ZONES = Object.freeze([
       // Сравнение секретов за Edge-гвардом и вызовами кронов: обычное `===`
       // здесь отдаёт секрет по времени ответа.
       'lib/security/constant-time-equal.ts',
+      // Скан 25.11 (ревью безопасности PR 3831, слово владельца 26.11
+      // «Закрывай»): какая роль вообще попадает в токен — смена роли и
+      // снятие роли администратора.
+      'lib/auth/role-switch.ts',
+      'lib/auth/admin-role-change.ts',
+      'app/api/roles/**',
+      // Выпуск токена администратором мимо дверей входа (ревью PR 3833).
+      'app/api/admin/auth/issue-token/**',
     ],
     reason:
-      'Выпуск и проверка JWT, проверка роли за роутами и сравнение секретов: ошибка здесь открывает чужие кабинеты.',
-    claude: '§7 НЕ ТРОГАТЬ: `lib/auth.ts`',
+      'Выпуск и проверка JWT, проверка роли за роутами, какая роль попадает в токен, и сравнение секретов: ошибка здесь открывает чужие кабинеты и админку.',
+    claude: '§7 НЕ ТРОГАТЬ: `lib/auth.ts`, проверка токена — `lib/auth/jwt.ts`, роли — `lib/auth/middleware.ts`',
+  },
+  {
+    id: 'auth-doors',
+    title: 'Вход и регистрация',
+    paths: [
+      // Все двери входа и регистрации: пароль, magic link, Telegram, MAX, MFA,
+      // обновление токена, смена роли, регистрация туриста и оператора.
+      'app/api/auth/**',
+      // Страницы, где человек вводит пароль: вход и регистрация, сброс пароля,
+      // регистрация оператора.
+      'app/auth/**',
+      'app/operators/join/**',
+      // Логика за этими дверями: пароль, второй фактор, magic link, вход через MAX.
+      'lib/auth/password.ts',
+      'lib/auth/password-reset.ts',
+      'lib/auth/totp.ts',
+      'lib/auth/mfa-crypto.ts',
+      'lib/auth/magic-link.ts',
+      'lib/auth/max-login.ts',
+      // Ревью безопасности PR 3833: правило пароля, из которого passwordSchema
+      // берёт все проверки; к какому пользователю привязать вход через
+      // мессенджер; регистрация партнёра (роль из тела, JWT и cookie);
+      // вторая дверь смены пароля в профиле туриста.
+      'lib/auth/password-rule.ts',
+      'lib/auth/messenger-link.ts',
+      'lib/partners/messenger-login.ts',
+      'app/api/partners/register/**',
+      'app/api/tourist/profile/password/**',
+    ],
+    reason:
+      'Где выдаётся вход: ослабленная проверка пароля или второго фактора, мастер-пароль, лишняя роль при регистрации или форма, отправляющая пароль не туда, уводят чужие кабинеты, а администратора — в обход MFA. Внесена по скану безопасности 25.11 (ревью PR 3831, слово владельца 26.11 «Закрывай»): ни одна дверь входа не была в реестре.',
+    claude: '§7 НЕ ТРОГАТЬ: `app/api/auth/`',
   },
   {
     id: 'payments',
@@ -111,6 +151,30 @@ export const PROTECTED_ZONES = Object.freeze([
       // Видимым — но до аудита 15.10 (ZONES, S-3) не судимым: файл лежал вне
       // реестра, и `true` здесь проходил без слова владельца.
       'lib/payments/accepting.ts',
+      // Скан 25.11 (ревью PR 3831): reason зоны называл единственные двери
+      // комиссии и холда, но их файлы лежали вне зоны.
+      'lib/payments/commission.ts',
+      'lib/payments/hold-tour-payment.ts',
+      // Логика приёмников CloudPayments и СБП Точки, вынесенная из роутов.
+      'lib/payments/cloudpayments-webhook.ts',
+      'lib/payments/cloudpayments-check.ts',
+      'lib/payments/tochka.ts',
+      // Ревью PR 3833: денежный путь обратно — сумма возврата, долг возврата,
+      // гейт «отменена / не отменена» для возврата и выплаты оператору, и их
+      // двери в админке.
+      'lib/payments/tour-refund.ts',
+      'lib/payments/record-refund-due.ts',
+      'lib/payments/release-eligibility.ts',
+      'app/api/admin/finance/refunds/**',
+      'app/api/admin/finance/payouts/**',
+      // Ревью PR 3833 (второй проход): кто решает, какой возврат считать
+      // (флаг «отменил оператор» → 100%), и автоматический релиз денег
+      // оператору по cron — вторая дверь выплаты рядом с админской.
+      'lib/bookings/booking.service.ts',
+      'lib/bookings/owner-status.ts',
+      'app/api/bookings/[id]/route.ts',
+      'app/api/bookings/[id]/cancel/**',
+      'app/api/cron/payouts/**',
     ],
     reason:
       'Приёмники оплаты: комиссия только recordCommissionFromBooking, строка tour_payments только holdTourPayment. §7 называет три живых приёмника — третий, CloudPayments кабинета оператора, лежит вне app/api/payments. Выключатель PLATFORM_ACCEPTS_PAYMENTS открывает приём денег для всех трёх разом.',
@@ -168,7 +232,16 @@ export const PROTECTED_ZONES = Object.freeze([
   {
     id: 'messenger-login',
     title: 'Вход через мессенджеры',
-    paths: ['lib/max/webhook-url.ts', 'lib/miniapp/init-data.ts'],
+    paths: [
+      'lib/max/webhook-url.ts',
+      'lib/miniapp/init-data.ts',
+      // Ревью PR 3833: единственное место, где проверка адреса вебхука
+      // (isVerifiedMaxWebhook) решает, пускать ли bot_started / maxlogin_ok в
+      // claimMaxLoginSession / confirmMaxLoginSession. Файл бота внесён
+      // целиком (выбор владельца 26.11 «1»): ветку входа из него не вынести
+      // без правки самого бота.
+      'app/api/max/kuzmich/**',
+    ],
     reason:
       'Проверка подписи initData мини-приложения (lib/miniapp/init-data.ts, 31.10, план CHAT_MINIAPPS_PLAN §6.2): по ней выдаётся вход в кабинет из мессенджера, ослабленная сверка или окно уводят вход в чужой кабинет. Секрет в адресе подписки MAX — единственное, что отличает настоящий вызов MAX от подделанного bot_started с чужим max_user_id, а по нему выдаётся вход в аккаунт (security-ревью #961). Тот же класс, что lib/auth.ts: ослабленная сверка или подменённый адрес вебхука уводят вход в чужой кабинет. Внесён аудитом 15.10 (ZONES, S-3).',
     claude: '§7 НЕ ТРОГАТЬ, абзац «Проверка зон»: `lib/max/webhook-url.ts`, `lib/miniapp/init-data.ts`',
@@ -190,6 +263,13 @@ export const PROTECTED_ZONES = Object.freeze([
       // Проверка прямого пуша (аудит 15.10 ZONES, S-2): снятый с неё триггер
       // или право — тот же отключённый сторож, что снятая зона.
       '.github/workflows/protected-zones-push.yml',
+      // Полный текст §7 с 25.11 живёт в скилле (слово владельца «Разбей на
+      // скиллы»); правило, ослабленное в нём, агент прочтёт как правило.
+      // Ревью безопасности PR 3832 предложило внести его в зону.
+      '.claude/skills/vedar-protected-zones/SKILL.md',
+      // Сам сторож (ревью PR 3833): обратные проверки реестра живут только
+      // в нём — удалённая проверка открыла бы дверь мимо зон без слова.
+      'tests/unit/protected-zones-gate.test.ts',
     ],
     reason:
       'Сам реестр и проверка. Проверка идёт скриптом из main, поэтому PR, снявший зону из реестра, прошёл бы без слова, а ослабленный реестр действовал бы со следующего PR.',

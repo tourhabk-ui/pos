@@ -544,6 +544,194 @@ describe('полный §7 в скилле vedar-protected-zones против р
   });
 });
 
+/**
+ * Скан безопасности 25.11 (ревью PR 3831): агент, запущенный `@claude` из чужого
+ * issue, мог править проверку токена и ролей, двери и страницы входа, комиссию и
+ * холд — реестр их не видел, и проверка зон молчала. Сторож держит не список
+ * путей, а то, ради чего они внесены: функция переехала в новый файл вне зоны —
+ * красный.
+ */
+describe('вход, роли, комиссия и холд — в зонах (скан 25.11)', () => {
+  const ids = (f: string) => zonesOfFile(f).map((z) => z.id);
+
+  it('названные ревью файлы лежат в своих зонах', () => {
+    const expected: Record<string, string> = {
+      'lib/auth/jwt.ts': 'lib-auth',
+      'lib/auth/middleware.ts': 'lib-auth',
+      'lib/auth/role-switch.ts': 'lib-auth',
+      'app/api/roles/route.ts': 'lib-auth',
+      'app/api/auth/signin/route.ts': 'auth-doors',
+      'app/api/auth/register/route.ts': 'auth-doors',
+      'app/api/auth/register-operator/route.ts': 'auth-doors',
+      'app/api/auth/refresh/route.ts': 'auth-doors',
+      'app/api/auth/telegram/route.ts': 'auth-doors',
+      'app/auth/login/page.tsx': 'auth-doors',
+      'app/operators/join/page.tsx': 'auth-doors',
+      'lib/auth/magic-link.ts': 'auth-doors',
+      'lib/auth/password-rule.ts': 'auth-doors',
+      'lib/auth/messenger-link.ts': 'auth-doors',
+      'lib/partners/messenger-login.ts': 'auth-doors',
+      'app/api/partners/register/route.ts': 'auth-doors',
+      'app/api/tourist/profile/password/route.ts': 'auth-doors',
+      'app/api/admin/auth/issue-token/route.ts': 'lib-auth',
+      'lib/payments/commission.ts': 'payments',
+      'lib/payments/hold-tour-payment.ts': 'payments',
+      'lib/payments/tochka.ts': 'payments',
+      '.claude/skills/vedar-protected-zones/SKILL.md': 'zones-gate',
+      'tests/unit/protected-zones-gate.test.ts': 'zones-gate',
+      'lib/payments/tour-refund.ts': 'payments',
+      'lib/payments/release-eligibility.ts': 'payments',
+      'app/api/admin/finance/refunds/route.ts': 'payments',
+      'app/api/admin/finance/payouts/route.ts': 'payments',
+      'lib/bookings/booking.service.ts': 'payments',
+      'lib/bookings/owner-status.ts': 'payments',
+      'app/api/bookings/[id]/route.ts': 'payments',
+      'app/api/bookings/[id]/cancel/route.ts': 'payments',
+      'app/api/cron/payouts/route.ts': 'payments',
+      'app/api/max/kuzmich/route.ts': 'messenger-login',
+    };
+    for (const [file, zone] of Object.entries(expected)) {
+      expect(existsSync(join(ROOT, file)), `нет файла ${file}`).toBe(true);
+      expect(ids(file), file).toEqual([zone]);
+    }
+  });
+
+  it('каждый файл под app/api/auth — в зоне входа', () => {
+    const files: string[] = [];
+    const walk = (rel: string) => {
+      for (const e of readdirSync(join(ROOT, rel), { withFileTypes: true })) {
+        const p = `${rel}/${e.name}`;
+        if (e.isDirectory()) walk(p);
+        else files.push(p);
+      }
+    };
+    walk('app/api/auth');
+    expect(files.length).toBeGreaterThan(10);
+    expect(files.filter((f) => !ids(f).includes('auth-doors'))).toEqual([]);
+  });
+
+  /** Функция → зона, где она обязана жить: проверка токена, роли, комиссия, холд. */
+  const GUARDED: Record<string, string> = {
+    verifyToken: 'lib-auth',
+    requireAuth: 'lib-auth',
+    requireRole: 'lib-auth',
+    requireAdmin: 'lib-auth',
+    validatePassword: 'auth-doors',
+    linkMessengerLogin: 'auth-doors',
+    linkMessengerLoginToPartner: 'auth-doors',
+    claimMaxLoginSession: 'auth-doors',
+    confirmMaxLoginSession: 'auth-doors',
+    isVerifiedMaxWebhook: 'messenger-login',
+    recordCommissionFromBooking: 'payments',
+    holdTourPayment: 'payments',
+    computeTourRefund: 'payments',
+    recordRefundDue: 'payments',
+    cancelledBookingSql: 'payments',
+    notCancelledBookingSql: 'payments',
+  };
+
+  const definedIn = (name: string): string[] => {
+    const hits: string[] = [];
+    const re = new RegExp(`export\\s+(async\\s+)?function\\s+${name}\\b|export\\s+const\\s+${name}\\b`);
+    const walk = (rel: string) => {
+      for (const e of readdirSync(join(ROOT, rel), { withFileTypes: true })) {
+        const p = `${rel}/${e.name}`;
+        if (e.isDirectory()) walk(p);
+        else if (/\.tsx?$/.test(e.name) && re.test(read(p))) hits.push(p);
+      }
+    };
+    walk('lib');
+    walk('app');
+    return hits;
+  };
+
+  it('проверка токена и ролей, комиссия и холд определены только в своей зоне', () => {
+    for (const [fn, zone] of Object.entries(GUARDED)) {
+      const files = definedIn(fn);
+      expect(files.length, `${fn} не найдена`).toBeGreaterThan(0);
+      for (const f of files) expect(ids(f), `${fn} в ${f}`).toContain(zone);
+    }
+  });
+
+  /**
+   * Обратная сторона (ревью PR 3833): дверь входа узнаётся не по каталогу, а по
+   * делу — файл подписывает JWT или ставит cookie auth_token. Такой файл вне
+   * зон входа и токена — красный, где бы он ни лежал.
+   */
+  it('каждый файл, который подписывает JWT или ставит auth_token, — в зоне входа или токена', () => {
+    const ISSUES = /new SignJWT|\bcreateToken\(|cookies\.set\(\s*['"]auth_token['"]\s*,(?!\s*['"]['"])/;
+    const hits: string[] = [];
+    const walk = (rel: string) => {
+      for (const e of readdirSync(join(ROOT, rel), { withFileTypes: true })) {
+        const p = `${rel}/${e.name}`;
+        if (e.isDirectory()) walk(p);
+        else if (/\.tsx?$/.test(e.name) && ISSUES.test(read(p))) hits.push(p);
+      }
+    };
+    walk('lib');
+    walk('app');
+    expect(hits.length).toBeGreaterThan(8);
+    // Выход из аккаунта (cookie сбрасывается пустой строкой) — не дверь входа.
+    expect(hits).not.toContain('app/api/user/delete/route.ts');
+    const outside = hits.filter((f) => !ids(f).some((z) => z === 'auth-doors' || z === 'lib-auth'));
+    expect(outside, 'выдаёт вход вне зоны').toEqual([]);
+  });
+
+  /**
+   * Денежный путь узнаётся по делу, а не по имени функции (ревью PR 3833):
+   * файл, который зовёт расчёт возврата или пишет строку оплаты / выплаты
+   * оператору, лежит в зоне платежей — иначе правка вызова (флаг «отменил
+   * оператор», срок удержания) проходит без слова владельца.
+   */
+  it('каждый файл, который считает возврат или двигает деньги в tour_payments / operator_payouts, — в зоне платежей', () => {
+    const MONEY = /\brecordRefundDue\(|\bcomputeTourRefund\(|UPDATE\s+tour_payments\b|(INSERT\s+INTO|UPDATE)\s+operator_payouts\b/;
+    const hits: string[] = [];
+    const walk = (rel: string) => {
+      for (const e of readdirSync(join(ROOT, rel), { withFileTypes: true })) {
+        const p = `${rel}/${e.name}`;
+        if (e.isDirectory()) walk(p);
+        else if (/\.tsx?$/.test(e.name) && MONEY.test(read(p))) hits.push(p);
+      }
+    };
+    walk('lib');
+    walk('app');
+    expect(hits).toContain('app/api/cron/payouts/route.ts');
+    expect(hits).toContain('lib/bookings/booking.service.ts');
+    const outside = hits.filter((f) => !ids(f).includes('payments'));
+    expect(outside, 'денежный путь вне зоны').toEqual([]);
+  });
+
+  /**
+   * Вход через MAX (ревью PR 3833): вызов проверки адреса вебхука и выдача
+   * входа по nonce — только в зонах входа. Иначе правка условия
+   * `verifiedOrigin` в обработчике проходит без слова владельца.
+   */
+  it('каждый файл, который сверяет вебхук MAX или выдаёт вход через MAX, — в зоне входа', () => {
+    const MAX_LOGIN = /\bisVerifiedMaxWebhook\(|\bclaimMaxLoginSession\(|\bconfirmMaxLoginSession\(/;
+    const hits: string[] = [];
+    const walk = (rel: string) => {
+      for (const e of readdirSync(join(ROOT, rel), { withFileTypes: true })) {
+        const p = `${rel}/${e.name}`;
+        if (e.isDirectory()) walk(p);
+        else if (/\.tsx?$/.test(e.name) && MAX_LOGIN.test(read(p))) hits.push(p);
+      }
+    };
+    walk('lib');
+    walk('app');
+    expect(hits).toContain('app/api/max/kuzmich/route.ts');
+    const outside = hits.filter((f) => !ids(f).some((z) => z === 'messenger-login' || z === 'auth-doors'));
+    expect(outside, 'вход через MAX вне зоны').toEqual([]);
+  });
+
+  it('правка проверки токена без слова владельца — красный', () => {
+    const v = judgeZones({ files: [code('lib/auth/jwt.ts')], body: '' });
+    expect(v.outcome).toBe('fail');
+    expect(v.zones.map((r) => r.zone.id)).toEqual(['lib-auth']);
+    const ok = judgeZones({ files: [code('lib/auth/jwt.ts')], body: bodyWith('- lib-auth — «правь» (25.11)') });
+    expect(ok.outcome).toBe('ok');
+  });
+});
+
 describe('контроль выхода: зона покрывает то, что называет манифест', () => {
   const MANIFEST = read('docs/safety/WATCH_MANIFEST.md');
   const TABLE = MANIFEST.slice(MANIFEST.indexOf('## Как это устроено сейчас'), MANIFEST.indexOf('## Правила'));

@@ -25,7 +25,11 @@ description: >-
 прошедшей проверкой зон повторно не судится, судья — скрипт из коммита ДО пуша (пуш, ослабивший проверку,
 судится прежними правилами), в защите ветки проверка не обязательна, пуш с `[skip ci]` GitHub не
 запускает; в реестре с того же дня выключатель оплаты, правила отметок и чтения регистрации контроля
-выхода и две новые зоны — `lib/max/webhook-url.ts` (вход через мессенджеры; с 31.10 и `lib/miniapp/init-data.ts` — подпись initData мини-приложения) и `lib/notifications/pd-alert.ts` (маршрут ПД).
+выхода и две новые зоны — `lib/max/webhook-url.ts` (вход через мессенджеры; с 31.10 и `lib/miniapp/init-data.ts` — подпись initData мини-приложения; с 26.11 и файл бота `app/api/max/kuzmich/` целиком — в нём сверка вебхука решает вход через MAX) и `lib/notifications/pd-alert.ts` (маршрут ПД).
+Скан 25.11 (ревью безопасности PR 3831) нашёл вне реестра проверку токена и ролей, двери и
+страницы входа, комиссию и холд: внесены в зоны `lib-auth`, `auth-doors` и `payments` (слово
+владельца 26.11 «Закрывай»). Этот скилл с того же дня в зоне `zones-gate`: ослабленное правило
+здесь агент прочтёт как правило.
 
 - `middleware.ts` — Edge JWT + rate-limit. Исключение по слову владельца 01.09
   («PR 2 да»): гейт `/api/admin/*` — admin-JWT либо `CRON_SECRET` в заголовке
@@ -45,11 +49,19 @@ description: >-
   оператора и сами роуты (`requireOperator`) пускали его и раньше, не пускал
   только вход — администратор с компанией видел «Forbidden» на «Обзоре
   оператора». Сторож — исполнение middleware: `tests/unit/edge-operator-admin.test.ts`
-- `lib/auth.ts` — JWT логика
+- `lib/auth.ts` — JWT логика; проверка токена — `lib/auth/jwt.ts`, роли в API (`requireAuth`,
+  `requireRole`, `requireAdmin`) — `lib/auth/middleware.ts`, смена и снятие ролей — тоже зона
+  `lib-auth`
+- `app/api/auth/` — вход и регистрация: пароль, MFA, magic link, Telegram, MAX, обновление
+  токена. Страницы входа `app/auth/` и регистрации оператора `app/operators/join/`, регистрация
+  партнёра `app/api/partners/register`, пароль, второй фактор и привязка входа через мессенджер
+  в `lib/auth/` — та же зона `auth-doors` (скан 25.11). Сторож краснеет на любом файле вне зон
+  входа и токена, который подписывает JWT или ставит cookie `auth_token`
 - `app/api/payments/` — приём оплаты. Живых приёмника **три**: `/api/payments/webhook`
   и `/api/hub/operator/payments/webhook` (CloudPayments), `/api/payments/tochka/webhook`
   (СБП Точка, QR — со страницы брони). Комиссию каждый начисляет ЕДИНСТВЕННЫМ
-  способом — `recordCommissionFromBooking()`; своего `INSERT INTO operator_commissions`
+  способом — `recordCommissionFromBooking()` (`lib/payments/commission.ts`, в зоне с 26.11);
+  своего `INSERT INTO operator_commissions`
   в приёмниках быть не должно. Сторож: `tests/unit/commission-all-receivers.test.ts`
   (приёмники находит по коду — роут, пишущий `paid_at` броне, обязан начислить комиссию)
   Строку `tour_payments` (HELD) каждый пишет тоже ЕДИНСТВЕННЫМ способом —
