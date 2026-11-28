@@ -63,7 +63,8 @@ describe('сниппет для поиска — тоже словами', () =>
       bestSeason: null, altitudeM: null, hazardsRecorded: false, registrationRequired: false,
       isOpen: null, essence: null,
     });
-    expect(d).toContain('на Камчатке, Авачинский.');
+    // 28.11: подпись зоны убрана из сниппета места вовсе (см. place-meta-distance-2811).
+    expect(d).not.toContain('Авачинский');
     expect(d).not.toContain('avachinsky');
     const r = routeDescription({
       title: 'X', zone: 'zzz_code', distanceKm: 5, durationHours: null, durationDays: null,
