@@ -1061,8 +1061,8 @@ export const CHRONICLE_ARTICLES: ChronicleArticle[] = [
     ],
     links: [
       { href: '/places/yuzhno-kamchatskij-zakaznik', label: 'Заказник на карте', hint: 'Карточка заказника: режим, порядок посещения, снимки' },
-      { href: '/places/630819da-48d1-4bb8-99c9-3b190d6ae26c', label: 'Курильское озеро', hint: 'Карточка озера: нерка, медведи, острова, как добраться' },
-      { href: '/places/663e37f3-5deb-4907-ac25-321dd247d85e', label: 'Кутхины Баты', hint: 'Пемзовые обрывы в долине реки Озерной' },
+      { href: '/places/kurilskoe-ozero', label: 'Курильское озеро', hint: 'Карточка озера: нерка, медведи, острова, как добраться' },
+      { href: '/places/kuthiny-baty', label: 'Кутхины Баты', hint: 'Пемзовые обрывы в долине реки Озерной' },
       { href: '/park/yuzhno-kamchatsky-zakaznik', label: 'Страница заказника', hint: 'Маршруты и заявка в Кроноцкий заповедник' },
       { href: '/letopis/kronotskij-zapovednik', label: 'Кроноцкий заповедник', hint: 'Заповедник, который управляет заказником' },
     ],

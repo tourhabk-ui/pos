@@ -73,6 +73,18 @@ describe('статьи летописи', () => {
     expect(t).toContain('1018');
   });
 
+  // Разбор индексации 28.11: статья о Южно-Камчатском заказнике вела на
+  // /places/<uuid>, и каждая такая ссылка отвечала 308 на адрес места.
+  // Ссылка идёт прямо на адрес; uuid остаются только в placeIds (ключи карты).
+  it('ссылки статей ведут на адрес места или маршрута, а не на uuid', () => {
+    const uuidLinks = CHRONICLE_ARTICLES.flatMap((a) => (a.links ?? []).map((l) => l.href))
+      .filter((h) => /^\/(places|routes)\/[0-9a-f]{8}-[0-9a-f]{4}-/.test(h));
+    expect(uuidLinks).toEqual([]);
+    const hrefs = (CHRONICLE_BY_SLUG['yuzhno-kamchatskij-zakaznik'].links ?? []).map((l) => l.href);
+    expect(hrefs).toContain('/places/kurilskoe-ozero');
+    expect(hrefs).toContain('/places/kuthiny-baty');
+  });
+
   it('Большерецкий маяк связан с местом каталога', () => {
     expect(chronicleForPlace('f970acdd-e9f4-44f9-a678-279c0efe2c68').map((a) => a.slug)).toContain('bolsheretskiy-mayak');
   });
