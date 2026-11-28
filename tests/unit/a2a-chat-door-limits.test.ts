@@ -10,7 +10,7 @@
  * ответом Кузьмича: дневной предел на адрес, своя доля бюджета, вопрос о беде
  * сверх предела — готовый блок 112 без модели. Размер вопроса и история — tests/unit/a2a-chat-limits.test.ts.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const { answerAgentMessage, spent } = vi.hoisted(() => ({
@@ -34,11 +34,17 @@ const request = (ip: string) => new NextRequest('https://vedarai.ru/api/a2a', { 
 const ask = (ip: string, text = 'какие туры на Авачинский?') => buildExecutors(request(ip)).chat(text, [], 'ctx-1');
 
 beforeEach(() => {
+  // Запись закрытия стопа в ядро (PR 1a серии «ядро») здесь не проверяется.
+  vi.stubEnv('LLM_BUDGET_KERNEL', 'off');
   answerAgentMessage.mockClear();
   a2aChatGuard.reset();
   anonChatGuard.reset();
   spent.usd = 0;
   vi.stubEnv('AI_DAILY_BUDGET_USD', '5');
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe('разговор агента: сутки на адрес', () => {

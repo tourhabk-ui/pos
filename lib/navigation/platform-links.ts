@@ -113,8 +113,10 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       // Список охраняемых территорий (аудит 20.11: адрес /park был 404).
       { label: 'Парки и заповедники', href: '/park',           icon: Trees },
       { label: 'Блог',                href: '/blog',           icon: BookOpen },
-      { label: 'Приложения в дорогу', href: '/ai-tools',       icon: Smartphone },
+      { label: 'Приложения в дорогу', href: '/prilozheniya',   icon: Smartphone },
       { label: 'О платформе',         href: '/about',          icon: Info },
+      // Текст о Кузьмиче уехал с чата на свою страницу (слово владельца 28.11).
+      { label: 'Что умеет Кузьмич',   href: '/o-kuzmiche',     icon: Bot },
       { label: 'Вопросы и ответы',    href: '/faq',            icon: CircleHelp },
       { label: 'Центр помощи',        href: '/help',           icon: LifeBuoy },
       { label: 'Помощь туристам',     href: '/help/tourists',  icon: LifeBuoy },

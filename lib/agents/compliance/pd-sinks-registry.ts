@@ -97,6 +97,7 @@ export const DEVICE_STORAGE: readonly DeviceStorageEntry[] = [
   // --- его данные до закрытия вкладки
   { file: 'app/watch/WatchClient.tsx', personal: 'own-session', holds: 'телефон руководителя группы — им открывается контроль выхода' },
   { file: 'app/request-resume/_ResumeClient.tsx', personal: 'own-session', holds: 'ключ заявки и её комментарий до отправки' },
+  { file: 'lib/kuzmich/offline-queue.ts', personal: 'own-session', holds: 'вопросы Кузьмичу, заданные без сети, до отправки' },
 
   // --- его данные нарочно остаются на устройстве
   {
@@ -135,6 +136,7 @@ export const DEVICE_STORAGE: readonly DeviceStorageEntry[] = [
   { file: 'lib/client-errors/report.ts', personal: 'none', holds: 'очередь отчётов об ошибках: сообщение и адрес без строки запроса' },
   { file: 'lib/legal/consent.ts', personal: 'none', holds: 'выбор в окне согласия на cookie' },
   { file: 'lib/mesh/volcano-mesh.ts', personal: 'none', holds: 'случайный номер устройства' },
+  { file: 'lib/offline/route-facts.ts', personal: 'none', holds: 'факты сохранённого маршрута: опасности, снаряжение, регистрация МЧС, медпомощь у точек, предупреждения' },
   { file: 'lib/offline/route-map-save.ts', personal: 'none', holds: 'отметка сохранённой карты маршрута' },
   { file: 'lib/preparation/storage.ts', personal: 'none', holds: 'план подготовки к маршруту: длительность, опыт, снаряжение' },
   { file: 'lib/referral/agent-link.ts', personal: 'none', holds: 'метка агента, приведшего посетителя' },

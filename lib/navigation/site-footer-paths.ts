@@ -25,7 +25,8 @@ function routeMatches(route: string, p: string): boolean {
 /** Разделы-приложения: карта, кабинеты, чат, SOS, офлайн, виджеты. Подвал
  *  с меню сайта им мешает (полноэкранная вёрстка) и поиску не нужен. */
 export const NO_FOOTER_PREFIXES = [
-  '/map', '/auth', '/oauth', '/admin', '/profile', '/kuzmich', '/sos', '/offline',
+  // /ai-assistant — тоже чат Кузьмича: в чатах подвалов нет (владелец 28.11).
+  '/map', '/auth', '/oauth', '/admin', '/profile', '/kuzmich', '/ai-assistant', '/sos', '/offline',
   '/widget', '/p/', '/r/', '/trip', '/field-check', '/watch', '/team',
   '/checkin-ok', '/partner-site', '/en', '/zh', '/video', '/menu',
   '/booking-success', '/confirm', '/request-status', '/request-resume', '/return',

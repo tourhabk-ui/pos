@@ -86,12 +86,19 @@ describe('права не выписаны мёртвым', () => {
     expect(missing, `в реестре прав есть, на диске нет: ${missing.join(', ')}`).toEqual([]);
   });
 
-  it('правка схемы прода не выписана никому', async () => {
-    // CLAUDE.md: изменение схемы БД — только SQL-миграцией.
-    const { AGENCY_TOOL_SCOPE } = await import('@/lib/agents/tools/board-executor-tools');
-    for (const [agency, tools] of Object.entries(AGENCY_TOOL_SCOPE)) {
+  it('правка схемы прода и свободный SQL не выписаны никому и не существуют', async () => {
+    // CLAUDE.md: изменение схемы БД — только SQL-миграцией. 27.11 (#1428)
+    // applySchemaFix и runDiagnosticQuery удалены совсем: реестр прав не
+    // защищает от прямого импорта экспортированной функции.
+    const mod = await import('@/lib/agents/tools/board-executor-tools');
+    for (const [agency, tools] of Object.entries(mod.AGENCY_TOOL_SCOPE)) {
       expect(tools as string[], `${agency} может менять схему прода`).not.toContain('applySchemaFix');
+      expect(tools as string[], `${agency} может выполнять свободный SQL`).not.toContain('runDiagnosticQuery');
     }
+    expect(mod.BOARD_TOOLS as readonly string[]).not.toContain('applySchemaFix');
+    expect(mod.BOARD_TOOLS as readonly string[]).not.toContain('runDiagnosticQuery');
+    expect(Object.keys(mod)).not.toContain('applySchemaFix');
+    expect(Object.keys(mod)).not.toContain('runDiagnosticQuery');
   });
 });
 

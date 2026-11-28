@@ -79,6 +79,13 @@ export const CAPABILITY_REGISTRY: Readonly<Record<string, CapabilityEntry>> = {
     principalTypes: ['cron'],
     reason: 'оркестратор читает и предлагает; мутации кода идут через draft PR + merge человека',
   },
+  // Запись факта закрытия суточного стопа LLM (lib/agents/kernel/llm-budget.ts,
+  // PR 1a серии «ядро», 29.11): задача на сутки с событием policy_denied.
+  // Эффектов нет, политику допуска других действий не меняет.
+  'llm.budget_stop': {
+    principalTypes: ['system'],
+    reason: 'запись факта закрытия суточного стопа; ничего не меняет, наружу не действует',
+  },
   'code.merge': {
     principalTypes: ['cron', 'system'],
     reason: 'координация merge-gate: задача отражает жизненный цикл agent-PR; сам merge делает ТОЛЬКО человек в GitHub — эффекта слияния у этой capability нет по построению',

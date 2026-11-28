@@ -374,9 +374,10 @@ export function AccommodationsClient({ initial = null }: { initial?: Accommodati
                 </div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                {accommodations.map(acc => (
+                {accommodations.map((acc, i) => (
                   <AccommodationCard
                     key={acc.id}
+                    priority={i === 0}
                     id={acc.id}
                     name={acc.name}
                     type={acc.type}

@@ -27,6 +27,8 @@ import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/re
 import { renderToString } from 'react-dom/server';
 
 const pushMock = vi.fn();
+// Страница тура читает заголовки ради канала в подвале; пустые — Telegram.
+vi.mock('next/headers', () => ({ headers: async () => new Headers() }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock, replace: vi.fn(), back: vi.fn(), prefetch: vi.fn() }),
   usePathname: () => '/catalog/tours/agent-test-tur',

@@ -139,7 +139,7 @@ jobs:
           # Каталог lib/, которого нет ни здесь, ни в списке «вне ревью»
           # сторожа (tests/unit/security-review-workflow.test.ts), — красный:
           # новый каталог не проходит мимо ревью молча.
-          SENSITIVE: '^(app/api/|app/.*route\.(ts|js)$|(.*/)?middleware\.ts$|lib/(a2a|account|admin|agent|agent-cabinet|agents|ai|alice|analytics|api|auth|booking|bookings|channels|chat|chat-cabinet|client-errors|crm|eco|embed|guides|integrations|kuzmich|leads|legal|loyalty|manager-queue|max|mcp|mesh|meta|miniapp|notifications|octo|offline|operator|operators|partners|payments|pdf|referral|rental|requests|reviews|roles|safety|sales|seat-requests|security|services|stay|storage|support|telegram|tourist|transfers|trips)/|lib/(auth|compute-fund|email|encryption|rate-limit)\.ts$|\.github/workflows/)'
+          SENSITIVE: '^(app/api/|app/.*route\.(ts|js)$|(.*/)?middleware\.ts$|lib/(a2a|account|admin|agent|agent-cabinet|agents|ai|alice|analytics|api|auth|booking|bookings|channels|chat|chat-cabinet|client-errors|crm|eco|embed|gigachat|guides|integrations|kuzmich|leads|legal|loyalty|manager-queue|max|mcp|mesh|meta|miniapp|notifications|octo|offline|operator|operators|partners|payments|pdf|referral|rental|requests|reviews|roles|safety|sales|seat-requests|security|services|stay|storage|support|telegram|tourist|transfers|trips)/|lib/(auth|compute-fund|email|encryption|rate-limit)\.ts$|\.github/workflows/)'
         run: |
           if [ "$LABELED" = "true" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"

@@ -46,7 +46,7 @@ describe('правки Сыщика 21.11', () => {
 
   it('/prepare называет постановление № 1323 со ссылкой на government.ru', () => {
     expect(VOLCANOES_DECREE_DOC.title).toMatch(/9 октября 2026 г\. № 1323/);
-    expect(VOLCANOES_DECREE_DOC.url).toBe('http://government.ru/docs/all/166655/');
+    expect(VOLCANOES_DECREE_DOC.url).toBe('https://government.ru/docs/all/166655/');
     expect(readFileSync(join(root, 'app/prepare/page.tsx'), 'utf-8')).toContain('data-federal-parks');
   });
 

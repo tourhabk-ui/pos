@@ -24,6 +24,7 @@ import { measurePackFiles, downloadPackFiles, totalMb, type PackDownloadResult }
 import { savedMapKey, requestPersistentStorage, SAVED_PROBE_SIZE, type SavedMapRecord } from '@/lib/offline/saved-map';
 import { evenSample } from '@/lib/offline/coverage';
 import type { RegionPack, ViewBounds } from '@/lib/map/field-base-map';
+import { routeFactsFromBundle, saveRouteFacts, type RouteFacts } from '@/lib/offline/route-facts';
 
 /** Что будет лежать в телефоне и сколько это весит — до нажатия. */
 export interface RouteMapPlan {
@@ -38,6 +39,12 @@ export interface RouteMapPlan {
   files: PackFile[];
   /** Сколько файлов хранилище не назвало по весу: МБ на кнопке — нижняя граница. */
   unknownSize: number;
+  /**
+   * Факты маршрута из того же ответа сервера — ложатся в телефон вместе с
+   * картой, чтобы Кузьмич без сети отвечал по ним (lib/offline/route-facts).
+   * Нет — сервер маршрута не назвал.
+   */
+  facts?: RouteFacts | null;
 }
 
 /** Ответ /offline-bundle целиком: линию и точки экраны кладут себе сами. */
@@ -151,6 +158,7 @@ export async function planRouteMap(routeId: string, regionPacks: readonly Region
         urls: sized.map(f => f.url),
         files: sized.map(({ url, kind, pack }) => ({ url, kind, pack })),
         unknownSize: unknown,
+        facts: routeFactsFromBundle(data),
       },
     };
   } catch (err) {
@@ -225,6 +233,9 @@ export async function saveRouteMap(
     // Приватный режим отказывает в записи, а карта при этом уже сохранена —
     // пугать этим человека нечем.
     try { localStorage.setItem(savedMapKey(routeId), JSON.stringify(rec)); } catch { /* ignore */ }
+    // Факты — вместе с картой: по ним Кузьмич отвечает без сети. Не легли —
+    // карта всё равно сохранена, причина уже в логе.
+    if (plan.facts) saveRouteFacts(plan.facts);
     return { ok: true, rec, persisted, failed: res.failed, warning };
   } catch (err) {
     // Пустой catch превращал поломку в «ничего не случилось», что перед

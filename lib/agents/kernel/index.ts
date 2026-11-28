@@ -10,6 +10,14 @@ export { beginEffect, commitEffect, failEffect, findStuckEffects } from './effec
 export type { AgentEffect, EffectStatus, BeginEffectResult } from './effects';
 export { decidePolicy, CAPABILITY_REGISTRY, FORBIDDEN_CAPABILITIES } from './policy';
 export {
+  recordBudgetStop,
+  ensureBudgetAlert,
+  LLM_BUDGET_DENY_REASON,
+  LLM_BUDGET_CAPABILITY,
+  BUDGET_STOP_THROTTLE_MS,
+} from './llm-budget';
+export type { BudgetStopResult, BudgetAlertResult } from './llm-budget';
+export {
   createTask,
   transition,
   claimTaskById,

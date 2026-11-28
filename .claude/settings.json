@@ -37,24 +37,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "c=$(jq -r '.tool_input.command // empty' 2>/dev/null); case \"$c\" in *\"git commit\"*) ;; *) exit 0;; esac; result=$(npx tsc --noEmit 2>&1); if echo \"$result\" | grep -q 'error TS'; then errcount=$(echo \"$result\" | grep -c 'error TS'); printf '{\"continue\": false, \"stopReason\": \"TypeScript: %s ошиб(ок). Исправь — npx tsc --noEmit\"}' \"$errcount\"; exit 2; fi",
-            "if": "Bash(git commit*)",
-            "timeout": 60,
-            "statusMessage": "TypeScript проверка перед коммитом..."
-          },
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/commit-gate.mjs\"",
+            "timeout": 180
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__github__create_pull_request",
+        "hooks": [
           {
             "type": "command",
-            "command": "c=$(jq -r '.tool_input.command // empty' 2>/dev/null); case \"$c\" in *\"git commit\"*) ;; *) exit 0;; esac; bash .claude/hooks/db-schema-check.sh",
-            "if": "Bash(git commit*)",
-            "timeout": 10,
-            "statusMessage": "DB schema проверка..."
-          },
-          {
-            "type": "command",
-            "command": "c=$(jq -r '.tool_input.command // empty' 2>/dev/null); case \"$c\" in *\"git commit\"*) ;; *) exit 0;; esac; result=$(node .claude/skills/kamchatka/scripts/audit.mjs --staged 2>&1); code=$?; if [ $code -eq 1 ]; then printf '{\"continue\": false, \"stopReason\": \"Audit --staged: критичные нарушения. %s\"}' \"$(echo \"$result\" | grep '\\[ \\]' | head -5 | tr '\\n' ' ')\"; exit 2; fi",
-            "if": "Bash(git commit*)",
-            "timeout": 30,
-            "statusMessage": "Audit staged файлов..."
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/skill-reminder.mjs\"",
+            "timeout": 10
           }
         ]
       }
@@ -69,6 +63,16 @@
             "timeout": 30,
             "statusMessage": "TypeScript...",
             "async": true
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/skill-reminder.mjs\"",
+            "timeout": 5
           }
         ]
       }

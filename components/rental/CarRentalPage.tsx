@@ -60,7 +60,7 @@ export function CarRentalPage({ rental }: { rental: RentalState }) {
               {/* Правило порядка — словами (§0): по алфавиту, одно для всех. */}
               <p className="text-xs text-[var(--text-muted)] mb-3">{RENTAL_ORDER_NOTE}</p>
               <div className="flex flex-col gap-4">
-                {rental.companies.map((c) => <RentalCompanyCard key={c.partnerId} company={c} />)}
+                {rental.companies.map((c, i) => <RentalCompanyCard key={c.partnerId} company={c} priority={i === 0} />)}
               </div>
             </>
           ) : rental.pausedReturnsOn ? (

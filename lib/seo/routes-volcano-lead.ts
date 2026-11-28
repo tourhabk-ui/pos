@@ -12,14 +12,12 @@ export const ROUTES_VOLCANO_MORE = {
   label: 'Подробнее о восхождениях',
 } as const;
 
-export const ROUTES_VOLCANO_SOURCES = [
+export const ROUTES_VOLCANO_SOURCES: readonly { label: string; href?: string }[] = [
   {
     label: 'KVERT, ИВиС ДВО РАН, «Авачинский»',
-    href: 'http://kvert.febras.net/volc?lang=ru&name=Avachinsky',
   },
   {
     label: 'KVERT, ИВиС ДВО РАН, «Горелый»',
-    href: 'http://kvert.febras.net/volc?lang=ru&name=Gorely',
   },
   {
     label: 'Visit Kamchatka, «Восхождения»',

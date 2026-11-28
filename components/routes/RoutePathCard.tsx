@@ -88,6 +88,8 @@ export default function RoutePathCard({ route, eager = false }: { route: RouteIt
           <img
             src={photoSrc}
             alt={route.photoAlt || route.title}
+            width={800}
+            height={500}
             loading={eager ? 'eager' : 'lazy'}
             {...(eager ? { fetchPriority: 'high' as const } : {})}
             className="w-full h-full object-cover"
@@ -139,12 +141,12 @@ export default function RoutePathCard({ route, eager = false }: { route: RouteIt
           туристических сервисов (22.11). Пересказ описания — на странице
           маршрута: на карточке он отодвигал цифры, по которым выбирают. */}
       <Link href={route.href ?? catalogHref(route, '/routes')} className="flex flex-1 flex-col gap-2 p-3">
-        <h3
+        <h2
           className="font-semibold text-[var(--text-primary)] leading-snug line-clamp-2 group-hover:text-[var(--accent)] transition-colors"
           style={{ fontFamily: 'var(--font-playfair)', fontSize: '1.0625rem' }}
         >
           {route.title}
-        </h3>
+        </h2>
         {(diff && DiffIcon) || facts.length > 0 ? (
           <div className="flex items-center gap-x-3 gap-y-1.5 flex-wrap text-[13px] text-[var(--text-secondary)]" data-testid="route-card-facts">
             {diff && DiffIcon ? (

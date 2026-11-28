@@ -1,10 +1,14 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import FaqSection from '@/components/faq/FaqSection';
+import { KUZMICH_MAX_URL, KUZMICH_TELEGRAM_URL } from '@/components/shared/KuzmichActions';
+import { MaxIcon, TelegramIcon } from '@/components/shared/MessengerIcons';
 import {
+  KUZMICH_ABOUT_PATH,
   KUZMICH_FAQ,
   KUZMICH_FAQ_HEADING,
   KUZMICH_LEAD,
+  KUZMICH_LEAD_SHORT,
   KUZMICH_PAGE_H1,
   KUZMICH_RELATED_HEADING,
   KUZMICH_RELATED_INTRO,
@@ -60,13 +64,46 @@ function linkedText(text: string): ReactNode {
   return parts;
 }
 
+/**
+ * Над чатом — только заголовок, лид в одну строку и знаки ботов (слово
+ * владельца 28.11: «Я еле нашёл строку ввода»). Поле ввода должно быть видно
+ * без прокрутки и на телефоне 390 px. Полное описание — на странице
+ * «О Кузьмиче» (/o-kuzmiche), «Подробнее» ведёт туда.
+ */
 export function KuzmichIntro() {
   return (
-    <header className="space-y-3 mb-8">
-      <h1 className="font-playfair text-3xl md:text-4xl font-bold text-[var(--text-primary)]">{KUZMICH_PAGE_H1}</h1>
-      <p data-lead-answer className="text-[var(--text-secondary)] text-sm md:text-base leading-relaxed">
-        {linkedText(KUZMICH_LEAD)}
-      </p>
+    <header className="space-y-2 mb-3">
+      <h1 className="font-playfair text-xl leading-tight sm:text-2xl md:text-3xl font-bold text-[var(--text-primary)]">{KUZMICH_PAGE_H1}</h1>
+      <div className="flex flex-col gap-1 sm:flex-row-reverse sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex items-center gap-1 -ml-2.5 sm:ml-0 sm:-mr-2.5 shrink-0">
+          <a
+            href={KUZMICH_TELEGRAM_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Telegram"
+            title="Telegram"
+            data-kuzmich-action="telegram"
+            className="inline-flex items-center justify-center min-h-[44px] min-w-[44px]"
+          >
+            <TelegramIcon size={22} />
+          </a>
+          <a
+            href={KUZMICH_MAX_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="MAX"
+            title="MAX"
+            data-kuzmich-action="max"
+            className="inline-flex items-center justify-center min-h-[44px] min-w-[44px]"
+          >
+            <MaxIcon size={22} />
+          </a>
+        </div>
+        <p data-lead-answer className="text-[var(--text-secondary)] text-sm md:text-base leading-relaxed">
+          {KUZMICH_LEAD_SHORT}{' '}
+          <Link href={KUZMICH_ABOUT_PATH} className="underline" style={{ color: 'var(--ocean)' }} data-kuzmich-about-link>Подробнее</Link>
+        </p>
+      </div>
     </header>
   );
 }
@@ -74,6 +111,11 @@ export function KuzmichIntro() {
 export default function KuzmichAbout() {
   return (
     <div className="mt-12 space-y-8" data-kuzmich-about>
+      <section id="o-kuzmiche">
+        <p className="text-sm md:text-base leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+          {linkedText(KUZMICH_LEAD)}
+        </p>
+      </section>
       {KUZMICH_SECTIONS.map((section) => (
         <section key={section.id} id={section.id} className="space-y-3">
           <h2 className="ds-h2" style={{ fontFamily: 'var(--font-playfair)' }}>

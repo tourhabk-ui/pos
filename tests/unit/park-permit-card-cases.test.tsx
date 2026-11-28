@@ -251,6 +251,8 @@ describe('правило слов', () => {
     expect(webHref('   ')).toBeNull();
     expect(webHref('javascript:alert(1)')).toBeNull();
     expect(webHref(null)).toBeNull();
+    expect(webHref('https://gosuslugi41.ru/pgu/volcano_info.htm')).toBeNull();
+    expect(webHref('http://kvert.febras.net/')).toBeNull();
   });
   it('случай переживает JSON: карточка получает его ответом API и хранит офлайн', () => {
     const cases: RoutePermitCardCase[] = [

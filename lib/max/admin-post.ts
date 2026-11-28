@@ -188,6 +188,8 @@ export async function handleAdminPostText(opts: {
   }
   const id = await insertQuestion(adminUserId, chatId, html);
   if (!id) return reply(ADMIN_ACTION_TEXT.notSaved);
+  // Превью — telegram-версия; в MAX уйдёт тот же текст, где корень канала
+  // Telegram заменён корнем канала MAX (crossLinkedTexts).
   return reply(
     previewText(channel.crossLinkedTexts(html).telegram, check.warnings, hasPII(body), targets.max),
     [[

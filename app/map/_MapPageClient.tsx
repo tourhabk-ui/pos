@@ -41,7 +41,7 @@ import dynamic from 'next/dynamic';
 import { IdleMount } from '@/components/map/IdleMount';
 import Logo from '@/components/shared/Logo';
 import BottomNav from '@/components/shared/BottomNav';
-import EmergencyAction from '@/components/shared/EmergencyAction';
+import EmergencyAction, { EmergencyMiniAppLine } from '@/components/shared/EmergencyAction';
 import { AssistantButton } from '@/components/shared/AssistantButton';
 import { MarkerType, type MapMarkerGeometry } from '@/components/shared/leaflet-types';
 import { PLACE_KIND_COLOR } from '@/lib/map/place-marker-icons';
@@ -66,6 +66,8 @@ import { clipAtWord } from '@/lib/text/clip-at-word';
 import { withClosure } from '@/lib/safety/place-closure';
 import { useInsetAbove, useInsetBelow } from '@/hooks/useInsetBelow';
 import { geolocationWatch } from '@/lib/geo/current-position';
+import type { MapFocus } from '@/lib/map/map-target';
+import { MapFocusNotice } from '@/components/map/MapFocusNotice';
 
 const LeafletMap = dynamic(() => import('@/components/shared/LeafletMap'), {
   ssr: false,
@@ -214,11 +216,50 @@ function styleGeometry(g: MapMarkerGeometry | null | undefined): MapMarkerGeomet
 interface MapPageClientProps {
   /** Адрес хранилища пакетов, с сервера — см. app/map/page.tsx. */
   mapPackBaseUrl?: string | null;
+  /**
+   * Место по ссылке (`?place=`, payload MAX `place-…`) — с сервера, из базы
+   * (lib/map/map-focus.ts). null — ссылка не про место.
+   */
+  focus?: MapFocus | null;
+  /** Ссылка «обстановка на карте» — панель угроз по районам открыта сразу. */
+  openSafety?: boolean;
+  /**
+   * Узкий вход `/map/compact` — мини-приложение MAX (задача 27.11): та же
+   * карта без обвязки сайта и без геолокации — ни кнопки «моё место», ни
+   * геофенса, ни ссылок в кабинет и на экраны полевого контура.
+   */
+  compact?: boolean;
 }
 
-export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientProps = {}) {
+/**
+ * Геофенс-предупреждение и отчёт о безопасности у точки. Своим компонентом,
+ * потому что геофенс при монтировании запускает слежение GPS
+ * (hooks/useOfflineGPS): узкий вход для мессенджера — без геолокации
+ * (решение владельца 27.11), и он этот компонент не монтирует.
+ */
+function MapGeofenceAlerts({ nearbyPlace, userPos, onDismiss }: {
+  nearbyPlace: Parameters<typeof SafetyReportPrompt>[0]['place'] | null;
+  userPos: { lat: number; lng: number } | null;
+  onDismiss: () => void;
+}) {
+  const { breach, zonesAgeHours } = useGeofence();
+  if (breach) return <GeofenceAlert breach={breach} cacheAgeHours={zonesAgeHours} />;
+  return nearbyPlace ? <SafetyReportPrompt place={nearbyPlace} userPos={userPos} onDismiss={onDismiss} /> : null;
+}
+
+/**
+ * Масштаб карты на месте по ссылке: виден сам объект и его окрестность.
+ * Leaflet на ступень крупнее, как и обзор (OVERVIEW_ZOOM_LEAFLET).
+ */
+const PLACE_FOCUS_ZOOM = 10;
+const PLACE_FOCUS_ZOOM_LEAFLET = PLACE_FOCUS_ZOOM + 1;
+
+export default function MapPageClient({ mapPackBaseUrl = null, focus = null, openSafety = false, compact = false }: MapPageClientProps = {}) {
   const { isDark, toggleTheme } = useTheme();
-  const [activeFilter, setActiveFilter] = useState<string>(ON_ROUTE_FILTER);
+  const focusPlace = focus?.state === 'place' ? focus.place : null;
+  // Место по ссылке видно при любом фильтре: «на маршруте» его могло бы
+  // спрятать, и человек открыл бы ссылку на пустое место карты.
+  const [activeFilter, setActiveFilter] = useState<string>(focusPlace ? 'all' : ON_ROUTE_FILTER);
   const [allRoutes, setAllRoutes] = useState<RoutePoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
@@ -227,7 +268,11 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
   // VedarMap»): своя карта отдаёт готовое место слоем vedar-places, а не id
   // из живого списка allRoutes — карточка строится прямо из тапа, детали
   // подтягивает сама (PlaceMapSheet, /api/places/[id]).
-  const [vedarPlaceHit, setVedarPlaceHit] = useState<VedarMapPlaceHit | null>(null);
+  // Место по ссылке открывается тем же листом, что и тап по карте.
+  const [vedarPlaceHit, setVedarPlaceHit] = useState<VedarMapPlaceHit | null>(() => (focusPlace
+    ? { id: focusPlace.id, name: focusPlace.title, kind: focusPlace.locationType, lat: focusPlace.lat, lng: focusPlace.lng }
+    : null));
+  const focusCenter: [number, number] | null = focusPlace ? [focusPlace.lat, focusPlace.lng] : null;
   // Пакеты своей карты — те же, что на полевом экране (builtRegionPacks):
   // обзор всего края плюс районы и клетки, подкладываются по видимой
   // области. Своя карта включается по НАЛИЧИЮ обзорного пакета, Leaflet —
@@ -271,7 +316,6 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
   const [sosSending, setSosSending] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
 
   const { peers: meshPeers } = useMesh(showMyLocation && !!userPos, userPos);
-  const { breach, zonesAgeHours } = useGeofence();
   const proximityPlaces = useMemo(
     () => allRoutes.filter(r => r.locationType && r.locationType !== 'other'),
     [allRoutes],
@@ -516,8 +560,8 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
             <span className="font-medium">Офлайн</span>
             <span className="text-amber-300/60">·</span>
             <span>{allRoutes.length} точек</span>
-            {/* Кнопка GPS-позиции */}
-            <button
+            {/* Кнопка GPS-позиции — не в узком входе: там геолокации нет. */}
+            {!compact && <button
               onClick={() => setShowMyLocation(!showMyLocation)}
               className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                 showMyLocation
@@ -527,19 +571,20 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
             >
               <Navigation className="w-3.5 h-3.5" />
               {showMyLocation ? 'GPS ON' : 'GPS'}
-            </button>
+            </button>}
           </div>
         </div>
 
-        {/* Кнопка «Скачать регионы» — доступ к офлайн-управлению */}
+        {/* Кнопка «Скачать регионы» — доступ к офлайн-управлению. Не в узком
+            входе: офлайн-пакеты — полевой контур (docs/CHAT_MINIAPPS_PLAN.md §14). */}
         <div ref={offlineTopRef} className="absolute top-16 right-3 z-[500] flex flex-col gap-2">
-          <Link
+          {!compact && <Link
             href="/offline/manage"
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-black/60  border border-white/20 text-white text-xs font-medium hover:bg-black/80 transition-all"
           >
             <AlertTriangle className="w-3.5 h-3.5" />
             Скачать
-          </Link>
+          </Link>}
           {/* Второй SOS здесь был копией: он открывал инлайн-панель, а SOS в
               шапке уводил на /sos — две кнопки одного действия с разным
               поведением (#887). Осталась одна, в шапке; её офлайн-ветка
@@ -548,8 +593,8 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
 
         {/* Карта на весь экран */}
         <LeafletMap
-          center={MAP_CENTER}
-          zoom={MAP_ZOOM_ONLINE}
+          center={focusCenter ?? MAP_CENTER}
+          zoom={focusCenter ? PLACE_FOCUS_ZOOM_LEAFLET : MAP_ZOOM_ONLINE}
           markers={allMarkers}
           height="100dvh"
           onMarkerClick={handleMarkerClick}
@@ -725,23 +770,19 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
           />
         )}
 
-        {/* Геофенс-предупреждение */}
-        {breach && <GeofenceAlert breach={breach} cacheAgeHours={zonesAgeHours} />}
-        {/* UGC-геотриггер: отчёт о безопасности от туриста у точки */}
-        {!breach && nearbyPlace && (
-          <SafetyReportPrompt place={nearbyPlace} userPos={userPos} onDismiss={dismissProximity} />
-        )}
+        {/* Геофенс и отчёт у точки — вне узкого входа: там геолокации нет. */}
+        {!compact && <MapGeofenceAlerts nearbyPlace={nearbyPlace} userPos={userPos} onDismiss={dismissProximity} />}
       </div>
     );
   }
 
   // ── ОНЛАЙН-РЕЖИМ ──────────────────────────────────────────────────
   return (
-    <div className="min-h-screen pb-24 md:pb-0">
+    <div className={compact ? 'min-h-screen' : 'min-h-screen pb-24 md:pb-0'}>
       {/* Header */}
       <header className="relative z-[700] bg-[var(--bg-card)] border-b border-[var(--border)] sticky top-0">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
+          <Link href="/" aria-label="Ведар — на главную" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
             <Logo size={28} />
           </Link>
           <h1 className="text-lg font-bold text-[var(--text-primary)] hidden sm:block"
@@ -756,12 +797,18 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
             <button onClick={toggleTheme} className="w-11 h-11 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors" aria-label="Переключить тему">
               {isDark ? <Sun size={20} /> : <Moon size={20} />}
             </button>
-            <Link href="/profile" className="w-11 h-11 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors" aria-label="Личный кабинет">
+            {/* Кабинет — не в мини-приложении: вход через мессенджер ещё не сделан
+                (docs/CHAT_MINIAPPS_PLAN.md §6.2). */}
+            {!compact && <Link href="/profile" className="w-11 h-11 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors" aria-label="Личный кабинет">
               <User size={20} />
-            </Link>
+            </Link>}
           </div>
         </div>
       </header>
+      {/* Узкий вход (мини-приложение MAX): 112 рядом с SOS — план §4, п. 9. */}
+      {compact && <EmergencyMiniAppLine />}
+
+      <main>
 
       {/* Фильтры по типу локации (ГДЕ) — z-[600] чтобы быть поверх Leaflet карты.
           На телефоне — одна прокручиваемая строка: двенадцать чипов в перенос
@@ -820,8 +867,8 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
                 oceanUrl: overviewSource.oceanUrl,
                 attribution: '© Copernicus DEM (ESA)',
               } : null}
-              center={OVERVIEW_CENTER}
-              zoom={OVERVIEW_ZOOM}
+              center={focusCenter ?? OVERVIEW_CENTER}
+              zoom={focusCenter ? PLACE_FOCUS_ZOOM : OVERVIEW_ZOOM}
               height="calc(100vh - 180px)"
               showUserLocation={showMyLocation}
               packs={regionPacks}
@@ -850,8 +897,8 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
             </IdleMount>
           ) : (
             <LeafletMap
-              center={OVERVIEW_CENTER}
-              zoom={OVERVIEW_ZOOM_LEAFLET}
+              center={focusCenter ?? OVERVIEW_CENTER}
+              zoom={focusCenter ? PLACE_FOCUS_ZOOM_LEAFLET : OVERVIEW_ZOOM_LEAFLET}
               markers={allMarkers}
               // Низ рамки — над таб-баром телефона (--bottom-nav-h, на
               // компьютере 0). Без вычета рамка уходила под бар на 33 px, и
@@ -871,8 +918,8 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
           )}
           </MapErrorBoundary>
 
-          {/* Кнопка GPS */}
-          <button
+          {/* Кнопка GPS — не в узком входе: там геолокации нет. */}
+          {!compact && <button
             ref={vedarReady ? undefined : gpsButtonRef}
             onClick={() => setShowMyLocation(!showMyLocation)}
             className={`absolute top-3 right-3 z-[500] p-2.5 rounded-lg shadow-lg transition-all ${
@@ -883,14 +930,15 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
             aria-label="Показать моё местоположение"
           >
             <Navigation size={18} />
-          </button>
+          </button>}
 
           {/* Сверху: обстановка в крае (#1428) и погода под ней. Слева от
               плашки — колонка масштаба карты (left 12, ширина 44), справа —
               кнопка «моё место»: плашка встаёт между ними, а не поверх
               «+»/«−» (владелец 02.10: «тревоги перекрывают кнопку масштаб»). */}
           <div className="absolute top-3 left-16 right-16 z-[500] flex flex-col items-start gap-2">
-            <MapThreatChip />
+            <MapThreatChip defaultOpen={openSafety} />
+            <MapFocusNotice focus={focus} />
             {userPos && <MapWeatherChip lat={userPos.lat} lng={userPos.lng} />}
             {/* Сбой своей карты — здесь, в той же колонке, что и тревоги:
                 в углу карты строку накрывает эта колонка (тот же урок, что
@@ -981,25 +1029,25 @@ export default function MapPageClient({ mapPackBaseUrl = null }: MapPageClientPr
         />
       )}
 
-      {/* Геофенс-предупреждение */}
-      {breach && <GeofenceAlert breach={breach} cacheAgeHours={zonesAgeHours} />}
-      {/* UGC-геотриггер: отчёт о безопасности от туриста у точки */}
-      {!breach && nearbyPlace && (
-        <SafetyReportPrompt place={nearbyPlace} userPos={userPos} onDismiss={dismissProximity} />
-      )}
+      {/* Геофенс и отчёт у точки — вне узкого входа: там геолокации нет. */}
+      {!compact && <MapGeofenceAlerts nearbyPlace={nearbyPlace} userPos={userPos} onDismiss={dismissProximity} />}
 
-      {/* Кнопка «Я вернулся» — для активных маршрутов */}
-      <Link
+      {/* Кнопка «Я вернулся» — для активных маршрутов. В узком входе её нет:
+          полевой контур в мини-приложение не выносится, пока проба не покажет
+          работающий service worker (docs/CHAT_MINIAPPS_PLAN.md §14). */}
+      {!compact && <Link
         href="/return"
         className="fixed top-20 left-3 z-[500] flex items-center gap-2 px-3 py-2 rounded-lg
           bg-[var(--success)] text-white text-xs font-semibold shadow-lg
           hover:opacity-90 transition-opacity"
       >
         Я вернулся
-      </Link>
+      </Link>}
 
-      <BottomNav activePath="/map" />
-      <AssistantButton pageContext={{ type: 'map' }} />
+      </main>
+
+      {!compact && <BottomNav activePath="/map" />}
+      {!compact && <AssistantButton pageContext={{ type: 'map' }} />}
     </div>
   );
 }

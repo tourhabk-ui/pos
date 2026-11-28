@@ -147,21 +147,25 @@ function Warnings({ warnings, scene = false }: { warnings: WarningsRead; scene?:
   return (
     <section className={sectionClass} style={sectionStyle} aria-labelledby="weather-warnings">
       <details className="group" open={summary.highest === 3}>
-        <summary className="flex cursor-pointer list-none items-start gap-3 [&::-webkit-details-marker]:hidden">
-          <span className="flex min-w-0 flex-1 flex-col gap-1">
-            {heading}
-            <span className={`flex items-center gap-2 text-sm font-medium ${strong}`}>
-              <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: LEVEL_COLOR[summary.highest] }} />
-              {summary.line}
+        {/* Свёрнутое — две короткие строки (владелец 28.11: «пока долистаешь до самой
+            погоды не очень удобно»): заголовок со стрелкой и сводка. Слова «Подробно» /
+            «Свернуть» — с широкого экрана: на телефоне они переносили заголовок на
+            вторую строку, а состояние и так говорит сам <summary> и стрелка. */}
+        <summary className="flex cursor-pointer list-none flex-col gap-1 [&::-webkit-details-marker]:hidden">
+          <span className="flex items-center gap-3">
+            <span className="min-w-0 flex-1">{heading}</span>
+            <span className={`flex shrink-0 items-center gap-1 text-sm ${muted}`}>
+              <span className="hidden sm:inline sm:group-open:hidden">Подробно</span>
+              <span className="hidden sm:group-open:inline">Свернуть</span>
+              <ChevronDown size={16} aria-hidden className="transition-transform duration-200 group-open:rotate-180" />
             </span>
-            <span className={`text-sm ${muted}`}>{summary.phenomena}</span>
-            {silentNote}
           </span>
-          <span className={`mt-0.5 flex shrink-0 items-center gap-1 text-sm ${muted}`}>
-            <span className="group-open:hidden">Подробно</span>
-            <span className="hidden group-open:inline">Свернуть</span>
-            <ChevronDown size={16} aria-hidden className="transition-transform duration-200 group-open:rotate-180" />
+          <span className={`flex items-center gap-2 text-sm font-medium ${strong}`}>
+            <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: LEVEL_COLOR[summary.highest] }} />
+            {summary.line}
           </span>
+          {summary.phenomena ? <span className={`text-sm ${muted}`}>{summary.phenomena}</span> : null}
+          {silentNote}
         </summary>
         <div className="mt-3 flex flex-col gap-3">
           <ul className="flex flex-col gap-3">

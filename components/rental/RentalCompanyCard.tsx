@@ -24,7 +24,12 @@ import { rentalOrderPath, rentalPagePath, rentalUnknownsText, type RentalCompany
  * пишутся нигде (§4.0). Номер телефона показан здесь и в ответы Кузьмича и
  * MCP не уходит (pd-guard) — им даётся ссылка на страницу.
  */
-export function RentalCompanyCard({ company }: { company: RentalCompany }) {
+/**
+ * `priority` — первая карточка списка (аудит 27.11): она в первом экране, и
+ * ленивая загрузка её снимка задерживала главную отрисовку /car-rental.
+ * Остальные карточки остаются ленивыми — лишних предзагрузок нет.
+ */
+export function RentalCompanyCard({ company, priority = false }: { company: RentalCompany; priority?: boolean }) {
   const hero = company.photos[0];
   const phoneLabel = formatContactPhone(company.phone);
   const hasContacts = Boolean(company.phone || company.telegramHref);
@@ -45,6 +50,7 @@ export function RentalCompanyCard({ company }: { company: RentalCompany }) {
             src={photoSrc(hero.url, 640)}
             alt={`${company.name}: фото машины`}
             fill
+            priority={priority}
             sizes="(max-width: 768px) 100vw, 672px"
             className="object-cover group-hover:scale-[1.04] transition-transform duration-700 ease-out"
           />

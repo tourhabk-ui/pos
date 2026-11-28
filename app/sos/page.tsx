@@ -361,7 +361,7 @@ export default function SosPage() {
   };
 
   return (
-    <div style={{
+    <main style={{
       minHeight: '100dvh',
       background: '#0a0a0a',
       color: 'white',
@@ -882,6 +882,6 @@ export default function SosPage() {
           to { transform: rotate(360deg); }
         }
       `}</style>
-    </div>
+    </main>
   );
 }

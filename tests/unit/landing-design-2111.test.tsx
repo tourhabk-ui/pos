@@ -166,7 +166,7 @@ describe('страница', () => {
       operator_slug: 'laguna-expedition', operator_public: true, season_start: null, season_end: null,
       next_open_date: null, any_day_open: null,
     } as unknown as LandingBlockTour;
-    const l = LANDINGS.find((x) => x.tours.kind !== 'none')!;
+    const l = LANDINGS.find((x) => x.tours.kind !== 'none' && landingDesign(x.slug).hero)!;
     const { container } = render(
       <LandingContent landing={l} showH1={false} tours={[
         { ...base, id: '1', slug, title: 'Тур А', cover: src },
@@ -175,9 +175,33 @@ describe('страница', () => {
     );
     const cards = container.querySelectorAll('[data-landing-tour]');
     expect(cards[0].querySelector('img.landing-tour-cover')?.getAttribute('loading')).toBe('lazy');
+    expect(cards[0].querySelector('img.landing-tour-cover')?.getAttribute('fetchpriority')).toBeNull();
     expect(cards[0].textContent).toMatch(/Фото: Лагуна Экспедиция/);
     expect(cards[1].querySelector('img')).toBeNull();
     expect(cards[1].querySelector('.landing-tour-cover--plain')).toBeTruthy();
+  });
+
+  it('без героя первая обложка — eager, вторая остаётся lazy', () => {
+    const [slug, src] = Object.entries(REVIEWED_TOUR_COVERS)[0];
+    const base = {
+      base_price: '10000', price_unit: 'per_person', duration_hours: '8', operator_name: 'Лагуна Экспедиция',
+      operator_slug: 'laguna-expedition', operator_public: true, season_start: null, season_end: null,
+      next_open_date: null, any_day_open: null,
+    } as unknown as LandingBlockTour;
+    const l = landingBySlug('chto-vzyat-s-soboj-na-kamchatku');
+    expect(landingDesign(l.slug).hero).toBeNull();
+    const { container } = render(
+      <LandingContent landing={l} showH1={false} tours={[
+        { ...base, id: '1', slug, title: 'Тур А', cover: src },
+        { ...base, id: '2', slug, title: 'Тур Б', cover: src },
+      ]} />,
+    );
+    const covers = [...container.querySelectorAll('img.landing-tour-cover')];
+    expect(covers).toHaveLength(2);
+    expect(covers[0].getAttribute('loading')).toBeNull();
+    expect(covers[0].getAttribute('fetchpriority')).toBe('high');
+    expect(covers[1].getAttribute('loading')).toBe('lazy');
+    expect(covers[1].getAttribute('fetchpriority')).toBeNull();
   });
 });
 

@@ -54,7 +54,8 @@ describe('схема ручного поста', () => {
 
 describe('публикация с фото', () => {
   it('идёт альбомом, а не одиночным фото', () => {
-    expect(code).toMatch(/tgPostMediaGroup\(channelId, urls, post\.text\)/);
+    // Текст — после подстановки своего канала (lib/seo/news-channel, 28.11).
+    expect(code).toMatch(/tgPostMediaGroup\(channelId, urls, tgText\)/);
   });
 
   it('относительные пути становятся абсолютными — Telegram скачивает по URL', () => {

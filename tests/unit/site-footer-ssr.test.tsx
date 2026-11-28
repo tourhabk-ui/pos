@@ -22,7 +22,7 @@ describe('где подвал', () => {
       '/kak-dobratsya-na-kamchatku', '/letopis/bystrinskij-park', '/weather', '/hub/fishing', '/park/', '/blog/some-post', '/operators/x', '/tools']) {
       expect(showSiteFooter(p), p).toBe(true);
     }
-    for (const p of ['/map', '/auth/login', '/hub', '/hub/admin', '/kuzmich', '/sos', '/', '/catalog', '/en/places', '/p/abc', '/trip/t1', '/catalog/tours/x', '/widget/fishingkam', '/partner-site/fishingkam']) {
+    for (const p of ['/map', '/auth/login', '/hub', '/hub/admin', '/kuzmich', '/ai-assistant', '/sos', '/', '/catalog', '/en/places', '/p/abc', '/trip/t1', '/catalog/tours/x', '/widget/fishingkam', '/partner-site/fishingkam']) {
       expect(showSiteFooter(p), p).toBe(false);
     }
   });
@@ -39,7 +39,7 @@ describe('где подвал', () => {
   it('корневой layout ставит подвал; страницы со своим <Footer /> — ровно OWN_FOOTER_PATHS', () => {
     const layout = readFileSync(join(ROOT, 'app/layout.tsx'), 'utf-8');
     expect(layout).toMatch(/import \{ SiteFooter \} from '@\/components\/layout\/SiteFooter'/);
-    expect(layout.includes('<SiteFooter><Footer /></SiteFooter>'), 'подвал в layout — внутри SiteFooter').toBe(true);
+    expect(/<SiteFooter><Footer(?: newsChannel=\{newsChannel\})? \/><\/SiteFooter>/.test(layout), 'подвал в layout — внутри SiteFooter').toBe(true);
     // Кто ещё ставит <Footer /> сам — только главная и каталог (OWN_FOOTER_PATHS);
     // любой другой дал бы второй подвал поверх общего.
     const users: string[] = [];

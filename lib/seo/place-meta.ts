@@ -20,6 +20,9 @@
 import { TITLE_LIMIT, BRAND_SUFFIX } from '@/lib/seo/title-fit';
 import { metaDescription, META_DESCRIPTION_MAX } from '@/lib/seo/meta-description';
 import { placeZoneLabel, routeSeasonLabel } from '@/lib/places/zone-labels';
+import { PK, bearingDeg, directionWord } from '@/lib/places/access-text';
+import { cityKmRounded } from '@/lib/places/distance-to-city';
+import { distanceKm } from '@/lib/geo/kamchatka';
 
 export interface PlaceMetaFacts {
   name: string;
@@ -105,14 +108,35 @@ function sentence(s: string): string {
 }
 
 /**
+ * «, N км по прямой к <стороне> от Петропавловска» — из координат карточки; та
+ * же точка отсчёта, округление и румбы, что в composeAccessText. Нет координат
+ * или они не числа — ''.
+ */
+export function placeWhere(lat: number | null | undefined, lng: number | null | undefined): string {
+  if (typeof lat !== 'number' || typeof lng !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lng)) return '';
+  const raw = distanceKm(PK, { lat, lng });
+  if (!Number.isFinite(raw)) return '';
+  const km = cityKmRounded(raw);
+  // Ближе километра — без подписи («0 км» читается как сбой). Ближе 15 км —
+  // число без стороны света: на такой дистанции румб ничего не говорит.
+  if (km < 1) return '';
+  if (km < 15) return `, ${km} км по прямой от Петропавловска`;
+  return `, ${km} км по прямой к ${directionWord(bearingDeg(PK, { lat, lng }))} от Петропавловска`;
+}
+
+/**
  * Описание: сначала факты, потом очерк — пока помещается. Режется тем же
  * правилом, что и прежде (по предложению или слову, не посреди слова).
  */
 export function placeDescription(f: PlaceMetaFacts, max: number = META_DESCRIPTION_MAX): string {
   const type = f.typeLabel && f.typeLabel !== 'место' ? f.typeLabel : null;
-  // Код зоны — подписью или никак (04.10, Кайныран: «…на Камчатке, avachinsky.»).
-  const zoneLabel = placeZoneLabel(f.zone);
-  const where = zoneLabel ? `, ${zoneLabel}` : '';
+  // Подпись зоны (places.zone) из сниппета убрана (28.11): это адрес рассылки
+  // тревог, а не район — «avachinsky» ловит всё южнее 55,5°N, и Ксудач (153 км),
+  // Кроноцкий вулкан (230 км) читались как «…на Камчатке, Авачинский». Вместо неё —
+  // то, что считается из координат карточки, тем же способом и с тем же
+  // округлением, что абзац «Как добраться» (composeAccessText): «N км по прямой
+  // к <стороне> от Петропавловска». Нет координат — нет подписи.
+  const where = placeWhere(f.lat, f.lng);
   const facts: string[] = [
     type ? `${f.name} — ${type} на Камчатке${where}.` : `${f.name} — место на Камчатке${where}.`,
   ];

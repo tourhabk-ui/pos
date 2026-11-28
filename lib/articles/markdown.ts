@@ -8,6 +8,8 @@
  * только http(s) и относительные пути: `javascript:` и прочее станет текстом.
  */
 
+import { publicExternalHref } from '@/lib/seo/public-external-href';
+
 export type Inline =
   | { t: 'text'; v: string }
   | { t: 'strong'; c: Inline[] }
@@ -30,7 +32,7 @@ const SITE_RE = /^https?:\/\/(?:www\.)?vedarai\.ru(?=\/|$)/i;
 export function safeHref(raw: string): string | null {
   const href = raw.trim();
   if (SITE_RE.test(href)) return href.replace(SITE_RE, '') || '/';
-  if (/^https?:\/\/[^\s]+$/i.test(href)) return href;
+  if (/^https?:\/\/[^\s]+$/i.test(href)) return publicExternalHref(href) ?? null;
   if (/^\/(?!\/)[^\s]*$/.test(href)) return href;
   return null;
 }
@@ -113,7 +115,7 @@ export function parseInline(src: string): Inline[] {
       const href = safeHref(bare);
       flush();
       if (href) out.push({ t: 'link', href, c: [{ t: 'text', v: bare }] });
-      else buf += bare;
+      // Заблокированный публичный адрес (KVERT по HTTP, битая форма Госуслуги41) в текст не ставим.
       i += bare.length; continue;
     }
     buf += src[i]; i += 1;

@@ -65,7 +65,7 @@ export function TransfersPage({ charter }: { charter: CharterState }) {
               {/* Правило порядка — словами (§0): по алфавиту, одно для всех. */}
               <p className="text-xs text-[var(--text-muted)] mb-3">{CARRIERS_ORDER_NOTE}</p>
               <div className="grid gap-4 lg:grid-cols-2 lg:items-start" data-carrier-grid>
-                {charter.carriers.map(c => <CharterCard key={c.partnerId} carrier={c} />)}
+                {charter.carriers.map((c, i) => <CharterCard key={c.partnerId} carrier={c} priority={i === 0} />)}
               </div>
             </>
           ) : (

@@ -53,3 +53,16 @@ export const REQUISITES: LegalRequisites = {
   phone: '+7 (4152) 26-05-40',
   site: 'vedarai.ru',
 };
+
+/**
+ * Публичный NAP — /contact, /about, подвал и Organization.
+ * Решение владельца 27.11.2026: «адрес не показывать» — улицу не выводим.
+ * Полный юридический адрес остаётся в REQUISITES.address и только в
+ * оферте, политике и условиях.
+ */
+export const PUBLIC_NAP = {
+  postalCode: '683024',
+  addressRegion: 'Камчатский край',
+  addressLocality: 'Петропавловск-Камчатский',
+  line: '683024, Камчатский край, г. Петропавловск-Камчатский',
+} as const;

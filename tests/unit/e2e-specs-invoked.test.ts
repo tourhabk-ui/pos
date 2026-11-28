@@ -131,14 +131,35 @@ describe('e2e: тест обязан уметь упасть на том, что
   });
 });
 
+/**
+ * Спеки, которые запускают руками, — поимённо и с причиной. Это не сирота:
+ * обещание названо («проверяется руками, вот команда»), а не выдаётся за
+ * прогон. Запись самоустаревающая: спека попала в workflow — тест требует
+ * убрать её отсюда.
+ */
+const MANUAL_ONLY: Readonly<Record<string, string>> = {
+  'kuzmich-first-screen.spec.ts':
+    'первый экран /kuzmich (слово владельца 28.11: «Я еле нашёл строку ввода»); '
+    + 'задание велит запускать вручную, в CI не подключать — локально и против прода после выката',
+};
+
 describe('e2e: каждая спека кем-то запускается', () => {
   it('спеки вообще есть — иначе проверка ниже бессмысленна', () => {
     expect(specFiles().length).toBeGreaterThanOrEqual(3);
   });
 
+  it('ручные спеки — на диске, с причиной и действительно без вызова', () => {
+    const wf = workflowSources();
+    for (const [spec, why] of Object.entries(MANUAL_ONLY)) {
+      expect(specFiles(), `${spec} в списке ручных, но файла нет`).toContain(spec);
+      expect(why.length, `${spec}: причина не названа`).toBeGreaterThan(20);
+      expect(isInvoked(spec, wf), `${spec} уже вызывается workflow — убрать из MANUAL_ONLY`).toBe(false);
+    }
+  });
+
   it('ни одна спека не лежит без вызова', () => {
     const wf = workflowSources();
-    const orphans = specFiles().filter((s) => !isInvoked(s, wf));
+    const orphans = specFiles().filter((s) => !isInvoked(s, wf) && !(s in MANUAL_ONLY));
     expect(
       orphans,
       'спека написана и не вызывается ни одним workflow — файл читается как '

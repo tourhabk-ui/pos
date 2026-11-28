@@ -114,7 +114,7 @@ describe('липкая колонка брони (десктоп)', () => {
 describe('каркас: шапка, крошки, футер', () => {
   it('общая шапка поверх фото, футер на md+', () => {
     expect(CARD).toMatch(/<Header overPhoto \/>/);
-    expect(CARD).toMatch(/<div className="hidden md:block">\s*<Footer \/>/);
+    expect(CARD).toMatch(/<div className="hidden md:block">\s*<Footer newsChannel=\{newsChannel\} \/>/);
   });
 
   it('цвет и зона 44px — на каждой ссылке крошек, а не на <nav>', () => {

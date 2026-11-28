@@ -313,6 +313,18 @@ describe('policy: fail-closed, без очереди к человеку (мод
     }
   });
 
+  it('запись факта закрытия суточного стопа LLM — только system, без эффектов и pre_commit (PR 1a серии «ядро»)', async () => {
+    const entry = CAPABILITY_REGISTRY['llm.budget_stop'];
+    expect(entry, 'llm.budget_stop обязан быть в реестре').toBeTruthy();
+    expect(entry.principalTypes).toEqual(['system']);
+    expect(entry.precommit).toBeUndefined();
+    expect(entry.reason).toMatch(/ничего не меняет, наружу не действует/);
+    const v = await decidePolicy({ principal: { type: 'system', id: 'llm-budget' }, capability: 'llm.budget_stop', phase: 'admission' });
+    expect(v.decision).toBe('allow');
+    const cron = await decidePolicy({ principal: { type: 'cron', id: 'x' }, capability: 'llm.budget_stop', phase: 'admission' });
+    expect(cron.decision).toBe('deny');
+  });
+
   it('каждая запись реестра несёт причину и типы principal', () => {
     for (const [cap, entry] of Object.entries(CAPABILITY_REGISTRY)) {
       expect(entry.reason.length, `${cap} без причины`).toBeGreaterThan(10);

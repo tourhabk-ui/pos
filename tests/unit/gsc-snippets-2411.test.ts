@@ -37,9 +37,11 @@ describe('/routes: ответ для первой поездки', () => {
   });
 
   it('источники — KVERT, Visit Kamchatka и сводка «Кам 24»', () => {
-    const hrefs = ROUTES_VOLCANO_SOURCES.map((s) => s.href).join(' ');
-    expect(hrefs).toMatch(/kvert\.febras\.net\/volc\?lang=ru&name=Avachinsky/);
-    expect(hrefs).toMatch(/kvert\.febras\.net\/volc\?lang=ru&name=Gorely/);
+    const labels = ROUTES_VOLCANO_SOURCES.map((s) => s.label).join(' ');
+    expect(labels).toMatch(/KVERT, ИВиС ДВО РАН, «Авачинский»/);
+    expect(labels).toMatch(/KVERT, ИВиС ДВО РАН, «Горелый»/);
+    const hrefs = ROUTES_VOLCANO_SOURCES.map((s) => s.href ?? '').join(' ');
+    expect(hrefs).not.toMatch(/kvert\.febras\.net/);
     expect(hrefs).toMatch(/visitkamchatka\.ru\/activities\/voskhozhdeniya/);
     expect(hrefs).toMatch(/kam24\.ru\/news\/main\/20261112\/134130/);
   });
@@ -97,7 +99,7 @@ describe('/fish: терпуг на существующей странице, б
     expect(text).toMatch(/терпуга/);
     expect(text).toMatch(/щитовым вулканом Терпук/);
     expect(text).toMatch(/Авачинской бухты/);
-    expect(FISH_PAGE_DATE).toBe('2026-11-24');
+    expect(FISH_PAGE_DATE).toBe('2026-11-27');
   });
 
   it('есть источники и ссылка на /places/terpuk, нового вида в справочнике нет', () => {

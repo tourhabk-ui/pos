@@ -6,6 +6,14 @@
 // не ослабляется ни на символ.
 const DEV_EVAL = process.env.NODE_ENV === 'development' ? " 'unsafe-eval'" : '';
 
+// Мост мини-приложения MAX (lib/miniapp/bridge.ts, MAX_BRIDGE_SRC): только для
+// `/map/compact` — слово владельца 27.11 «1 да» (план CHAT_MINIAPPS_PLAN §6.1:
+// «скрипты подключаются только при признаке оболочки»). CSP узкого входа —
+// тот же заголовок страниц плюс один адрес в script-src: собирается в
+// headers() из общего блока, а не копией строки.
+const MAX_BRIDGE_ORIGIN = 'https://st.max.ru';
+const withMaxBridge = (csp) => csp.replace(/script-src ([^;]*);/, (_m, src) => `script-src ${src} ${MAX_BRIDGE_ORIGIN};`);
+
 // Permissions-Policy (аудит 16.11, #3463): что странице и встроенным в неё
 // фреймам позволено просить у устройства. Своему сайту — только то, чем он
 // пользуется: камера (сканер QR на SOS, снимок наблюдения), микрофон (голосовой
@@ -213,6 +221,10 @@ const nextConfig = {
     '/api/**': [
       './node_modules/pdfkit/js/data/**',
       './node_modules/pdfkit/js/standard-fonts/**',
+      // Корень НУЦ для /api/cron/gigachat-check. Сам клиент берёт PEM из
+      // lib/gigachat/ca.ts (standalone не теряет строку), файл — сверка
+      // и запасной путь, если его всё же прочитали с диска.
+      './certs/russian_trusted_root_ca_pem.crt',
     ],
   },
 
@@ -379,8 +391,12 @@ const nextConfig = {
       // ЧПУ туров (30.09): /tours/{адрес или число} — короткая форма карточки.
       { source: '/tours/:slug',        destination: '/catalog/tours/:slug',            permanent: true },
       // Страниц отдельных сторонних приложений больше нет (07.11, миграция 1396):
-      // пять коротких записей живут одним списком «Приложения в дорогу».
-      { source: '/ai-tools/:slug',     destination: '/ai-tools',                       permanent: true },
+      // пять коротких записей живут одним списком «Приложения в дорогу». Список
+      // переехал с /ai-tools на /prilozheniya (28.11): страница без ИИ, старое
+      // имя осталось от каталога «AI-арсенал». Оба старых адреса ведут на новый
+      // список одним хопом, карточка — не через промежуточный /ai-tools.
+      { source: '/ai-tools',           destination: '/prilozheniya',                   permanent: true },
+      { source: '/ai-tools/:slug',     destination: '/prilozheniya',                   permanent: true },
       { source: '/terms',              destination: '/legal/terms',                    permanent: true },
       { source: '/auth/register',      destination: '/operators/join',                 permanent: false },
       // Перепись страниц 01.10: девять папок в app/ держали по одной строке
@@ -468,7 +484,7 @@ const nextConfig = {
   },
 
   async headers() {
-    return [
+    const rules = [
       // HTML-страницы не должны кэшироваться на CDN/прокси —
       // «статус дня» и персональные данные не должны отдаваться из edge-кэша.
       //
@@ -636,6 +652,15 @@ const nextConfig = {
         ],
       },
     ];
+    // Узкий вход карты для мини-приложения MAX: CSP страниц плюс мост MAX в
+    // script-src. Правило стоит ПОСЛЕ общего: из двух совпавших правил с
+    // одним заголовком Next берёт последнее.
+    const pageCsp = rules
+      .find((r) => r.source === '/:path((?!widget/).*)')
+      ?.headers.find((h) => h.key === 'Content-Security-Policy')?.value;
+    if (!pageCsp) throw new Error('next.config.js: CSP страниц не найдена — узкому входу карты не из чего собрать свою');
+    rules.push({ source: '/map/compact', headers: [{ key: 'Content-Security-Policy', value: withMaxBridge(pageCsp) }] });
+    return rules;
   },
 }
 

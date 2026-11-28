@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import Image from 'next/image';
 import {
-  Sparkles, Send, Loader2, ArrowLeft, Bot, ArrowRight,
+  Sparkles, Send, Loader2,
   Camera, X, MapPin, Users, Calendar, Phone, User, Mail,
   CheckCircle, ExternalLink,
   Fish, Mountain, Droplets, Waves, Backpack, Binoculars, Thermometer, Map,
@@ -21,7 +21,6 @@ import { compressImageToLimit } from '@/lib/images/compress-client';
 import BookingAccessLink from '@/components/bookings/BookingAccessLink';
 import SpeakButton from '@/components/kuzmich/SpeakButton';
 import { tourPath } from '@/lib/tours/tour-url';
-import { KUZMICH_TELEGRAM_URL } from '@/components/shared/KuzmichActions';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { ASK_PARAM, sanitizeAsk } from '@/lib/kuzmich/ask-link';
 import { TURN_STOPPED_TEXT, isAbortError } from '@/lib/kuzmich/turn-control';
@@ -29,6 +28,10 @@ import { StopTurnButton, RetryTurnButton, TurnSteps } from '@/components/kuzmich
 import { readChatAnswer } from '@/lib/kuzmich/turn-steps';
 import AnswerSources from '@/components/kuzmich/AnswerSources';
 import type { AnswerSource } from '@/lib/kuzmich/answer-sources';
+import { OfflineError, browserOffline, isOfflineFailure, offlineKuzmichReply } from '@/lib/kuzmich/offline-answer';
+import { askedOfflineCaption, waitingReply, waitingStrip, type AskedOffline } from '@/lib/kuzmich/offline-queue';
+import { useKuzmichWaiting } from '@/hooks/use-kuzmich-waiting';
+import { readSavedRouteFacts } from '@/lib/offline/route-facts';
 
 // ── Типы ──────────────────────────────────────────────────────────
 
@@ -67,6 +70,8 @@ interface Message {
   bookingForm?: BookingFormData; // inline-форма бронирования
   sources?: AnswerSource[];      // источники ответа (#3412, п. 1)
   bookingConfirmed?: { id: number; tour: string; accessToken: string };
+  /** Вопрос задан без сети и ушёл из очереди, когда связь вернулась. */
+  askedOffline?: AskedOffline;
 }
 
 // ── Быстрые чипы ──────────────────────────────────────────────────
@@ -226,9 +231,11 @@ export function BookingFormCard({
             </label>
             <div className="flex items-center border border-[var(--border)] rounded-lg overflow-hidden">
               <button type="button" onClick={() => setParticipants(p => Math.max(1, p - 1))}
+                aria-label="Уменьшить число человек"
                 className="px-3 py-2 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors text-sm">-</button>
               <span className="flex-1 text-center text-sm text-[var(--text-primary)]">{participants}</span>
               <button type="button" onClick={() => setParticipants(p => Math.min(50, p + 1))}
+                aria-label="Увеличить число человек"
                 className="px-3 py-2 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors text-sm">+</button>
             </div>
           </div>
@@ -308,6 +315,9 @@ export default function KuzmichClient() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState('');
+  // История разговора прочитана (или не прочиталась): до этого вопрос из
+  // очереди не уходит — пришедшая позже история затёрла бы его на экране.
+  const [historyDone, setHistoryDone] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageNote, setImageNote] = useState<string | null>(null);
@@ -349,7 +359,8 @@ export default function KuzmichClient() {
       })
       // История не загрузилась — чат начинается с чистого листа, а отказ уходит
       // в ловушку ошибок, а не глотается (§4.0).
-      .catch((err: unknown) => reportClientError('error', err));
+      .catch((err: unknown) => reportClientError('error', err))
+      .finally(() => setHistoryDone(true));
   }, []);
 
   useEffect(() => {
@@ -398,7 +409,12 @@ export default function KuzmichClient() {
   const messagesRef = useRef(messages);
   const imageFileRef = useRef<File | null>(null);
   const imagePreviewRef = useRef<string | null>(null);
-  const sendRef = useRef<(text: string) => Promise<void>>(async () => {});
+  const sendRef = useRef<(text: string, asked?: AskedOffline) => Promise<void>>(async () => {});
+  // Вопросы без сети (шаг 3): ждут во вкладке и уходят по признаку связи.
+  const waitingApi = useKuzmichWaiting('kuzmich', sessionId || null, !loading && historyDone,
+    (text, asked) => { void sendRef.current(text, asked); });
+  const waitingRef = useRef(waitingApi);
+  useEffect(() => { waitingRef.current = waitingApi; });
   // «Остановить» (#3412, п. 3): обрывает ожидание ответа этого хода.
   const abortRef = useRef<AbortController | null>(null);
   const [asking, setAsking] = useState('');
@@ -434,7 +450,7 @@ export default function KuzmichClient() {
     return () => clearTimeout(t);
   }, [sessionId]);
 
-  const send = useCallback(async (text: string) => {
+  const send = useCallback(async (text: string, asked?: AskedOffline) => {
     if (!text.trim() && !imageFileRef.current) return;
     if (busyRef.current) {
       if (text.trim()) {
@@ -451,8 +467,10 @@ export default function KuzmichClient() {
     let imageMimeType: string | undefined;
     let previewUrl: string | undefined;
 
-    const fileNow = imageFileRef.current;
-    const previewNow = imagePreviewRef.current;
+    // Вопрос из очереди задан без фото: снимок, прикреплённый уже после него,
+    // к нему не относится — не уходит с ним и остаётся в поле ввода.
+    const fileNow = asked ? null : imageFileRef.current;
+    const previewNow = asked ? null : imagePreviewRef.current;
     if (fileNow && previewNow) {
       const base64Data = previewNow.split(',')[1];
       imageBase64 = base64Data;
@@ -464,12 +482,15 @@ export default function KuzmichClient() {
       role: 'user',
       content: text.trim() || '(фото)',
       ...(previewUrl ? { imagePreview: previewUrl } : {}),
+      ...(asked ? { askedOffline: asked } : {}),
     };
     const prior = messagesRef.current.slice(-10).map(m => ({ role: m.role, content: m.content }));
     messagesRef.current = [...messagesRef.current, userMsg];
     setMessages(prev => [...prev, userMsg]);
-    setInput('');
-    clearImage();
+    if (!asked) {
+      setInput('');
+      clearImage();
+    }
     setLoading(true);
     const controller = new AbortController();
     abortRef.current = controller;
@@ -478,6 +499,8 @@ export default function KuzmichClient() {
     let stopped = false;
 
     try {
+      // Без сети запрос не уходит: ответ — памятка, записанная заранее.
+      if (browserOffline()) throw new OfflineError();
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
         signal: controller.signal,
@@ -509,11 +532,22 @@ export default function KuzmichClient() {
       };
       messagesRef.current = [...messagesRef.current, assistantMsg];
       setMessages(prev => [...prev, assistantMsg]);
+      // Сервер ответил — связь есть: ждавшие её вопросы уходят следом.
+      waitingRef.current.connected();
     } catch (err) {
       // Остановил сам человек — не «нет связи». Ждавшие в очереди строки
       // возвращаются в поле ввода, а не уходят сами: он мог передумать.
       stopped = isAbortError(err);
-      const fail: Message = { role: 'assistant', content: stopped ? TURN_STOPPED_TEXT : 'Нет связи. Попробуйте позже.' };
+      const earlier = prior.filter((m) => m.role === 'user').map((m) => m.content);
+      let content = stopped ? TURN_STOPPED_TEXT : 'Нет связи. Попробуйте позже.';
+      if (!stopped && isOfflineFailure(err)) {
+        const reply = offlineKuzmichReply(text.trim(), earlier, readSavedRouteFacts());
+        // Ответа в телефоне нет — вопрос ждёт связи. Вопрос с фото не ждёт:
+        // без снимка он ушёл бы не тем вопросом.
+        const kept = reply.kind === 'none' && !fileNow ? waitingRef.current.add(text, asked?.at) : null;
+        content = kept ? waitingReply(kept, reply.lead) : reply.text;
+      }
+      const fail: Message = { role: 'assistant', content };
       messagesRef.current = [...messagesRef.current, fail];
       setMessages(prev => [...prev, fail]);
     } finally {
@@ -557,46 +591,20 @@ export default function KuzmichClient() {
           около 230. На телефоне ответ Кузьмича — во всю ширину карточки, без
           аватара; пузырь пользователя справа, как был. С sm: — прежняя раскладка. */}
 
-      {/* Навигация */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-6">
-        <Link href="/" className="flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
-          <ArrowLeft className="w-4 h-4" /> Главная
-        </Link>
-        <div className="flex-1" />
-        <a
-          href={KUZMICH_TELEGRAM_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center min-h-[44px] text-sm text-[var(--ocean)] hover:underline"
-        >
-          Кузьмич в Telegram
-        </a>
-        <Link href="/request" className="flex items-center gap-1.5 text-sm text-[var(--ocean)] hover:underline">
-          Оставить заявку <ArrowRight className="w-3.5 h-3.5" />
-        </Link>
-      </div>
-
-      {/* Личность Кузьмича */}
-      {!hasMessages && (
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-lg bg-[var(--accent)]/10 mb-4">
-            <Bot className="w-8 h-8 text-[var(--accent)]" />
-          </div>
-          <div className="inline-flex items-center gap-2 bg-[var(--success)]/10 rounded-full px-3 py-1 mb-3">
-            <span className="w-2 h-2 rounded-full bg-[var(--success)] animate-pulse" />
-            <span className="text-xs font-medium text-[var(--success)]">Кузьмич онлайн</span>
-          </div>
-          <p className="text-[var(--text-secondary)] text-sm md:text-base max-w-md mx-auto">
-            Напишите вопрос в чат — про тур, место, погоду или обстановку.
-          </p>
-        </div>
-      )}
-
       {/* Чат */}
       {/* overflow-clip, а не overflow-hidden: hidden делает карточку прокручиваемым
           предком, и «липкое» поле ввода ниже прилипало бы к ней, а не к экрану
-          (тест 21.11: на телефоне поле уезжало вместе с ответом). */}
+          (тест 21.11: на телефоне поле уезжало вместе с ответом).
+          Порядок детей задан order-*: поле ввода сразу под строкой «онлайн»,
+          чипы под ним (слово владельца 28.11: «Я еле нашёл строку ввода»). */}
       <div className={`flex-1 flex flex-col bg-[var(--bg-card)] border border-[var(--border)] rounded-xl overflow-clip ${hasMessages ? 'min-h-[400px]' : ''}`}>
+
+        {!hasMessages && (
+          <div className="order-0 flex items-center justify-center gap-2 px-4 pt-3 text-xs">
+            <span className="w-2 h-2 rounded-full bg-[var(--success)] animate-pulse" />
+            <span className="font-medium text-[var(--success)]">Кузьмич онлайн</span>
+          </div>
+        )}
 
         {/* Сообщения */}
         {hasMessages && (
@@ -631,6 +639,9 @@ export default function KuzmichClient() {
                       {/* Ссылки — только в ответе Кузьмича (владелец 03.10). */}
                       {msg.role === 'assistant' ? <ChatText text={msg.content} /> : msg.content}
                     </div>
+                  )}
+                  {msg.role === 'user' && msg.askedOffline && (
+                    <p className="self-end text-xs text-[var(--text-muted)]">{askedOfflineCaption(msg.askedOffline)}</p>
                   )}
                   {msg.role === 'assistant' && <AnswerSources sources={msg.sources} />}
                   {msg.role === 'assistant' && msg.content && <SpeakButton text={msg.content} />}
@@ -697,14 +708,15 @@ export default function KuzmichClient() {
           </div>
         )}
 
-        {/* Чипы — до первого сообщения */}
+        {/* Чипы — до первого сообщения, под полем ввода. На телефоне — первые
+            четыре, с sm: — все восемь. */}
         {!hasMessages && (
-          <div className="p-5 flex-1 flex flex-col justify-end">
+          <div className="order-4 p-5 flex-1 flex flex-col">
             <p className="text-xs text-[var(--text-muted)] mb-3 text-center">Быстрые запросы:</p>
             <div className="flex flex-wrap justify-center gap-2">
-              {CHIPS.map(chip => (
+              {CHIPS.map((chip, i) => (
                 <button key={chip.text} type="button" onClick={() => send(chip.text)}
-                  className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] border border-[var(--border)] rounded-full px-4 py-2 hover:border-[var(--accent)] hover:text-[var(--accent)] transition-all">
+                  className={`${i >= 4 ? 'hidden sm:flex' : 'flex'} items-center gap-1.5 text-xs text-[var(--text-secondary)] border border-[var(--border)] rounded-full px-4 py-2 hover:border-[var(--accent)] hover:text-[var(--accent)] transition-all`}>
                   <chip.icon size={13} />
                   {chip.text}
                 </button>
@@ -715,12 +727,12 @@ export default function KuzmichClient() {
 
         {/* Превью фото */}
         {imagePreview && (
-          <div className="px-4 pt-3 flex items-center gap-2">
+          <div className="order-1 px-4 pt-3 flex items-center gap-2">
             <div className="relative">
               <Image src={imagePreview} alt="Фото" width={56} height={56} className="rounded-lg object-cover h-14 w-14" />
-              <button onClick={clearImage}
+              <button type="button" onClick={clearImage} aria-label="Убрать фото"
                 className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[var(--danger)] flex items-center justify-center">
-                <X className="w-2.5 h-2.5 text-white" />
+                <X className="w-2.5 h-2.5 text-white" aria-hidden="true" />
               </button>
             </div>
             <div className="min-w-0">
@@ -734,7 +746,7 @@ export default function KuzmichClient() {
 
         {/* Ввод. Прилипает к низу экрана, пока листается ответ (тест 21.11,
             390 px: поле уезжало), с отступом под жест «домой» у iPhone. */}
-        <div data-kuzmich-input className="sticky bottom-0 z-10 flex items-center gap-3 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-[var(--border)] bg-[var(--bg-card)]">
+        <div data-kuzmich-input className="sticky bottom-0 z-10 order-2 flex items-center gap-3 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-[var(--border)] bg-[var(--bg-card)]">
           <input
             ref={fileInputRef}
             type="file"
@@ -748,8 +760,9 @@ export default function KuzmichClient() {
             disabled={preparingImage}
             className="p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors shrink-0 disabled:opacity-50"
             title={preparingImage ? 'Готовим фото...' : 'Отправить фото'}
+            aria-label={preparingImage ? 'Готовим фото' : 'Прикрепить фото'}
           >
-            {preparingImage ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
+            {preparingImage ? <Loader2 size={18} className="animate-spin" aria-hidden="true" /> : <Camera size={18} aria-hidden="true" />}
           </button>
 
           <Sparkles className="w-5 h-5 text-[var(--accent)] shrink-0" />
@@ -759,16 +772,26 @@ export default function KuzmichClient() {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => !isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && !e.shiftKey && send(input)}
-            placeholder={imagePreview ? 'Добавьте вопрос или просто отправьте фото...' : 'Опишите мечту о путешествии...'}
+            placeholder={imagePreview ? 'Добавьте вопрос или просто отправьте фото...' : 'Спросите про тур, место или погоду…'}
             className="flex-1 min-w-0 bg-transparent text-[var(--text-primary)] placeholder:text-[var(--text-muted)] text-base sm:text-sm outline-none"
           />
           <button type="button" onClick={() => send(input)} disabled={!input.trim() && !imageFile}
+            aria-label="Отправить"
             className="p-2 rounded-lg bg-[var(--accent)] text-white disabled:opacity-40 transition-opacity hover:opacity-90">
-            <Send size={16} />
+            <Send size={16} aria-hidden="true" />
           </button>
         </div>
+        {waitingApi.waiting.length > 0 && (
+          <div className="order-3 px-4 pb-3 flex flex-wrap items-center gap-x-3 gap-y-1" aria-live="polite">
+            <p className="text-xs text-[var(--text-muted)]">{waitingStrip(waitingApi.waiting.length)}</p>
+            <button type="button" onClick={waitingApi.clear}
+              className="min-h-[44px] text-xs text-[var(--ocean)] hover:underline">
+              Не отправлять
+            </button>
+          </div>
+        )}
         {queued.length > 0 && (
-          <div className="px-4 pb-3" aria-live="polite">
+          <div className="order-3 px-4 pb-3" aria-live="polite">
             <p className="text-xs text-[var(--text-muted)]">
               {queued.length === 1
                 ? 'Сообщение уйдёт, когда Кузьмич допишет ответ.'
@@ -783,13 +806,14 @@ export default function KuzmichClient() {
         )}
       </div>
 
-      {/* Подсказка */}
+      {/* Под чатом — только эта строка (слово владельца 28.11: «под чатом
+          оставь только строку "Предпочитаете живое общение? Оставьте
+          заявку"»). «Оставить заявку» — только здесь, один раз; Telegram и
+          MAX — знаками под заголовком, на главную ведут шапка и нижнее меню. */}
       <p className="text-center text-xs text-[var(--text-muted)] mt-4">
         Предпочитаете живое общение?{' '}
-        <Link href="/request" className="text-[var(--ocean)] hover:underline">
-          Оставьте заявку
-        </Link>{' '}
-        — менеджер перезвонит в течение часа.
+        <Link href="/request" className="text-[var(--ocean)] hover:underline">Оставьте заявку</Link>
+        {' '}— менеджер перезвонит в течение часа.
       </p>
     </section>
   );

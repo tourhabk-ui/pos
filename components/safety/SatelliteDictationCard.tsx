@@ -106,10 +106,11 @@ export function SatelliteDictationCard({ coords, touristName, touristPhone }: Pr
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: '8px' }}>
           {/* Тип ситуации */}
           <div>
-            <label style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <label htmlFor="sos-situation" style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Ситуация
             </label>
             <select
+              id="sos-situation"
               value={situation}
               onChange={e => setSituation(e.target.value)}
               className="text-[13px]"
@@ -131,10 +132,11 @@ export function SatelliteDictationCard({ coords, touristName, touristPhone }: Pr
 
           {/* Кол-во людей */}
           <div>
-            <label style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <label htmlFor="sos-count" style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Чел.
             </label>
             <input
+              id="sos-count"
               type="number"
               min={1}
               max={99}

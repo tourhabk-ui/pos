@@ -148,12 +148,12 @@ function LegacyCard({ route }: { route: RouteItem }) {
       </div>
 
       <Link href={route.href ?? catalogHref(route, '/routes')} className="block space-y-1">
-        <h3
+        <h2
           className="font-semibold text-[var(--text-primary)] leading-snug line-clamp-2 group-hover:text-[var(--accent)] transition-colors"
           style={{ fontFamily: 'var(--font-playfair)', fontSize: '1rem' }}
         >
           {route.title}
-        </h3>
+        </h2>
 
         {/* Начало описания — как у карточки маршрута (RoutePathCard). До
             14.10 здесь было одно имя, и зонный срез из трёх карточек

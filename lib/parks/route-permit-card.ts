@@ -23,6 +23,7 @@
  * офлайн-копию карточки.
  */
 import type { ParkPermitRecord, RoutePermitCase } from '@/lib/parks/route-permit';
+import { publicExternalHref } from '@/lib/seo/public-external-href';
 
 /**
  * Случай маршрута для карточки. У случаев, которые правило узнаёт по названию
@@ -65,7 +66,8 @@ export type PermitCardWording = 'asserted' | 'conditional' | 'recorded' | 'ambig
  */
 export function webHref(url: string | null | undefined): string | null {
   const t = (url ?? '').trim();
-  return /^https?:\/\//i.test(t) ? t : null;
+  if (!/^https?:\/\//i.test(t)) return null;
+  return publicExternalHref(t) ?? null;
 }
 
 /**

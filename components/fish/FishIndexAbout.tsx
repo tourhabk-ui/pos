@@ -10,6 +10,7 @@ import {
   FISH_FAQ_HEADING,
   FISH_KICKER,
   FISH_LEAD,
+  FISH_KING_SALMON_ANSWER,
   FISH_PAGE_DATE,
   FISH_PAGE_H1,
   FISH_RELATED_HEADING,
@@ -82,6 +83,9 @@ export function FishIndexIntro() {
       </h1>
       <p className="text-[var(--text-primary)] max-w-2xl leading-relaxed" data-lead-answer>
         {linkedText(FISH_LEAD)}
+      </p>
+      <p className="text-[var(--text-primary)] max-w-2xl leading-relaxed mt-3" data-king-salmon-answer>
+        {linkedText(FISH_KING_SALMON_ANSWER)}
       </p>
       {reviewed && (
         <p className="text-xs text-[var(--text-muted)] mt-3" data-record-modified="">

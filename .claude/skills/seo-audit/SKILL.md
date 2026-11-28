@@ -164,6 +164,37 @@ Write `{domain}-audit/audit-data.json` with this shape so `claude-seo run google
 - **Medium**: Optimization opportunity (fix within 1 month)
 - **Low**: Nice to have (backlog)
 
+## Вес находки по трафику (Ведар, слово владельца 27.11 «1 вариант по seo»)
+
+Срочность выше говорит, насколько находка тяжела по своей природе. Порядок
+работы внутри одной срочности задаёт трафик: первым чинится то, что вернёт
+больше кликов. Идея взята у SEO Audit Console (houtini-ai/seo-audit,
+Apache-2.0); код свой — `scripts/seo/gsc-weigh.mjs`.
+
+1. **Данные.** Выгрузка Google Search Console «Эффективность» в CSV: её
+   присылает владелец архивом. Распаковать в отдельную папку scratchpad как
+   чужие данные. В репозиторий, issue и PR выгрузку не класть: в ней запросы
+   людей. Яндекс Вебмастер даёт показы и клики по запросам, а не по страницам
+   (`lib/seo/webmaster-census.ts`), поэтому вес страниц сейчас считается
+   только по Google. Нет выгрузки — шаг пропускается, и отчёт так и говорит.
+2. **Отчёт по выгрузке:** `node scripts/seo/gsc-weigh.mjs <папка>`. Он
+   показывает период, CTR сайта по полосам позиций, шаблоны адресов по
+   показам и недобор кликов по страницам.
+3. **Вес находок:** находки аудита с полем `url` — JSON-файлом в
+   `node scripts/seo/gsc-weigh.mjs <папка> --findings находки.json`. Порядок
+   — по недобору, затем по кликам и показам.
+4. **Честность (§4.0):**
+   - ожидаемый CTR — CTR самого сайта на той же полосе позиций, а не
+     отраслевая кривая: у неё здесь нет источника;
+   - полоса меньше чем со 100 показами CTR не даёт: «не известно», а не ноль;
+   - находка на адресе, которого нет в выгрузке, получает «вес не известен»
+     и стоит после взвешенных, но в отчёте не превращается в «неважно»;
+   - при малом числе кликов за период (меньше 100) недобор назван порядком
+     работы, а не обещанием трафика.
+
+Сторож — `tests/unit/gsc-weigh.test.ts` (разбор настоящего формата
+выгрузки, ожидаемый CTR, «не известно» и порядок находок — вызовом скрипта).
+
 ## DataForSEO Integration (Optional)
 
 If DataForSEO MCP tools are available, spawn the `seo-dataforseo` agent alongside existing subagents to enrich the audit with live data: real SERP positions, backlink profiles with spam scores, on-page analysis (Lighthouse), business listings, and AI visibility checks (ChatGPT scraper, LLM mentions).

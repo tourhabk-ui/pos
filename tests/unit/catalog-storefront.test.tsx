@@ -456,7 +456,7 @@ describe('каркас страниц каталога', () => {
     });
   }
   it('футер: общий <Footer> на md+, на телефоне — реквизиты из единого источника', () => {
-    expect(FOOTER).toMatch(/<div className="hidden md:block">\s*<Footer \/>/);
+    expect(FOOTER).toMatch(/<div className="hidden md:block">\s*<Footer(?: newsChannel=\{newsChannel\})? \/>/);
     expect(FOOTER).toMatch(/REQUISITES\.shortName/);
     expect(FOOTER).toMatch(/REQUISITES\.inn/);
     expect(FOOTER).not.toMatch(/4101147649/);

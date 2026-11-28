@@ -30,7 +30,7 @@ import { ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { THIRD_PARTIES, loadDecision } from '@/lib/legal/third-party-registry';
 import { CONSENT_BANNER_ZH, CONSENT_BUTTONS, isZhPath, readConsent, writeConsent, type ConsentChoice } from '@/lib/legal/consent';
-import { isForeignSurface } from '@/lib/embed/widget-frame';
+import { isForeignSurface, isMiniAppPath } from '@/lib/embed/widget-frame';
 import { isSosSurface } from '@/lib/legal/sos-surface';
 import { isConfirmSurface } from '@/lib/legal/confirm-surface';
 import { metrikaHit, metrikaInitScript, muteWebvisorFields, shouldTrackPath } from '@/lib/analytics/metrika';
@@ -64,6 +64,9 @@ export default function ThirdPartyScripts() {
   // чужой страницы (примерка на fishingkam.ru 29.09). Сайт партнёра на его
   // домене — так же: счётчик Ведара на чужом сайте считал бы чужие визиты.
   if (isForeignSurface(pathname)) return null;
+  // Мини-приложение в мессенджере: согласие на аналитику там не взято
+  // (docs/CHAT_MINIAPPS_PLAN.md §6.1) — ни баннера поверх карты, ни счётчиков.
+  if (isMiniAppPath(pathname)) return null;
   // На /sos и /sos/relay баннер перекрывал инструкцию, а сторонние
   // счётчики на экране беды не нужны. Согласие спросим на следующей
   // обычной странице.

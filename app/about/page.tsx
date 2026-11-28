@@ -5,7 +5,7 @@ import { Header } from '@/components/layout/Header';
 import { getPlatformCounts } from '@/lib/stats/platform-counts';
 import { queryCatalogSummaryForPage } from '@/lib/search';
 import { defaultOgImages } from '@/lib/seo/og-image';
-import { REQUISITES } from '@/lib/legal/requisites';
+import { PUBLIC_NAP, REQUISITES } from '@/lib/legal/requisites';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
 
@@ -172,7 +172,7 @@ export default async function AboutPage() {
                 <div>
                   <dt className="text-[var(--text-muted)]">Адрес</dt>
                   <dd className="text-[var(--text-primary)] font-medium">
-                    683024, Камчатский край,<br />г. Петропавловск-Камчатский
+                    {PUBLIC_NAP.postalCode}, {PUBLIC_NAP.addressRegion},<br />г. {PUBLIC_NAP.addressLocality}
                   </dd>
                 </div>
                 <div>

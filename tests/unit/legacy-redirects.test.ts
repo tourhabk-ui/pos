@@ -33,6 +33,8 @@ const LEGACY: ReadonlyArray<{ source: string; destination: string; dir: string }
   { source: '/on-route',               destination: '/planning?mode=trail',     dir: 'app/on-route' },
   { source: '/routes/detail/:id',      destination: '/routes/:id',              dir: 'app/routes/detail' },
   { source: '/marketplace/:path*',     destination: '/catalog/:path*',          dir: 'app/marketplace' },
+  // 28.11: список «Приложения в дорогу» переехал на /prilozheniya.
+  { source: '/ai-tools',               destination: '/prilozheniya',            dir: 'app/ai-tools' },
 ];
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -45,6 +47,12 @@ describe('старые адреса: правило в next.config, папки �
       expect(existsSync(join(ROOT, dir)), `${dir} должна быть удалена: адрес обслуживает next.config`).toBe(false);
     });
   }
+
+  // Карточки прежнего каталога — сразу на новый список, не через /ai-tools.
+  it('/ai-tools/:slug → /prilozheniya одним хопом, папки app/ai-tools нет', () => {
+    expect(CONFIG).toMatch(/source:\s*'\/ai-tools\/:slug',\s*destination:\s*'\/prilozheniya',\s*permanent:\s*true/);
+    expect(existsSync(join(ROOT, 'app/ai-tools'))).toBe(false);
+  });
 
   // Аудит AI-видимости 30.10: /marketplace/tours уходил в /catalog/tours (404),
   // /tury-na-kamchatku отдавал мягкий 404. Все три — в /catalog одним хопом:

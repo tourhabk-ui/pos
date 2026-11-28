@@ -20,7 +20,7 @@ describe('меню шапки', () => {
 
   it('снятые пункты достижимы через «Ещё»', () => {
     const registry = readFileSync(join(process.cwd(), 'lib/navigation/platform-links.ts'), 'utf-8');
-    for (const href of ['/collections', '/accommodations', '/ai-tools', '/operators']) {
+    for (const href of ['/collections', '/accommodations', '/prilozheniya', '/operators']) {
       expect(registry, `${href} пропал из «Ещё»`).toContain(`href: '${href}'`);
     }
   });

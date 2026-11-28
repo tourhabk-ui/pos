@@ -27,6 +27,7 @@ import { useCatalogReturnHref } from '@/hooks/use-catalog-return';
 import { composeAccessText } from '@/lib/places/access-text';
 import { PLACE_PHOTO_UPLOAD_ANCHOR } from '@/components/places/AddPhotoLink';
 import PhotoCredit, { creditFor } from '@/components/places/PhotoCredit';
+import { PlaceMapNote } from '@/components/places/PlaceMapNote';
 import { offerOrderDay } from '@/lib/tours/offer-order';
 import { placeFaq } from '@/lib/places/place-faq';
 import FaqSection from '@/components/faq/FaqSection';
@@ -199,7 +200,7 @@ function isHeroPhoto(src: string): boolean {
  * заголовок посадочной, тот же, что Article.headline; шаблонные «Вопросы и
  * ответы» тогда не рисуются: FAQPage один — из текста посадочной (Сыщик 21.11).
  */
-export default function PlaceDetailClient({ id, initialPlace = null, landingHeading = null, closure = null, leadAnswer = null }: { id: string; initialPlace?: PlaceData | null; landingHeading?: string | null; closure?: RouteClosure | null; leadAnswer?: PlaceSearchMeta['leadAnswer'] | null }) {
+export default function PlaceDetailClient({ id, initialPlace = null, landingHeading = null, closure = null, leadAnswer = null, mapNote = null, mapRef = null }: { id: string; initialPlace?: PlaceData | null; landingHeading?: string | null; closure?: RouteClosure | null; leadAnswer?: PlaceSearchMeta['leadAnswer'] | null; mapNote?: PlaceSearchMeta['mapNote'] | null; mapRef?: string | null }) {
   // Ссылка «назад» — в тот список, откуда пришли (страница, фильтры), не в голый раздел.
   const backHref = useCatalogReturnHref('/places');
   // `?route=1` — человек уже нажал «Навигация» на листе места (карта) и
@@ -650,6 +651,11 @@ export default function PlaceDetailClient({ id, initialPlace = null, landingHead
                 toursCount: place.tours.length,
               }).join(' ')}
             </p>
+            {/* Блок «на карте» — только у мест из lib/seo/place-search-meta с
+                полем mapNote (Сыщик 28.11, GSC «кроноцкое озеро на карте»). */}
+            {mapNote && mapRef && (
+              <PlaceMapNote name={place.name} lat={place.lat} lng={place.lng} mapRef={mapRef} note={mapNote} />
+            )}
             <PlaceAccess
               placeId={place.id}
               name={place.name}

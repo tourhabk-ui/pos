@@ -20,6 +20,15 @@ const { poolQuery, recordCronRun, notifyBudgetAlert, claimCronWindow } = vi.hois
 }));
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: poolQuery } }));
+// Ядро подменено: этот poolQuery не отдаёт ключ суток (запись стопа в ядро —
+// tests/unit/kernel-llm-budget.test.ts). Старые случаи идут с
+// LLM_BUDGET_KERNEL=off и прежними ожиданиями (уточнение ревью 5).
+const kernelBudget = vi.hoisted(() => ({
+  recordBudgetStop: vi.fn(async () => ({ first: true, throttled: false, taskId: 'task-day', spentUsd: 5.4, dayKey: '2026-11-29' })),
+  ensureBudgetAlert: vi.fn(async () => ({ status: 'sent' as string })),
+}));
+vi.mock('@/lib/agents/kernel/llm-budget', () => kernelBudget);
+
 vi.mock('@/lib/agents/cron-heartbeat', () => ({ recordCronRun }));
 vi.mock('@/lib/telegram/admin-notify', async () => {
   const actual = await vi.importActual<typeof import('@/lib/telegram/admin-notify')>('@/lib/telegram/admin-notify');
@@ -48,6 +57,9 @@ beforeEach(() => {
   claimCronWindow.mockResolvedValue('claimed');
   process.env.CRON_SECRET = 'cron-test';
   process.env.AI_DAILY_BUDGET_USD = '5';
+  process.env.LLM_BUDGET_KERNEL = 'off';
+  kernelBudget.recordBudgetStop.mockClear();
+  kernelBudget.ensureBudgetAlert.mockClear();
 });
 
 afterEach(() => {
@@ -75,6 +87,46 @@ describe('крон тревоги сверяет с порогом расход 
     const sql = String(poolQuery.mock.calls[0]?.[0] ?? '');
     expect(sql).toContain(`FILTER (WHERE ${STOP_SPEND_SQL})`);
     expect(sql).toContain(`FILTER (WHERE ${RUNNER_SPEND_SQL})`);
+  });
+});
+
+describe('закрытие стопа — факт в ядре, алерт один раз за сутки (PR 1a серии «ядро»)', () => {
+  beforeEach(() => {
+    delete process.env.LLM_BUDGET_KERNEL;
+    poolQuery.mockResolvedValue({ rows: [{ spent: '5.40', runner_spent: '2.10', unknown_calls: '0' }] });
+  });
+
+  it('крон пишет стоп в ядро и шлёт через журнал: доставлено — alert_sent', async () => {
+    const body = await (await call()).json() as Body;
+    expect(body.status).toBe('alert_sent');
+    expect(kernelBudget.recordBudgetStop).toHaveBeenCalledWith({ limitUsd: 5, trigger: 'cron' });
+    expect(kernelBudget.ensureBudgetAlert).toHaveBeenCalledWith({
+      taskId: 'task-day', spentUsd: 5.4, limitUsd: 5, runnerSpentUsd: 2.1, mode: 'cron',
+    });
+    expect(notifyBudgetAlert).not.toHaveBeenCalled();
+  });
+
+  it('повтор за те же сутки — alert_already_sent_today, ok: true', async () => {
+    kernelBudget.ensureBudgetAlert.mockResolvedValueOnce({ status: 'already_sent' });
+    const body = await (await call()).json() as Body & { alert: unknown };
+    expect(body).toMatchObject({ ok: true, status: 'alert_already_sent_today', spent_usd: 5.4, limit_usd: 5 });
+    expect(body.alert).toEqual({ ok: true, status: 'already_sent' });
+  });
+
+  it('недоставка — alert_not_delivered, в поле alert прежнее ok: false и причина', async () => {
+    kernelBudget.ensureBudgetAlert.mockResolvedValueOnce({ status: 'not_delivered', reason: 'chat not found' });
+    const body = await (await call()).json() as Body & { alert: unknown };
+    expect(body.status).toBe('alert_not_delivered');
+    expect(body.alert).toEqual({ ok: false, status: 'not_delivered', reason: 'chat not found' });
+  });
+
+  it('LLM_BUDGET_KERNEL=off — прежнее поведение: алерт каждым прогоном, ядро не трогается', async () => {
+    process.env.LLM_BUDGET_KERNEL = 'off';
+    await call();
+    await call();
+    expect(notifyBudgetAlert.mock.calls).toEqual([[5.4, 5, 2.1], [5.4, 5, 2.1]]);
+    expect(kernelBudget.recordBudgetStop).not.toHaveBeenCalled();
+    expect(kernelBudget.ensureBudgetAlert).not.toHaveBeenCalled();
   });
 });
 

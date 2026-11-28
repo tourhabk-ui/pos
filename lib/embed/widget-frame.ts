@@ -28,6 +28,22 @@ export function isWidgetPath(pathname: string | null | undefined): boolean {
 }
 
 /**
+ * Узкий вход в карту обстановки — то, что открывает мини-приложение MAX
+ * (задача владельца 27.11, docs/CHAT_MINIAPPS_PLAN.md §6.1). Та же карта
+ * `/map`, не вторая. Это своя поверхность Ведара, а не чужая, поэтому
+ * `isForeignSurface` её не включает: по таблице плана внутри мессенджера
+ * молчат только Метрика с баннером согласия (согласие там не взято),
+ * приглашение поставить приложение и фоновая запись места; service worker —
+ * по итогу пробы, SOS — одна `EmergencyAction`.
+ */
+export const MINIAPP_MAP_PATH = '/map/compact';
+
+export function isMiniAppPath(pathname: string | null | undefined): boolean {
+  if (!pathname) return false;
+  return pathname === MINIAPP_MAP_PATH || pathname.startsWith(`${MINIAPP_MAP_PATH}/`);
+}
+
+/**
  * Чужая поверхность: виджет в iframe ИЛИ сайт партнёра, который Ведар отдаёт
  * на его домене (lib/partner-sites, fishingkam.ru с 22.10). Посетитель пришёл
  * к партнёру, а не к Ведару, и всё глобальное Ведара молчит так же, как в

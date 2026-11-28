@@ -32,6 +32,8 @@ interface AccommodationCardProps {
    */
   datesByOwner?: boolean;
   onFavoriteToggle?: (id: string) => void;
+  /** Первая карточка списка /accommodations (аудит 27.11): снимок без ленивой загрузки. */
+  priority?: boolean;
   isFavorite?: boolean;
 }
 
@@ -77,6 +79,7 @@ export const AccommodationCard: React.FC<AccommodationCardProps> = ({
   reviewCount,
   amenities,
   images,
+  priority = false,
   starRating,
   isVerified,
   datesByOwner,
@@ -116,6 +119,7 @@ export const AccommodationCard: React.FC<AccommodationCardProps> = ({
               src={mainImage}
               alt={images[0]?.alt || name}
               fill
+              priority={priority}
               sizes="(max-width: 768px) 100vw, 50vw"
               className="object-cover transition-transform duration-500 group-hover:scale-110"
               onError={() => setImgError(true)}

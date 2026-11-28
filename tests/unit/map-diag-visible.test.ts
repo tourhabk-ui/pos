@@ -18,7 +18,7 @@ describe('/map: отчёт карты о себе — в колонке трев
   });
 
   it('и рисует его в той же колонке, что и плашку тревог', () => {
-    const col = SRC.slice(SRC.indexOf('<MapThreatChip />'), SRC.indexOf('{quakesMode && quakeHit'));
+    const col = SRC.slice(SRC.indexOf('<MapThreatChip'), SRC.indexOf('{quakesMode && quakeHit'));
     expect(col).toMatch(/\{mapDiag && \(/);
     expect(col).toMatch(/role="status"/);
   });

@@ -516,7 +516,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
         `max-w-*` — правка в утилите удвоила бы поля там и сломала
         полноширинные экраны.
       */}
-      <div className="ds-page pt-20 pb-10">
+      <main className="ds-page pt-20 pb-10">
       {/* Витрина (lib/layout/page-width, 14.11): до этого каталог мест и
           маршрутов шёл во всю ширину монитора. */}
       <div className={pageContainer('showcase')}>
@@ -561,11 +561,13 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
               <p className="text-xs text-[var(--text-muted)] mt-2">
                 Источники:{' '}
                 {ROUTES_VOLCANO_SOURCES.map((s, i) => (
-                  <span key={s.href}>
+                  <span key={s.href ?? s.label}>
                     {i > 0 ? '; ' : ''}
-                    <a href={s.href} target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--accent)]">
-                      {s.label}
-                    </a>
+                    {s.href ? (
+                      <a href={s.href} target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--accent)]">
+                        {s.label}
+                      </a>
+                    ) : s.label}
                   </span>
                 ))}
                 .
@@ -925,7 +927,7 @@ export default function RoutesPageClient({ initialItems, initialMeta, initialErr
         )}
 
       </div>
-      </div>
+      </main>
     </>
   );
 }

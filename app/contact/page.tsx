@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { Header } from '@/components/layout/Header';
 import ContactClient from './_ContactClient';
 import { defaultOgImages } from '@/lib/seo/og-image';
-import { REQUISITES } from '@/lib/legal/requisites';
+import { PUBLIC_NAP, REQUISITES } from '@/lib/legal/requisites';
 import { KUZMICH_MAX_URL } from '@/components/shared/KuzmichActions';
 import { jsonLdHtml } from '@/lib/seo/json-ld-html';
 
@@ -96,7 +96,7 @@ export default function ContactPage() {
               </div>
               <div>
                 <dt className="text-[var(--text-muted)]">Адрес</dt>
-                <dd className="text-[var(--text-primary)]">{REQUISITES.address}</dd>
+                <dd className="text-[var(--text-primary)]">{PUBLIC_NAP.line}</dd>
               </div>
             </dl>
           </div>

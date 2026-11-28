@@ -76,7 +76,9 @@ describe('страница /map', () => {
 
   it('открывается фильтром «С маршрутом», чип стоит первым', () => {
     expect(ON_ROUTE_FILTER).toBe('on_route');
-    expect(page).toContain('useState<string>(ON_ROUTE_FILTER)');
+    // Кроме ссылки на место (`/map?place=…`): там «Все», чтобы фильтр не
+    // спрятал место по ссылке — рендером в tests/unit/map-page-focus.test.tsx.
+    expect(page).toMatch(/useState<string>\((?:focusPlace \? 'all' : )?ON_ROUTE_FILTER\)/);
     const list = page.slice(page.indexOf('const LOCATION_FILTERS = ['));
     const first = list.indexOf('{ id: ON_ROUTE_FILTER');
     expect(first).toBeGreaterThan(0);

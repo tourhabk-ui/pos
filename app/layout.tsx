@@ -11,7 +11,7 @@ import '@fontsource-variable/playfair-display/wght-italic.css';
 import '@fontsource-variable/inter/wght.css';
 import '@fontsource-variable/jetbrains-mono/wght.css';
 import { defaultOgImages } from '@/lib/seo/og-image';
-import { REQUISITES } from '@/lib/legal/requisites';
+import { PUBLIC_NAP, REQUISITES } from '@/lib/legal/requisites';
 import { ORGANIZATION_PROFILES, ORGANIZATION_SAME_AS } from '@/lib/seo/organization-profiles';
 import { siteVerification } from '@/lib/seo/site-verification';
 import { headers } from 'next/headers';
@@ -143,6 +143,7 @@ import { ReferralCapture } from '@/components/shared/ReferralCapture'
 import { WebMcpTools } from '@/components/shared/WebMcpTools'
 import { Footer } from '@/components/layout/Footer'
 import { SiteFooter } from '@/components/layout/SiteFooter'
+import { newsChannelForRequest } from '@/lib/seo/news-channel'
 import { webmcpOriginTrialToken } from '@/lib/webmcp/origin-trial'
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -161,6 +162,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // организация, сайт vedarai.ru» на чужом домене приписала бы сайт партнёра
   // Ведару. Свою разметку организации ставит сама страница партнёра.
   const onPartnerSite = partnerSiteOfRequest(requestHeaders) !== null;
+  // Новостной канал в подвале: в РФ — MAX, иначе Telegram (lib/seo/news-channel).
+  const newsChannel = newsChannelForRequest(requestHeaders);
   // WebMCP (lib/webmcp): ключ пробного запуска Chrome — из переменной
   // окружения, пустая — тега нет. На домене партнёра нет ни ключа, ни
   // инструментов: там его витрина (§0), а инструменты Ведара показали бы
@@ -205,7 +208,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           {/* Подвал — в серверном HTML на всех страницах сайта (Сыщик 21.11);
               исключения — lib/navigation/site-footer-paths. На домене партнёра
               меню Ведара не ставится (§0). */}
-          {!onPartnerSite && <SiteFooter><Footer /></SiteFooter>}
+          {!onPartnerSite && <SiteFooter><Footer newsChannel={newsChannel} /></SiteFooter>}
           <GlobalSearchModal />
           <LastPositionTracker />
           {/* Приглашение приземляется на любую страницу, не только на главную. */}
@@ -281,9 +284,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 "address": {
                   "@type": "PostalAddress",
                   "addressCountry": "RU",
-                  "addressRegion": "Камчатский край",
-                  "addressLocality": "Петропавловск-Камчатский",
-                  "postalCode": "683024"
+                  "addressRegion": PUBLIC_NAP.addressRegion,
+                  "addressLocality": PUBLIC_NAP.addressLocality,
+                  "postalCode": PUBLIC_NAP.postalCode
                 },
                 "areaServed": "Камчатский край",
                 "knowsAbout": [

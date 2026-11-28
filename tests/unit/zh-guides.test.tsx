@@ -35,7 +35,7 @@ describe('китайские гиды: зима и безопасность', ()
     expect(zhGuideHreflang(ZH_SAFETY_GUIDE, 'https://vedarai.ru/')).toEqual(safetyHreflang('https://vedarai.ru/'));
     expect(zhGuideHreflang(ZH_WINTER_GUIDE, 'https://vedarai.ru')).toEqual({
       'zh-CN': 'https://vedarai.ru/zh/kamchatka-zimoj',
-      'x-default': 'https://vedarai.ru/zh/kamchatka-zimoj',
+      'x-default': 'https://vedarai.ru/',
     });
   });
 
@@ -47,8 +47,9 @@ describe('китайские гиды: зима и безопасность', ()
     expect(html).toContain('lang="zh-CN"');
     expect(html).toContain(String(AVACHINSKY_HEIGHT_M.value));
     expect(html).toContain(String(MUTNOVSKY_HEIGHT_M.value));
-    expect(html).toContain('kvert.febras.net/volc?lang=ru');
-    expect(html).toContain('name=Avachinsky');
+    expect(html).toContain(AVACHINSKY_HEIGHT_M.sourceLabel);
+    expect(html).toContain(MUTNOVSKY_HEIGHT_M.sourceLabel);
+    expect(html).not.toContain('kvert.febras.net');
     expect(html).toContain('阿瓦恰火山（Авачинский вулкан）');
     expect(html).toContain('穆特诺夫斯基火山（Мутновский）');
     expect(html).toContain('帕拉通卡（Паратунка）');
@@ -61,7 +62,10 @@ describe('китайские гиды: зима и безопасность', ()
     expect(html).toContain(ZH_GUIDE_AUTHOR);
     expect(html).not.toMatch(PRICE);
     const hrefHtml = html.replace(/&amp;/g, '&');
-    for (const s of ZH_WINTER_GUIDE.sources) expect(hrefHtml).toContain(s.href);
+    for (const s of ZH_WINTER_GUIDE.sources) {
+      expect(html).toContain(s.label);
+      if (s.href) expect(hrefHtml).toContain(s.href);
+    }
     for (const section of ZH_WINTER_GUIDE.sections) {
       expect(section.heading.endsWith('？') || section.heading.endsWith('?')).toBe(true);
       expect(html).toContain(section.heading);

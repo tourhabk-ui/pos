@@ -129,8 +129,9 @@ function pathTo(node: ReactNode, target: unknown, trail: unknown[] = []): unknow
 }
 
 describe('страница /map', () => {
-  it('указатель — под картой и своей границей ожидания: разметку карты запрос к базе не держит', () => {
-    const tree = MapPage();
+  it('указатель — под картой и своей границей ожидания: разметку карты запрос к базе не держит', async () => {
+    // Без ссылки на место страница в базу не ходит (lib/map/map-target.ts).
+    const tree = await MapPage({ searchParams: Promise.resolve({}) });
     const index = pathTo(tree, MapPlacesIndexSection);
     expect(index).not.toBeNull();
     expect(index).toContain(Suspense);

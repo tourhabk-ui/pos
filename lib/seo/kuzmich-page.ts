@@ -17,8 +17,31 @@ export const KUZMICH_PAGE_DESCRIPTION =
 
 export const KUZMICH_PAGE_H1 = KUZMICH_PAGE_TITLE;
 
+/**
+ * Страница «О Кузьмиче» (слово владельца 28.11: «убрать с чата описание что
+ * умеет кузьмич» → «перенести на отдельную»). Разделы, FAQ и ссылки живут
+ * там; на /kuzmich над чатом — заголовок, короткий лид со ссылкой
+ * «Подробнее» сюда и знаки ботов (#3900), под чатом страница сама ничего не
+ * ставит: в чатах подвалов нет (слово владельца 28.11).
+ */
+export const KUZMICH_ABOUT_PATH = '/o-kuzmiche';
+export const KUZMICH_ABOUT_TITLE = 'Что умеет Кузьмич — AI-помощник Ведара';
+export const KUZMICH_ABOUT_DESCRIPTION =
+  'Что умеет Кузьмич, AI-помощник Ведара: туры с витрины, места и маршруты, погода и обстановка, каналы Telegram и MAX, данные для ИИ-агентов и чего он не делает.';
+export const KUZMICH_ABOUT_H1 = KUZMICH_ABOUT_TITLE;
+/** Кнопка со страницы «О Кузьмиче» в чат. */
+export const KUZMICH_CHAT_LINK_TEXT = 'Написать Кузьмичу';
+
 export const KUZMICH_LEAD =
   'Кузьмич — AI-помощник платформы Ведар. Он подбирает туры с витрины, отвечает про места и маршруты, сообщает погоду, вулканическую обстановку и предупреждения по краю. Написать ему можно на этой странице, в Telegram-боте @kuzmichai_bot и в MAX.';
+
+/**
+ * Лид над чатом в одну строку (слово владельца 28.11: «Описание перенести —
+ * чат теряется»). Полный KUZMICH_LEAD — первым абзацем описания на
+ * странице «О Кузьмиче» (/o-kuzmiche), ссылка «Подробнее» ведёт туда.
+ */
+export const KUZMICH_LEAD_SHORT =
+  'Кузьмич подскажет туры, места, погоду и обстановку на Камчатке.';
 
 export const KUZMICH_SECTIONS: readonly { id: string; heading: string; paragraphs: readonly string[] }[] = [
   {
@@ -119,7 +142,7 @@ export const KUZMICH_TEXT_LINKS = [
   { text: 'vedarai.ru/api/mcp', href: 'https://vedarai.ru/api/mcp', external: false },
   { text: 'странице MCP', href: '/mcp', external: false },
   { text: '/.well-known/agent-card.json', href: '/.well-known/agent-card.json', external: false },
-  { text: 'сторонние приложения', href: '/ai-tools', external: false },
+  { text: 'сторонние приложения', href: '/prilozheniya', external: false },
   { text: 'обработку персональных данных', href: '/legal/privacy', external: false },
   { text: 'оставьте заявку на сайте', href: '/request', external: false },
   { text: 'туры с витрины', href: '/catalog', external: false },
@@ -147,10 +170,10 @@ export function kuzmichWebApplicationJsonLd(site: string = SITE): Record<string,
   };
 }
 
-/** Видимый русский текст страницы: заголовок, лид, разделы, FAQ и ссылки. */
+/** Видимый русский текст страницы «О Кузьмиче»: заголовок, лид, разделы, FAQ и ссылки. */
 export function kuzmichVisibleText(): string {
   const parts = [
-    KUZMICH_PAGE_H1,
+    KUZMICH_ABOUT_H1,
     KUZMICH_LEAD,
     ...KUZMICH_SECTIONS.flatMap((s) => [s.heading, ...s.paragraphs]),
     KUZMICH_FAQ_HEADING,

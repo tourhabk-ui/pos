@@ -42,10 +42,12 @@ import { meteoalertEvents } from '@/lib/services/safety/meteoalert';
 import { ZONE_CENSUS_SQL, summarizeZoneCensus, zoneProbes, type ZoneCensusRow } from '@/lib/places/zone-census';
 import { readFileSync } from 'node:fs';
 import { holdParkClosures } from '@/lib/services/safety/park-closure-hold';
+import { OFFLINE_BUNDLE_WAYPOINTS_SQL, offlineBundleWaypoints } from '@/lib/offline/bundle-sql';
 import { applyParkReopenings, markParkStatusUnknown, rejectParkReopening } from '@/lib/services/safety/park-reopening';
 import { PARK_STATUS_UNKNOWN_SQL } from '@/lib/services/safety/alert-place-scope';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { VOLCANO_STALE_DAYS } from '@/lib/services/safety/kvert-vona';
+import { loadMeteoWarnings } from '@/lib/weather/weather-page';
 import { KFEGS_MAX_AGE_DAYS } from '@/lib/services/safety/volcano-scales';
 import { sameParksParam, sameParksSql } from '@/lib/services/safety/push-same-kind';
 import { PARK_CLOSURE_HOLD_HOURS } from '@/lib/safety/park-closure';
@@ -771,20 +773,6 @@ withPg('кого накрывает предупреждение', () => {
   });
 
   // ── Морская тревога не висит на горных местах (решение владельца 09.10, #2293) ──
-  it('волнение моря по северной зоне: озеро — да, вулканы и горы — нет', async () => {
-    const id = await insertAlert({
-      type: 'weather', title: 'Экстренное предупреждение на 8-9 октября 2026 г. (опасное волнение моря)', zones: ['northern'],
-    });
-    expect(await coveredBy(id)).toEqual([FAR_NORTH.id]);
-  });
-
-  it('перелив кос морской водой по северной зоне: озеро — да, вулканы и горы — нет (#3859)', async () => {
-    const id = await insertAlert({
-      type: 'weather', title: 'Экстренное предупреждение на 27 ноября 2026 г. (переливание песчаных кос морской водой)', zones: ['northern'],
-    });
-    expect(await coveredBy(id)).toEqual([FAR_NORTH.id]);
-  });
-
   it('ветер вместе с волнением моря — не морская: вулкан её получает', async () => {
     const id = await insertAlert({
       type: 'weather', title: 'Экстренное предупреждение (сильный ветер, опасное волнение моря, тест)', zones: ['northern'],
@@ -794,16 +782,71 @@ withPg('кого накрывает предупреждение', () => {
     expect(covered.length).toBe(5);
   });
 
-  it('«прибрежные события» Росгидромета на весь край: город у моря — да, вулкан — нет', async () => {
-    const id = await insertAlert({
-      type: 'weather', title: 'Росгидромет: прибрежные события — жёлтый уровень (юг края)',
-      zones: ['avachinsky', 'eastern', 'western', 'northern'],
+  /**
+   * С 26.11 (слово владельца «2в», #3859) морская тревога не висит и на
+   * внутренних местах: озеро, горячий источник, смотровая, историческое место.
+   * Перелив кос 27.11 лёг на источники и Шаманскую поляну Эссо и на Курильское
+   * озеро. Свои места сцена кладёт и убирает сама: общий мир теста меряет охват
+   * счётом.
+   */
+  describe('морская тревога: берег — да, горы и внутренние места — нет', () => {
+    const SHORE_NORTH = { id: 'Пляж северного берега (тест 2в)', ark: 'c0000000-0000-4000-8000-000000000071', lat: 57.900, lng: 159.900, type: 'beach', zone: 'northern' };
+    const SHORE_SOUTH = { id: 'Бухта южного берега (тест 2в)', ark: 'c0000000-0000-4000-8000-000000000072', lat: 53.000, lng: 158.600, type: 'bay', zone: 'avachinsky' };
+    const SPRING = { id: 'Горячие источники в глубине края (тест 2в)', ark: 'c0000000-0000-4000-8000-000000000073', lat: 55.927, lng: 158.679, type: 'hot_spring', zone: 'northern' };
+    const HISTORICAL = { id: 'Историческая поляна в глубине края (тест 2в)', ark: 'c0000000-0000-4000-8000-000000000074', lat: 55.930, lng: 158.690, type: 'historical', zone: 'northern' };
+    const VIEW = { id: 'Смотровая в глубине края (тест 2в)', ark: 'c0000000-0000-4000-8000-000000000075', lat: 55.935, lng: 158.700, type: 'viewpoint', zone: 'northern' };
+    const OWN = [SHORE_NORTH, SHORE_SOUTH, SPRING, HISTORICAL, VIEW];
+
+    beforeAll(async () => {
+      for (const p of OWN) {
+        await pool.query(
+          `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+           VALUES ($1, $1, $2, $3, $4, $5, $6, TRUE)`,
+          [p.id, p.lat, p.lng, p.ark, p.type, p.zone],
+        );
+        await pool.query(`INSERT INTO location_real_time_status (agent_route_id) VALUES ($1)`, [p.ark]);
+      }
     });
-    const covered = await coveredBy(id);
-    expect(covered).toContain(CITY.id);
-    expect(covered).toContain(FAR_NORTH.id);
-    expect(covered).not.toContain(SHIVELUCH.id);
-    expect(covered).not.toContain(KLYUCHEVSKOY.id);
+
+    afterAll(async () => {
+      for (const p of OWN) {
+        await pool.query(`DELETE FROM location_real_time_status WHERE agent_route_id = $1`, [p.ark]);
+        await pool.query(`DELETE FROM places WHERE id = $1`, [p.id]);
+      }
+    });
+
+    it('волнение моря по северной зоне: пляж — да; озеро, источник, поляна, смотровая, вулканы и горы — нет', async () => {
+      const id = await insertAlert({
+        type: 'weather', title: 'Экстренное предупреждение на 8-9 октября 2026 г. (опасное волнение моря)', zones: ['northern'],
+      });
+      expect(await coveredBy(id)).toEqual([SHORE_NORTH.id]);
+    });
+
+    it('перелив кос морской водой по северной зоне: тот же охват (#3859)', async () => {
+      const id = await insertAlert({
+        type: 'weather', title: 'Экстренное предупреждение на 27 ноября 2026 г. (переливание песчаных кос морской водой)', zones: ['northern'],
+      });
+      expect(await coveredBy(id)).toEqual([SHORE_NORTH.id]);
+    });
+
+    it('«прибрежные события» Росгидромета на весь край: оба берега — да; озеро, источники, вулканы — нет', async () => {
+      const id = await insertAlert({
+        type: 'weather', title: 'Росгидромет: прибрежные события — жёлтый уровень (юг края)',
+        zones: ['avachinsky', 'eastern', 'western', 'northern'],
+      });
+      const covered = await coveredBy(id);
+      expect(covered).toContain(SHORE_NORTH.id);
+      expect(covered).toContain(SHORE_SOUTH.id);
+      for (const p of [FAR_NORTH, SPRING, HISTORICAL, VIEW, SHIVELUCH, KLYUCHEVSKOY]) expect(covered, p.id).not.toContain(p.id);
+    });
+
+    it('та же тревога с ветром — не морская: внутренние места её получают', async () => {
+      const id = await insertAlert({
+        type: 'weather', title: 'Экстренное предупреждение (сильный ветер, переливание кос морской водой, тест 2в)', zones: ['northern'],
+      });
+      const covered = await coveredBy(id);
+      for (const p of [SPRING, HISTORICAL, VIEW, FAR_NORTH, SHORE_NORTH]) expect(covered, p.id).toContain(p.id);
+    });
   });
 
   it('сервер узнаёт морскую тревогу так же, как isMarineAlert', async () => {
@@ -2360,6 +2403,28 @@ withPg('кого накрывает предупреждение', () => {
     });
   });
 
+  describe('страница погоды: под «Предупреждения Росгидромета» — только Гидрометцентр (28.11)', () => {
+    it('погодная запись МЧС на страницу не идёт, предупреждение Гидрометцентра идёт', async () => {
+      const inserted = (await pool.query<{ id: string }>(
+        `INSERT INTO external_alerts (alert_type, severity, title, description, affected_zones, created_at, expires_at, external_id)
+         VALUES ('weather', 2, 'Росгидромет: метель — оранжевый уровень (тестовый край)', 'Метель.', '{}',
+                 TIMESTAMP '2099-01-01 00:00:00', TIMESTAMP '2099-01-02 00:00:00', 'meteoalert/41/test/2099'),
+                ('weather', 3, 'ГУ МЧС России держит на контроле обстановку (тест сгонно-нагонного явления)', '', '{}',
+                 TIMESTAMP '2099-01-01 00:00:00', TIMESTAMP '2099-01-02 00:00:00', 'vk_mchs/2099-01-01/wtest')
+         RETURNING id::text AS id`,
+      )).rows.map((r) => r.id);
+      try {
+        const r = await loadMeteoWarnings(new Date('2099-01-01T06:00:00Z'));
+        expect(r.kind).not.toBe('failed');
+        const titles = r.kind === 'failed' ? [] : r.items.map((w) => w.title);
+        expect(titles).toContain('Метель — оранжевый уровень (тестовый край)');
+        expect(titles.some((t) => /МЧС/.test(t))).toBe(false);
+      } finally {
+        await pool.query(`DELETE FROM external_alerts WHERE id::text = ANY($1::text[])`, [inserted]);
+      }
+    });
+  });
+
   describe('сводка МЧС отдаёт свой срок: план судит по нему, говорит ли она о датах поездки (разбор 06.11)', () => {
     it('строка со сроком — день Камчатки срока; без срока — горизонт от даты сводки', async () => {
       const inserted = (await pool.query<{ id: string }>(
@@ -2387,6 +2452,57 @@ withPg('кого накрывает предупреждение', () => {
         expect(warnings.find((w) => w.place === 'Срочный')?.speaker).toBeNull();
       } finally {
         await pool.query(`DELETE FROM external_alerts WHERE id::text = ANY($1::text[])`, [inserted]);
+      }
+    });
+  });
+
+  // Офлайн-пакет маршрута (карт-бланш владельца 27.11, шаг 2 офлайн-Кузьмича):
+  // точки несут расстояние до медпомощи из профиля безопасности места. Связь
+  // профиля с местом — uuid ark_id, сравнение решает сервер; точка остаётся
+  // одной строкой, а без записи в профиле — NULL, не ноль.
+  describe('офлайн-пакет маршрута: медпомощь у точек', () => {
+    it('расстояние из профиля места, без профиля и без числа — NULL, порядок прохождения; у «рядом» — NULL', async () => {
+      const route = '0b1e0000-0000-4000-8000-00000000b001';
+      const places: Array<[string, string, string, number | null | 'none', string | null]> = [
+        ['bundle-start', 'Т Старт', '0b1e0000-0000-4000-8000-00000000a001', 12.5, 'waypoint'],
+        ['bundle-crater', 'Т Кратер', '0b1e0000-0000-4000-8000-00000000a002', null, 'waypoint'],
+        ['bundle-hut', 'Т Хижина', '0b1e0000-0000-4000-8000-00000000a003', 'none', 'waypoint'],
+        // Род «рядом» (§4.1): расстояние у места записано, но медпомощью на пути оно не служит.
+        ['bundle-beach', 'Т Пляж', '0b1e0000-0000-4000-8000-00000000a004', 3, 'nearby'],
+        // Род не установлен — судится как точка пути, как в остальных запросах.
+        ['bundle-ridge', 'Т Гребень', '0b1e0000-0000-4000-8000-00000000a005', 7, 'unknown'],
+      ];
+      try {
+        await pool.query(
+          `INSERT INTO kamchatka_routes (id, category, title, zone, is_visible) VALUES ($1::uuid, 'hiking', 'Т Пакет', 'southern', true)`,
+          [route],
+        );
+        for (const [i, [id, name, ark, medical, kind]] of places.entries()) {
+          await pool.query(
+            `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+             VALUES ($1::text, $2::text, 52.4, 158.2, $3::uuid, 'volcano', 'southern', true)`,
+            [id, name, ark],
+          );
+          if (medical !== 'none') {
+            await pool.query(
+              `INSERT INTO location_safety_profile (agent_route_id, nearest_medical_km) VALUES ($1::uuid, $2::numeric)`,
+              [ark, medical],
+            );
+          }
+          await pool.query(
+            `INSERT INTO route_waypoints (route_id, place_id, position, link_kind) VALUES ($1::uuid, $2, $3, $4)`,
+            [route, id, i, kind],
+          );
+        }
+        const { rows } = await pool.query(OFFLINE_BUNDLE_WAYPOINTS_SQL, [route]);
+        // Строки драйвера — через то же сопоставление, что отдаёт роут пакета.
+        expect(offlineBundleWaypoints(rows).map((w) => [w.name, w.position, w.nearest_medical_km]))
+          .toEqual([['Т Старт', 0, 12.5], ['Т Кратер', 1, null], ['Т Хижина', 2, null], ['Т Пляж', 3, null], ['Т Гребень', 4, 7]]);
+      } finally {
+        await pool.query(`DELETE FROM route_waypoints WHERE route_id = $1::uuid`, [route]);
+        await pool.query(`DELETE FROM location_safety_profile WHERE agent_route_id = ANY($1::uuid[])`, [places.map((p) => p[2])]);
+        await pool.query(`DELETE FROM places WHERE id = ANY($1::text[])`, [places.map((p) => p[0])]);
+        await pool.query(`DELETE FROM kamchatka_routes WHERE id = $1::uuid`, [route]);
       }
     });
   });

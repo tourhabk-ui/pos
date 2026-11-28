@@ -1,5 +1,7 @@
 /**
- * На /kuzmich ссылка на бота видна человеку, не только в JSON-LD шапки.
+ * На /kuzmich ссылки на ботов видны человеку, не только в JSON-LD шапки.
+ * С 28.11 (слово владельца) это знаки Telegram и MAX под заголовком
+ * страницы (KuzmichIntro), а не текстовая ссылка над чатом.
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -10,20 +12,34 @@ vi.mock('next/image', () => ({
 }));
 
 import KuzmichClient from '@/app/kuzmich/_KuzmichClient';
-import { KUZMICH_TELEGRAM_URL } from '@/components/shared/KuzmichActions';
+import { KuzmichIntro } from '@/components/kuzmich/KuzmichAbout';
+import { KUZMICH_MAX_URL, KUZMICH_TELEGRAM_URL } from '@/components/shared/KuzmichActions';
 
 afterEach(() => {
   cleanup();
 });
 
 describe('/kuzmich', () => {
-  it('показывает ссылку на Telegram-бота', async () => {
+  it('показывает ссылки на ботов Telegram и MAX', () => {
+    render(<KuzmichIntro />);
+    const telegram = screen.getByRole('link', { name: 'Telegram' });
+    const max = screen.getByRole('link', { name: 'MAX' });
+    expect(telegram.getAttribute('href')).toBe(KUZMICH_TELEGRAM_URL);
+    expect(max.getAttribute('href')).toBe(KUZMICH_MAX_URL);
+  });
+
+  // Слово владельца 28.11: «под чатом оставь только строку "Предпочитаете
+  // живое общение? Оставьте заявку"».
+  it('под чатом — одна строка про заявку, единственная ссылка в ней — /request', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: { messages: [] } }))));
     Element.prototype.scrollIntoView = () => {};
-    render(<KuzmichClient />);
-    const link = await screen.findByRole('link', { name: 'Кузьмич в Telegram' });
-    expect(link.getAttribute('href')).toBe(KUZMICH_TELEGRAM_URL);
-    expect(link.textContent).toContain('Telegram');
+    const { container } = render(<KuzmichClient />);
+    const section = container.querySelector('section[aria-label="Чат с Кузьмичем"]') as HTMLElement;
+    const line = section.lastElementChild as HTMLElement;
+    expect(line.tagName).toBe('P');
+    expect(line.textContent?.replace(/\s+/g, ' ').trim())
+      .toBe('Предпочитаете живое общение? Оставьте заявку — менеджер перезвонит в течение часа.');
+    expect([...line.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/request']);
   });
 
   it('Enter во время ответа не теряет следующее сообщение', async () => {
@@ -42,7 +58,7 @@ describe('/kuzmich', () => {
     }));
     Element.prototype.scrollIntoView = () => {};
     render(<KuzmichClient />);
-    const input = await screen.findByPlaceholderText('Опишите мечту о путешествии...');
+    const input = await screen.findByPlaceholderText(/Спросите про тур/);
     fireEvent.change(input, { target: { value: 'туры на вулканы' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     await screen.findByText('туры на вулканы');
@@ -72,7 +88,7 @@ describe('/kuzmich', () => {
     }));
     Element.prototype.scrollIntoView = () => {};
     render(<KuzmichClient />);
-    const input = await screen.findByPlaceholderText('Опишите мечту о путешествии...');
+    const input = await screen.findByPlaceholderText(/Спросите про тур/);
     fireEvent.change(input, { target: { value: 'туры на вулканы' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     await screen.findByText('туры на вулканы');
