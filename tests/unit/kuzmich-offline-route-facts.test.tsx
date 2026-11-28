@@ -227,7 +227,7 @@ describe('страница /kuzmich без сети отвечает по сох
       return Promise.resolve(new Response(JSON.stringify({ data: { messages: [] } })));
     }));
     render(<KuzmichClient />);
-    const box = await screen.findByPlaceholderText(/Опишите мечту/);
+    const box = await screen.findByPlaceholderText(/Спросите про тур/);
     fireEvent.change(box, { target: { value: 'Нужна ли регистрация в МЧС?' } });
     fireEvent.keyDown(box, { key: 'Enter' });
     expect(await screen.findByText(/Регистрация в МЧС: обязательна/)).toBeTruthy();

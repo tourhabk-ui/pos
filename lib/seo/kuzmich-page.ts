@@ -20,6 +20,14 @@ export const KUZMICH_PAGE_H1 = KUZMICH_PAGE_TITLE;
 export const KUZMICH_LEAD =
   'Кузьмич — AI-помощник платформы Ведар. Он подбирает туры с витрины, отвечает про места и маршруты, сообщает погоду, вулканическую обстановку и предупреждения по краю. Написать ему можно на этой странице, в Telegram-боте @kuzmichai_bot и в MAX.';
 
+/**
+ * Лид над чатом в одну строку (слово владельца 28.11: «Описание перенести —
+ * чат теряется»). Полный KUZMICH_LEAD — первым абзацем описания под чатом
+ * (#o-kuzmiche), ссылка «Подробнее» ведёт туда.
+ */
+export const KUZMICH_LEAD_SHORT =
+  'Кузьмич подскажет туры, места, погоду и обстановку на Камчатке.';
+
 export const KUZMICH_SECTIONS: readonly { id: string; heading: string; paragraphs: readonly string[] }[] = [
   {
     id: 'abilities',
