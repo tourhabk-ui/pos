@@ -51,7 +51,8 @@ describe('сниппеты под страницы GSC 18–20.11 без кли�
     expect(t.title).toMatch(/^Вулкан Терпук/);
     expect(t.title).toMatch(/щитовой/);
     expect(t.description).toMatch(/2500–3000/);
-    expect(t.description).toMatch(/Седанкинском доле/);
+    expect(t.description).toMatch(/472 км по прямой к северу/);
+    expect(t.description).toMatch(/южнее Леутонгея/);
     expect(t.description).not.toMatch(/что о нём известно/);
 
     const s = PLACE_SEARCH_META.shlen;
