@@ -382,9 +382,19 @@ Chrome Status, запись от 11.11.2026).
 запуска — переменная `WEBMCP_ORIGIN_TRIAL_TOKEN` (пусто — тега нет). Сторожа:
 `tests/unit/webmcp-page-tools.test.ts`, `tests/unit/webmcp-form-attrs.test.tsx`.
 Тег ключа на проде (проверено 20.11.2026 запросом страниц): `/`, `/catalog`,
-карточка тура, `/contact`, `/mcp`, карточки мест и маршрутов. Живой Chrome с
-WebMCP ещё не открывали — наличие `document.modelContext` и шести инструментов
-в браузере не проверено (#3563).
+карточка тура, `/contact`, `/mcp`, карточки мест и маршрутов.
+
+Живая проверка в Chrome 156 (Linux, отдельный профиль без входа, 28.11.2026,
+#3563). С флагом `--enable-features=WebMCPTesting` `document.modelContext`
+есть. На `/`, `/contact`, `/mcp` `getTools()` отдаёт шесть инструментов чтения.
+На `/catalog` к ним добавляется `vedar_catalog_search`, на карточке тура —
+`vedar_tour_request`. `get_weather` и `safety_status` через `executeTool`
+отвечают; формы при проверке не отправлялись. Ошибок WebMCP в консоли нет.
+Без флага API нет: ключ пробного запуска был выпущен как сторонний
+(`isThirdParty`), а такой ключ Chrome из тега `<meta>` не принимает (CDP:
+`ValidTokenNotProvided`, у ключа `WrongOrigin`). Нужен ключ без «Third-party
+matching» на `https://vedarai.ru`; после его замены в Timeweb — повторная
+проверка без флага.
 
 ### 4.8 Сторожа — как читать падение
 
