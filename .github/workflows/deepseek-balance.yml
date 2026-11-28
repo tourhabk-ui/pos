@@ -1,0 +1,122 @@
+name: DeepSeek — остаток счёта до того, как встанет ревью
+
+# 26.11 счёт DeepSeek кончился, и ревью безопасности (security-review.yml)
+# краснело на каждом PR строкой «API Error: 402 Insufficient Balance».
+# Узнать об этом можно было только по красным крестикам. Здесь остаток
+# спрашивается заранее, раз в 6 часов, тем же ключом DEEPSEEK_API_KEY, что у
+# ревью: ниже порога — issue «Баланс DeepSeek: пополнить счёт», пополнили —
+# issue закрывается сама.
+#
+# - Порог и разбор ответа — scripts/deepseek-balance.sh (3 USD или 20 CNY;
+#   переменные репозитория DEEPSEEK_BALANCE_MIN_USD / _CNY).
+# - Модель не зовётся: GET /user/balance токенов не тратит, поэтому ни пик
+#   DeepSeek (lib/ai/deepseek-peak.ts), ни книги расхода сюда не относятся.
+# - Остаток в лог и в issue не пишется: репозиторий публичный. Называется
+#   только сторона порога.
+# - Ключа нет или баланс не прочитан — КРАСНЫЙ (§4.0: «не смог проверить» не
+#   равно «хорошо»), issue не трогается.
+# - Ключ и токен GitHub — в разных шагах: шагу с токеном ключ не нужен.
+on:
+  schedule:
+    - cron: '41 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: deepseek-balance
+  cancel-in-progress: false
+
+jobs:
+  balance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/deepseek-balance.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Остаток счёта DeepSeek
+        id: balance
+        env:
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BALANCE_MIN_USD: ${{ vars.DEEPSEEK_BALANCE_MIN_USD }}
+          DEEPSEEK_BALANCE_MIN_CNY: ${{ vars.DEEPSEEK_BALANCE_MIN_CNY }}
+        run: |
+          set -uo pipefail
+          RES=$(bash scripts/deepseek-balance.sh) || RES="state=unknown"
+          field() { printf '%s\n' "$RES" | sed -n "s/^$1=//p" | head -n 1 | tr -cd 'A-Za-z0-9._-'; }
+          STATE=$(field state); MIN=$(field threshold); CUR=$(field currency); HTTP=$(field http)
+          {
+            echo "state=$STATE"
+            echo "threshold=$MIN"
+            echo "currency=$CUR"
+          } >> "$GITHUB_OUTPUT"
+          case "$STATE" in
+            ok)    echo "Баланс DeepSeek выше порога ($MIN $CUR)." ;;
+            low)   echo "::warning::Баланс DeepSeek ниже порога ($MIN $CUR) — ревью безопасности скоро встанет." ;;
+            empty) echo "::error::Баланс DeepSeek пуст — ревью безопасности в PR не идёт. Пополните счёт на platform.deepseek.com." ;;
+            no_key)
+              echo "::error::DEEPSEEK_API_KEY не задан в секретах — остаток не проверить, и ревью безопасности не запускается."
+              exit 1
+              ;;
+            *)
+              echo "::error::Баланс DeepSeek не прочитан (HTTP ${HTTP:-нет ответа}) — это не «всё в порядке». Issue не тронута."
+              exit 1
+              ;;
+          esac
+
+      # Одна открытая issue на всё время, пока остаток ниже порога. Тело
+      # переписывается без уведомления; комментарий — только когда стало хуже
+      # (было «на исходе», стало «пуст») и когда счёт пополнили.
+      - name: Issue о балансе
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATE: ${{ steps.balance.outputs.state }}
+          MIN: ${{ steps.balance.outputs.threshold }}
+          CUR: ${{ steps.balance.outputs.currency }}
+        run: |
+          set -euo pipefail
+          TITLE='Баланс DeepSeek: пополнить счёт'
+          NUM=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 500 --json number,title \
+            | jq -r --arg t "$TITLE" '[.[] | select(.title == $t)][0].number // empty')
+          if [ "$STATE" = "ok" ]; then
+            if [ -n "$NUM" ]; then
+              gh issue comment "$NUM" --repo "$GITHUB_REPOSITORY" --body "Счёт пополнен: остаток выше порога ($MIN $CUR). Ревью безопасности снова может идти — на PR, где оно не состоялось, повесьте метку \`security-review\`."
+              gh issue close "$NUM" --repo "$GITHUB_REPOSITORY" --reason completed
+              echo "Issue #$NUM закрыта: остаток выше порога."
+            else
+              echo "Открытой issue нет, остаток выше порога — делать нечего."
+            fi
+            exit 0
+          fi
+          BODY="$RUNNER_TEMP/deepseek-balance-issue.md"
+          {
+            echo "<!-- deepseek-balance: $STATE -->"
+            if [ "$STATE" = "empty" ]; then
+              echo "**Счёт DeepSeek пуст.** Ревью безопасности в PR сейчас не идёт: на каждом PR оно красное с причиной «баланс DeepSeek пуст», модель PR не читает."
+            else
+              echo "**Остаток на счёте DeepSeek ниже порога $MIN $CUR.** Ревью безопасности в PR пока идёт, но скоро встанет: на пустом счёте API отвечает 402 Insufficient Balance."
+            fi
+            echo
+            echo "Что сделать: пополнить счёт на platform.deepseek.com. Ключ — секрет репозитория \`DEEPSEEK_API_KEY\`; тем же ключом работают и другие workflow раннера."
+            echo
+            echo "Issue закроется сама при следующей проверке (раз в 6 часов), когда остаток поднимется выше порога. Сам остаток здесь не пишется: репозиторий публичный."
+            echo
+            echo "_Проверка: \`.github/workflows/deepseek-balance.yml\`, порог — \`scripts/deepseek-balance.sh\`._"
+          } > "$BODY"
+          if [ -z "$NUM" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body-file "$BODY"
+            exit 0
+          fi
+          WAS=$(gh issue view "$NUM" --repo "$GITHUB_REPOSITORY" --json body -q .body | sed -n 's/^<!-- deepseek-balance: \([a-z_]*\) -->$/\1/p' | head -n 1)
+          gh issue edit "$NUM" --repo "$GITHUB_REPOSITORY" --body-file "$BODY"
+          if [ "$STATE" = "empty" ] && [ "$WAS" != "empty" ]; then
+            gh issue comment "$NUM" --repo "$GITHUB_REPOSITORY" --body "Счёт DeepSeek кончился: ревью безопасности в PR больше не идёт."
+          fi
+          echo "Issue #$NUM обновлена: $STATE."
