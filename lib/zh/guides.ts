@@ -140,7 +140,7 @@ export const ZH_WINTER_GUIDE: ZhGuide = {
         '不是每一处水池都对非住客全天开放，抵达前向具体基地确认开放时间。海边的海水不能代替温泉。',
       ],
       links: [
-        { href: '/paratunka', label: '俄文页：帕拉通卡' },
+        { href: '/places/paratunskaya-zona-otdyha', label: '俄文页：帕拉通卡' },
         { href: '/zh/places/zelenovskie-ozerki', label: '中文地点页：泽列诺夫斯基湖' },
       ],
     },
@@ -216,7 +216,7 @@ export const ZH_WINTER_GUIDE: ZhGuide = {
     { label: MUTNOVSKY_HEIGHT_M.sourceLabel },
     { href: 'https://vedarai.ru/kamchatka-v-dekabre', label: 'Ведар，十二月的堪察加' },
     { href: 'https://vedarai.ru/kogda-ehat-na-kamchatku', label: 'Ведар，何时去堪察加' },
-    { href: 'https://vedarai.ru/paratunka', label: 'Ведар，帕拉通卡' },
+    { href: 'https://vedarai.ru/places/paratunskaya-zona-otdyha', label: 'Ведар，帕拉通卡' },
     { href: 'https://vedarai.ru/gornolyzhnye-bazy-kamchatki', label: 'Ведар，滑雪场' },
     { href: 'https://vedarai.ru/zh/harbin', label: 'Vedar，从哈尔滨飞往堪察加' },
   ],
@@ -273,7 +273,7 @@ export const ZH_SAFETY_GUIDE: ZhGuide = {
         { href: KRONOKI_PREP_URL, label: '克罗诺茨基保护区：出行准备' },
         { href: COMMANDER_URL, label: '指挥官群岛国家公园：给旅行者' },
         { href: '/razreshenie-na-poseshchenie', label: '俄文页：参观许可' },
-        { href: '/dolina-gejzerov-kak-popast', label: '俄文页：如何去间歇泉谷' },
+        { href: '/dolina-gejzerov-ekskursiya', label: '俄文页：如何去间歇泉谷' },
       ],
     },
     {

@@ -7,7 +7,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Header } from '@/components/layout/Header';
-import KuzmichAbout, { KuzmichIntro } from '@/components/kuzmich/KuzmichAbout';
+import KuzmichAbout from '@/components/kuzmich/KuzmichAbout';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import {
   KUZMICH_ABOUT_DESCRIPTION,
@@ -40,10 +40,13 @@ export default function KuzmichAboutPage() {
     <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh] flex flex-col">
       <Header />
       <main className="flex-1 max-w-3xl w-full mx-auto px-4 pb-12 pt-20">
-        <KuzmichIntro title={KUZMICH_ABOUT_H1} />
-        <Link href="/kuzmich" className="ds-btn ds-btn-primary">
-          {KUZMICH_CHAT_LINK_TEXT}
-        </Link>
+        <header className="space-y-4">
+          <h1 className="font-playfair text-3xl md:text-4xl font-bold text-[var(--text-primary)]">{KUZMICH_ABOUT_H1}</h1>
+          <Link href="/kuzmich" className="ds-btn ds-btn-primary">
+            {KUZMICH_CHAT_LINK_TEXT}
+          </Link>
+        </header>
+        {/* Первый абзац описания — полный лид (#3900), дальше разделы, FAQ и ссылки. */}
         <KuzmichAbout />
       </main>
     </div>

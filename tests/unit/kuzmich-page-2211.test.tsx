@@ -21,13 +21,13 @@ import { KUZMICH_MAX_URL, KUZMICH_TELEGRAM_URL } from '@/components/shared/Kuzmi
 import {
   KUZMICH_ABOUT_DESCRIPTION,
   KUZMICH_ABOUT_H1,
-  KUZMICH_ABOUT_LINK_TEXT,
   KUZMICH_ABOUT_PATH,
   KUZMICH_ABOUT_TITLE,
   KUZMICH_CHAT_LINK_TEXT,
   KUZMICH_FAQ,
   KUZMICH_FAQ_HEADING,
   KUZMICH_LEAD,
+  KUZMICH_LEAD_SHORT,
   KUZMICH_PAGE_DESCRIPTION,
   KUZMICH_PAGE_H1,
   KUZMICH_PAGE_TITLE,
@@ -99,17 +99,18 @@ describe('чат /kuzmich: над чатом заголовок, лид и сс�
     expect(chatHtml).not.toContain('data-kuzmich-about=');
   });
 
-  it('один H1, лид и ссылка на «О Кузьмиче» — над чатом; под чатом страница ничего не ставит', () => {
+  it('один H1, короткий лид и «Подробнее» на «О Кузьмиче» — над чатом; под чатом страница ничего не ставит', () => {
     expect(chatHtml.match(/<h1[\s>]/g)?.length).toBe(1);
     expect(chatHtml).toContain(KUZMICH_PAGE_H1);
-    expect(chatHtml).toContain('AI-помощник платформы Ведар');
+    expect(chatHtml).toContain(KUZMICH_LEAD_SHORT);
+    expect(chatHtml).not.toContain('#o-kuzmiche');
     const lead = chatHtml.indexOf('data-lead-answer');
     const chat = chatHtml.indexOf('data-chat="kuzmich"');
     const link = chatHtml.indexOf(`href="${KUZMICH_ABOUT_PATH}"`);
     expect(lead).toBeGreaterThan(0);
     expect(link).toBeGreaterThan(lead);
     expect(chat).toBeGreaterThan(link);
-    expect(chatHtml).toContain(KUZMICH_ABOUT_LINK_TEXT);
+    expect(chatHtml).toMatch(new RegExp(`href="${KUZMICH_ABOUT_PATH}"[^>]*>Подробнее</a>`));
     // После чата страница не рисует ничего: в чатах подвалов нет.
     const afterChat = chatHtml.slice(chat + 'data-chat="kuzmich">'.length);
     expect(afterChat.replace(/<\/(main|div)>/g, '').trim()).toBe('');
@@ -125,14 +126,15 @@ describe('текст «О Кузьмиче» (/o-kuzmiche)', () => {
   });
 
   it('прямой ответ умещается в первые 40 слов, H2 — вопросы, текст в серверном HTML', () => {
-    const first = words(`${KUZMICH_ABOUT_H1} ${KUZMICH_LEAD}`).slice(0, 40).join(' ');
+    const first = words(`${KUZMICH_PAGE_H1} ${KUZMICH_LEAD_SHORT}`).slice(0, 40).join(' ');
     expect(first).toMatch(/Кузьмич/);
     expect(first).toMatch(/AI-помощник/);
     expect(first).toMatch(/Ведар/);
     expect(first).toMatch(/туры/);
     expect(first).toMatch(/места/);
     expect(first).toMatch(/погоду|обстановку/);
-    expect(words(KUZMICH_LEAD).length).toBeLessThanOrEqual(40);
+    expect(KUZMICH_LEAD_SHORT.length).toBeLessThanOrEqual(110);
+    expect(words(KUZMICH_LEAD_SHORT).length).toBeLessThanOrEqual(40);
     for (const s of KUZMICH_SECTIONS) expect(s.heading, s.id).toMatch(/\?$/);
     expect(aboutSrc).not.toMatch(/['"]use client['"]/);
     expect(aboutPageSrc).not.toMatch(/['"]use client['"]/);
@@ -199,14 +201,22 @@ describe('«О Кузьмиче» без JS: H1, разделы, FAQ и ссыл
     expect(html).toContain(KUZMICH_MAX_URL);
   });
 
+  // Слово владельца 28.11 (#3900): над чатом знаки Telegram и MAX, а не
+  // текстовые ссылки; адреса — со стартом, как в действиях Кузьмича.
+  it('под заголовком чата знаки Telegram и MAX со стартом бота', () => {
+    expect(chatHtml).toMatch(/<a href="https:\/\/t\.me\/kuzmichai_bot\?start=lead" target="_blank" rel="noopener noreferrer" aria-label="Telegram" title="Telegram"/);
+    expect(chatHtml).toMatch(/<a href="https:\/\/max\.ru\/id4101147649_bot\?start=lead" target="_blank" rel="noopener noreferrer" aria-label="MAX" title="MAX"/);
+  });
+
   it('в чате нет второго H1', () => {
     expect(client).not.toMatch(/<h1\b/);
   });
 
-  it('заголовок по умолчанию у вводной — заголовок чата, ссылки «О Кузьмиче» без просьбы нет', () => {
+  it('вводная чата — заголовок чата и «Подробнее» на «О Кузьмиче»; на самой «О Кузьмиче» вводной чата нет', () => {
     expect(renderToStaticMarkup(<KuzmichIntro />)).toContain(KUZMICH_PAGE_H1);
-    expect(renderToStaticMarkup(<KuzmichIntro />)).not.toContain(KUZMICH_ABOUT_PATH);
+    expect(renderToStaticMarkup(<KuzmichIntro />)).toContain(`href="${KUZMICH_ABOUT_PATH}"`);
     expect(aboutHtml).not.toContain('data-kuzmich-about-link');
+    expect(aboutHtml).not.toContain(KUZMICH_LEAD_SHORT);
     expect(renderToStaticMarkup(<KuzmichAbout />)).toContain(KUZMICH_FAQ_HEADING);
   });
 });

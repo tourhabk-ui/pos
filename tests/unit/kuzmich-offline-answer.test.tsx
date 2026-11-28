@@ -94,7 +94,7 @@ describe('экраны Кузьмича без сети', () => {
 
   it('/kuzmich: запрос не уходит, ответ — памятка про медведя', async () => {
     render(<KuzmichClient />);
-    const box = await screen.findByPlaceholderText(/Опишите мечту/);
+    const box = await screen.findByPlaceholderText(/Спросите про тур/);
     ask(box, 'рядом медведь');
     expect(await screen.findByText(/Связи нет — отвечаю памяткой/)).toBeTruthy();
     expect(screen.getByText(/Не беги/)).toBeTruthy();
@@ -104,7 +104,7 @@ describe('экраны Кузьмича без сети', () => {
 
   it('/kuzmich: история разговора доходит до памятки — «потеряли рюкзак» после «мы заблудились» не утеря вещи', async () => {
     render(<KuzmichClient />);
-    const box = await screen.findByPlaceholderText(/Опишите мечту/);
+    const box = await screen.findByPlaceholderText(/Спросите про тур/);
     ask(box, 'мы заблудились');
     await screen.findByText(/Оставайся на месте/);
     ask(box, 'Потеряли рюкзак');
@@ -117,7 +117,7 @@ describe('экраны Кузьмича без сети', () => {
   it('/kuzmich: запрос ушёл и упал на сети — тоже памятка, а не «попробуйте позже»', async () => {
     online = true;
     render(<KuzmichClient />);
-    const box = await screen.findByPlaceholderText(/Опишите мечту/);
+    const box = await screen.findByPlaceholderText(/Спросите про тур/);
     online = false;
     // Браузер ещё считает, что сеть есть, — отказ приходит из fetch.
     Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => true });
@@ -134,7 +134,7 @@ describe('экраны Кузьмича без сети', () => {
   it('/kuzmich: с сетью — ответ сервера, памятки нет', async () => {
     online = true;
     render(<KuzmichClient />);
-    const box = await screen.findByPlaceholderText(/Опишите мечту/);
+    const box = await screen.findByPlaceholderText(/Спросите про тур/);
     ask(box, 'рядом медведь');
     expect(await screen.findByText('Ответ сервера.')).toBeTruthy();
     expect(screen.queryByText(/отвечаю памяткой/)).toBeNull();

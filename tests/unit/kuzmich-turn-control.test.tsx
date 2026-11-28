@@ -59,14 +59,14 @@ describe('страница /kuzmich', () => {
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
   const ask = (text: string) => {
-    const box = screen.getByPlaceholderText(/Опишите мечту/);
+    const box = screen.getByPlaceholderText(/Спросите про тур/);
     fireEvent.change(box, { target: { value: text } });
     fireEvent.keyDown(box, { key: 'Enter' });
   };
 
   it('«Остановить» обрывает ожидание и говорит, что ответ не показан; «Ещё раз» задаёт тот же вопрос', async () => {
     render(<KuzmichClient />);
-    await waitFor(() => expect(screen.getByPlaceholderText(/Опишите мечту/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByPlaceholderText(/Спросите про тур/)).toBeTruthy());
     ask('Погода на Авачинском?');
     fireEvent.click(await screen.findByRole('button', { name: 'Остановить' }));
     expect(await screen.findByText(TURN_STOPPED_TEXT)).toBeTruthy();
@@ -80,7 +80,7 @@ describe('страница /kuzmich', () => {
 
   it('на «да» кнопки «Остановить» нет — сказано, что заявка уже уходит', async () => {
     render(<KuzmichClient />);
-    await waitFor(() => expect(screen.getByPlaceholderText(/Опишите мечту/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByPlaceholderText(/Спросите про тур/)).toBeTruthy());
     ask('да');
     expect(await screen.findByText(/Ответ на «да» не останавливается/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Остановить' })).toBeNull();

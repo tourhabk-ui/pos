@@ -33,11 +33,11 @@ export default function KuzmichPage() {
     <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh] flex flex-col">
       <Header />
       <JsonLd data={kuzmichWebApplicationJsonLd(SITE)} />
-      {/* Разделы, FAQ и ссылки — на странице «О Кузьмиче» (слово владельца
-          28.11): здесь над чатом заголовок, лид и ссылка на неё; под чатом
-          ничего — в чатах подвалов нет. */}
-      <main className="flex-1 flex flex-col max-w-3xl w-full mx-auto px-2 sm:px-4 pb-6 pt-20">
-        <KuzmichIntro aboutLink />
+      {/* Порядок в DOM = порядок на экране (слово владельца 28.11): заголовок,
+          чат. Описание и FAQ — на странице «О Кузьмиче» (/o-kuzmiche): под
+          чатом страница сама ничего не ставит, в чатах подвалов нет. */}
+      <main className="flex-1 flex flex-col max-w-3xl w-full mx-auto px-2 sm:px-4 pb-6 pt-16">
+        <KuzmichIntro />
         <KuzmichClient />
       </main>
     </div>
