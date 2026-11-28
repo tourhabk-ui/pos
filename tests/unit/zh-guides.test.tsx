@@ -35,7 +35,7 @@ describe('китайские гиды: зима и безопасность', ()
     expect(zhGuideHreflang(ZH_SAFETY_GUIDE, 'https://vedarai.ru/')).toEqual(safetyHreflang('https://vedarai.ru/'));
     expect(zhGuideHreflang(ZH_WINTER_GUIDE, 'https://vedarai.ru')).toEqual({
       'zh-CN': 'https://vedarai.ru/zh/kamchatka-zimoj',
-      'x-default': 'https://vedarai.ru/zh/kamchatka-zimoj',
+      'x-default': 'https://vedarai.ru/',
     });
   });
 
