@@ -119,7 +119,7 @@ export const KUZMICH_TEXT_LINKS = [
   { text: 'vedarai.ru/api/mcp', href: 'https://vedarai.ru/api/mcp', external: false },
   { text: 'странице MCP', href: '/mcp', external: false },
   { text: '/.well-known/agent-card.json', href: '/.well-known/agent-card.json', external: false },
-  { text: 'сторонние приложения', href: '/ai-tools', external: false },
+  { text: 'сторонние приложения', href: '/prilozheniya', external: false },
   { text: 'обработку персональных данных', href: '/legal/privacy', external: false },
   { text: 'оставьте заявку на сайте', href: '/request', external: false },
   { text: 'туры с витрины', href: '/catalog', external: false },

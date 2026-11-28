@@ -183,7 +183,7 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // раздел для поиска не существует — ровно так уже пропали туры (08.08).
     { url: `${BASE}/articles`,             lastModified: new Date(),  changeFrequency: 'weekly',  priority: 0.75 },
     { url: `${BASE}/guides`,               lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.75 },
-    { url: `${BASE}/ai-tools`,             lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.7 },
+    { url: `${BASE}/prilozheniya`,         lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.7 },
     { url: `${BASE}/about`,                lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.7 },
     { url: `${BASE}/partners`,             lastModified: STABLE,      changeFrequency: 'monthly', priority: 0.6 },
     { url: `${BASE}/operators`,            lastModified: STABLE,      changeFrequency: 'weekly',  priority: 0.7 },

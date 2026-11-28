@@ -134,12 +134,36 @@ describe('миграция 1396', () => {
 });
 
 describe('адреса и публичный API', () => {
-  it('страницы отдельных приложений ведут на список, постоянно', async () => {
+  async function redirects() {
     const config = require(join(process.cwd(), 'next.config.js')) as {
       redirects: () => Promise<Array<{ source: string; destination: string; permanent?: boolean }>>;
     };
-    const rule = (await config.redirects()).find((r) => r.source === '/ai-tools/:slug');
-    expect(rule).toMatchObject({ destination: '/ai-tools', permanent: true });
+    return config.redirects();
+  }
+
+  // Список переехал с /ai-tools на /prilozheniya (слово владельца 28.11
+  // «делай и заменить»): страница без ИИ, старое имя — от «AI-арсенала».
+  it('страницы отдельных приложений ведут на список /prilozheniya одним хопом, постоянно', async () => {
+    const rule = (await redirects()).find((r) => r.source === '/ai-tools/:slug');
+    expect(rule).toMatchObject({ destination: '/prilozheniya', permanent: true });
+  });
+
+  it('старый адрес списка /ai-tools ведёт на /prilozheniya, постоянно', async () => {
+    const rule = (await redirects()).find((r) => r.source === '/ai-tools');
+    expect(rule).toMatchObject({ destination: '/prilozheniya', permanent: true });
+  });
+
+  it('канон списка — /prilozheniya', async () => {
+    const { metadata } = await import('@/app/prilozheniya/page');
+    expect(metadata.alternates?.canonical).toBe('/prilozheniya');
+  });
+
+  it('в карте сайта новый адрес списка, старого нет', async () => {
+    query.mockResolvedValue({ rows: [] });
+    const { collectSitemapEntries } = await import('@/lib/seo/sitemap-entries');
+    const paths = (await collectSitemapEntries()).map((e) => new URL(e.url).pathname);
+    expect(paths.filter((p) => p === '/prilozheniya')).toHaveLength(1);
+    expect(paths.filter((p) => /^\/ai-tools(\/|$)/.test(p))).toEqual([]);
   });
 
   it('GET /api/tools: порядок назван, рейтинга и счётчика попаданий нет', async () => {
