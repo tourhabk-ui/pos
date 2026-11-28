@@ -18,7 +18,7 @@ export const metadata: Metadata = {
     description: DESCRIPTION,
     type: 'website',
   },
-  alternates: { canonical: '/ai-tools' },
+  alternates: { canonical: '/prilozheniya' },
 };
 
 export default async function TravelAppsPage() {
@@ -27,7 +27,7 @@ export default async function TravelAppsPage() {
     apps = await listTravelApps();
   } catch (err) {
     // «Не загрузилось» человеку, причина — в лог (§4.0).
-    console.error('[ai-tools] список приложений не прочитан:', (err as { code?: string })?.code ?? '', err instanceof Error ? err.message : err);
+    console.error('[prilozheniya] список приложений не прочитан:', (err as { code?: string })?.code ?? '', err instanceof Error ? err.message : err);
   }
   return (
     <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh] flex flex-col">

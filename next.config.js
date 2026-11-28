@@ -391,8 +391,12 @@ const nextConfig = {
       // ЧПУ туров (30.09): /tours/{адрес или число} — короткая форма карточки.
       { source: '/tours/:slug',        destination: '/catalog/tours/:slug',            permanent: true },
       // Страниц отдельных сторонних приложений больше нет (07.11, миграция 1396):
-      // пять коротких записей живут одним списком «Приложения в дорогу».
-      { source: '/ai-tools/:slug',     destination: '/ai-tools',                       permanent: true },
+      // пять коротких записей живут одним списком «Приложения в дорогу». Список
+      // переехал с /ai-tools на /prilozheniya (28.11): страница без ИИ, старое
+      // имя осталось от каталога «AI-арсенал». Оба старых адреса ведут на новый
+      // список одним хопом, карточка — не через промежуточный /ai-tools.
+      { source: '/ai-tools',           destination: '/prilozheniya',                   permanent: true },
+      { source: '/ai-tools/:slug',     destination: '/prilozheniya',                   permanent: true },
       { source: '/terms',              destination: '/legal/terms',                    permanent: true },
       { source: '/auth/register',      destination: '/operators/join',                 permanent: false },
       // Перепись страниц 01.10: девять папок в app/ держали по одной строке

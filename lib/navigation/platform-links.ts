@@ -113,7 +113,7 @@ export const PLATFORM_SECTIONS: PlatformSection[] = [
       // Список охраняемых территорий (аудит 20.11: адрес /park был 404).
       { label: 'Парки и заповедники', href: '/park',           icon: Trees },
       { label: 'Блог',                href: '/blog',           icon: BookOpen },
-      { label: 'Приложения в дорогу', href: '/ai-tools',       icon: Smartphone },
+      { label: 'Приложения в дорогу', href: '/prilozheniya',   icon: Smartphone },
       { label: 'О платформе',         href: '/about',          icon: Info },
       { label: 'Вопросы и ответы',    href: '/faq',            icon: CircleHelp },
       { label: 'Центр помощи',        href: '/help',           icon: LifeBuoy },
