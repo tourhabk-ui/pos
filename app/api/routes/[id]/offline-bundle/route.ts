@@ -3,6 +3,7 @@ import { lonToTile, latToTile, TILE_HOST } from '@/lib/offline/tiles';
 import { planCorridor, estimateTilesMb, CORRIDOR_ZOOMS, type TrackPoint } from '@/lib/offline/route-corridor';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { alertLineIsTitleSql } from '@/lib/safety/alert-line';
+import { OFFLINE_BUNDLE_WAYPOINTS_SQL, offlineBundleWaypoints } from '@/lib/offline/bundle-sql';
 
 // AUTH: Public — данные маршрута публичные, тайлы публичные
 export const dynamic = 'force-dynamic';
@@ -41,14 +42,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
        FROM kamchatka_routes WHERE id = $1 AND (is_visible = TRUE OR is_visible IS NULL)`,
       [id],
     ),
-    query(
-      `SELECT p.lat, p.lng, p.name AS place_name, rw.position
-       FROM route_waypoints rw
-       JOIN places p ON p.id = rw.place_id
-       WHERE rw.route_id = $1 AND p.lat IS NOT NULL AND p.lng IS NOT NULL
-       ORDER BY rw.position`,
-      [id],
-    ),
+    // Точки — с расстоянием до медпомощи у места (lib/offline/bundle-sql.ts).
+    query(OFFLINE_BUNDLE_WAYPOINTS_SQL, [id]),
     // Действующие предупреждения по точкам маршрута.
     //
     // До этого офлайн-пакет нёс карту, трек, снаряжение и телефон МЧС — но
@@ -162,12 +157,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       mchs_registration_required: r.mchs_registration_required,
       mchs_phone: r.mchs_phone, park_name: r.park_name,
     },
-    waypoints: wpRes.rows.map(wp => ({
-      position: wp.position,
-      name: wp.place_name,
-      lat: Number(wp.lat),
-      lng: Number(wp.lng),
-    })),
+    waypoints: offlineBundleWaypoints(wpRes.rows),
     alerts: alertRes.rows.map(a => ({
       type:     a.alert_type,
       severity: Number(a.severity),
