@@ -18,6 +18,15 @@ const { poolQuery, recordCronRun, notifyBudgetAlert, claimCronWindow } = vi.hois
 }));
 
 vi.mock('@/lib/db-pool', () => ({ pool: { query: poolQuery } }));
+// Ядро подменено: этот poolQuery не отдаёт ключ суток (запись стопа в ядро —
+// tests/unit/kernel-llm-budget.test.ts). Старые случаи идут с
+// LLM_BUDGET_KERNEL=off и прежними ожиданиями (уточнение ревью 5).
+const kernelBudget = vi.hoisted(() => ({
+  recordBudgetStop: vi.fn(async () => ({ first: true, throttled: false, taskId: 'task-day', spentUsd: 5.4, dayKey: '2026-11-29' })),
+  ensureBudgetAlert: vi.fn(async () => ({ status: 'sent' as string })),
+}));
+vi.mock('@/lib/agents/kernel/llm-budget', () => kernelBudget);
+
 vi.mock('@/lib/agents/cron-heartbeat', () => ({ recordCronRun }));
 vi.mock('@/lib/telegram/admin-notify', () => ({ notifyBudgetAlert }));
 vi.mock('@/lib/agents/cron-lease', async () => {
@@ -43,6 +52,9 @@ beforeEach(() => {
   claimCronWindow.mockResolvedValue('claimed');
   poolQuery.mockResolvedValue({ rows: [{ spent: '3.25', unknown_calls: '0' }] });
   process.env.CRON_SECRET = 'cron-test';
+  process.env.LLM_BUDGET_KERNEL = 'off';
+  kernelBudget.recordBudgetStop.mockClear();
+  kernelBudget.ensureBudgetAlert.mockClear();
 });
 
 afterEach(() => {
@@ -88,6 +100,17 @@ describe('GET /api/cron/llm-budget-check без порога', () => {
     const errors = recordCronRun.mock.calls.map((c) => (c[3] as { error: string }).error);
     expect(errors).toHaveLength(2);
     expect(errors[0]).toBe(errors[1]);
+  });
+
+  it('без порога и при включённом ядре — по-прежнему ни алерта, ни записи в ядро (алерт стопа на $5 даёт путь стопа)', async () => {
+    delete process.env.LLM_BUDGET_KERNEL;
+    delete process.env.AI_DAILY_BUDGET_USD;
+    poolQuery.mockResolvedValue({ rows: [{ spent: '41.70', unknown_calls: '0' }] });
+    const body = await (await call()).json() as Body;
+    expect(body).toMatchObject({ ok: false, status: 'not_configured' });
+    expect(notifyBudgetAlert).not.toHaveBeenCalled();
+    expect(kernelBudget.recordBudgetStop).not.toHaveBeenCalled();
+    expect(kernelBudget.ensureBudgetAlert).not.toHaveBeenCalled();
   });
 
   it('порог задан — прежний путь: успех и сравнение с лимитом', async () => {

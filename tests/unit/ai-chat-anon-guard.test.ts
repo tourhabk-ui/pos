@@ -5,7 +5,7 @@
  * Всё — до вызова модели. Сторож — вызовом POST /api/ai/chat; модели и база
  * подменены, судится ответ человеку и то, звалась ли модель.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { NextRequest } from 'next/server';
 
 vi.mock('@/lib/errors/sanitize', () => ({ safeMsg: (e: unknown) => String(e) }));
@@ -88,6 +88,8 @@ function req(body: Record<string, unknown>): NextRequest {
 const modelCalls = () => vi.mocked(aiChatAgentLoop).mock.calls.length + vi.mocked(callAIWithModelDirect).mock.calls.length;
 
 beforeEach(() => {
+  // Запись закрытия стопа в ядро (PR 1a серии «ядро») здесь не проверяется.
+  vi.stubEnv('LLM_BUDGET_KERNEL', 'off');
   anonChatGuard.reset();
   clientIp = '10.0.0.1';
   poolQuery.mockReset();
@@ -98,6 +100,10 @@ beforeEach(() => {
   pickMock.mockResolvedValue({ tour: null, candidates: [] });
   vi.stubEnv('AI_DAILY_BUDGET_USD', '');
   vi.stubEnv('AI_ANON_DAILY_MAX', '');
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe('размеры входа — до модели', () => {

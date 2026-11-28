@@ -32,3 +32,17 @@ export function readDailyBudget(raw: string | undefined): DailyBudget {
   if (!Number.isFinite(usd) || usd <= 0) return { kind: 'invalid' };
   return { kind: 'set', usd };
 }
+
+/**
+ * Выключатель записи суточного стопа в ядро Volcano OS (`LLM_BUDGET_KERNEL`).
+ *
+ * `off` (без учёта регистра и пробелов) выключает НОВОЕ поведение: запись
+ * факта закрытия стопа в ядро и суточный дедуп алерта. Сам стоп
+ * (`lib/ai/daily-spend-gate.ts`, `AI_DAILY_BUDGET_USD`, без неё $5) и часовой
+ * алерт крона этим не выключаются. Не задана или любое иное значение —
+ * включено. Единственное место, где читается переменная: сторож
+ * tests/unit/kernel-llm-budget.test.ts держит, что больше её не читает никто.
+ */
+export function llmBudgetKernelEnabled(raw: string | undefined = process.env.LLM_BUDGET_KERNEL): boolean {
+  return (raw ?? '').trim().toLowerCase() !== 'off';
+}
