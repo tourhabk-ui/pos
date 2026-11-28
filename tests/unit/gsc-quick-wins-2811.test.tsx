@@ -162,7 +162,9 @@ describe('Кроноцкое озеро: «где находится» с ист
     expect(text).toContain('54.814, 160.218');
     expect(text).toMatch(/22\d км по прямой/);
     expect(text).toContain('Откуда снята координата, у нас не записано');
-    expect(text).toContain('вертолётом');
+    // Источник пишет «до Кроноцкого заповедника – вертолётом»: так и сказано, без «до него».
+    expect(text).toContain('до Кроноцкого заповедника, где лежит озеро, добираются вертолётом');
+    expect(text).not.toContain('до него');
     expect(screen.getByRole('link', { name: 'Открыть место на карте Ведара' }).getAttribute('href')).toBe('/map?place=ozero-kronotskoe');
     expect(text).not.toMatch(/₽|руб/);
   });
