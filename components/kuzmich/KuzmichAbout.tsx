@@ -4,6 +4,7 @@ import FaqSection from '@/components/faq/FaqSection';
 import { KUZMICH_MAX_URL, KUZMICH_TELEGRAM_URL } from '@/components/shared/KuzmichActions';
 import { MaxIcon, TelegramIcon } from '@/components/shared/MessengerIcons';
 import {
+  KUZMICH_ABOUT_PATH,
   KUZMICH_FAQ,
   KUZMICH_FAQ_HEADING,
   KUZMICH_LEAD,
@@ -66,7 +67,8 @@ function linkedText(text: string): ReactNode {
 /**
  * Над чатом — только заголовок, лид в одну строку и знаки ботов (слово
  * владельца 28.11: «Я еле нашёл строку ввода»). Поле ввода должно быть видно
- * без прокрутки и на телефоне 390 px. Полное описание — под чатом.
+ * без прокрутки и на телефоне 390 px. Полное описание — на странице
+ * «О Кузьмиче» (/o-kuzmiche), «Подробнее» ведёт туда.
  */
 export function KuzmichIntro() {
   return (
@@ -99,7 +101,7 @@ export function KuzmichIntro() {
         </div>
         <p data-lead-answer className="text-[var(--text-secondary)] text-sm md:text-base leading-relaxed">
           {KUZMICH_LEAD_SHORT}{' '}
-          <a href="#o-kuzmiche" className="underline" style={{ color: 'var(--ocean)' }}>Подробнее</a>
+          <Link href={KUZMICH_ABOUT_PATH} className="underline" style={{ color: 'var(--ocean)' }} data-kuzmich-about-link>Подробнее</Link>
         </p>
       </div>
     </header>

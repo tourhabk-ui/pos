@@ -21,6 +21,7 @@ import { randomUuid } from '@/lib/security/random-uuid';
 import { browserOffline, isOfflineFailure, offlineKuzmichReply } from '@/lib/kuzmich/offline-answer';
 import { askedOfflineCaption, waitingReply, waitingStrip, type AskedOffline } from '@/lib/kuzmich/offline-queue';
 import { useKuzmichWaiting } from '@/hooks/use-kuzmich-waiting';
+import ChatText from '@/components/kuzmich/ChatText';
 import { readSavedRouteFacts } from '@/lib/offline/route-facts';
 
 interface TourSuggestion {
@@ -456,14 +457,19 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
                     <Bot className="w-4 h-4 text-[var(--accent)]" />
                   </div>
                 )}
-                <div className={`max-w-[80%] px-4 py-3 text-sm whitespace-pre-wrap ${
+                {/* min-w-0 и перенос где угодно: длинный адрес в ответе не
+                    растягивает пузырь за экран (владелец 28.11: «ни хрена не
+                    видно, всё сливается»). */}
+                <div className={`max-w-[80%] min-w-0 px-4 py-3 text-sm whitespace-pre-wrap [overflow-wrap:anywhere] ${
                   msg.role === 'user'
                     ? 'bg-[var(--accent)] text-white rounded-lg rounded-br-md'
                     : msg.emergency
                       ? 'bg-[var(--bg-card)] text-[var(--text-primary)] rounded-lg rounded-bl-md border-2 border-[var(--danger)]'
                       : 'bg-[var(--bg-card)] text-[var(--text-primary)] rounded-lg rounded-bl-md border border-[var(--border)]'
                 }`}>
-                  {msg.content}
+                  {/* Ответ Кузьмича — тем же ChatText, что на /kuzmich: ссылки
+                      кликабельны и переносятся, пункты — списком. */}
+                  {msg.role === 'assistant' ? <ChatText text={msg.content} /> : msg.content}
                   {msg.emergency && (
                     <div className="mt-3 flex flex-wrap gap-2">
                       <EmergencyAction className="ds-btn ds-btn-danger text-xs" label="Позвонить 112" />

@@ -22,7 +22,7 @@ describe('где подвал', () => {
       '/kak-dobratsya-na-kamchatku', '/letopis/bystrinskij-park', '/weather', '/hub/fishing', '/park/', '/blog/some-post', '/operators/x', '/tools']) {
       expect(showSiteFooter(p), p).toBe(true);
     }
-    for (const p of ['/map', '/auth/login', '/hub', '/hub/admin', '/kuzmich', '/sos', '/', '/catalog', '/en/places', '/p/abc', '/trip/t1', '/catalog/tours/x', '/widget/fishingkam', '/partner-site/fishingkam']) {
+    for (const p of ['/map', '/auth/login', '/hub', '/hub/admin', '/kuzmich', '/ai-assistant', '/sos', '/', '/catalog', '/en/places', '/p/abc', '/trip/t1', '/catalog/tours/x', '/widget/fishingkam', '/partner-site/fishingkam']) {
       expect(showSiteFooter(p), p).toBe(false);
     }
   });

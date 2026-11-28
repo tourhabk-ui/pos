@@ -1,12 +1,29 @@
 /**
- * Страница /kuzmich: текст 400+ слов, FAQ, WebApplication JSON-LD,
- * заголовок и описание под выдачу (Сыщик, 22.11).
+ * Страница /kuzmich и «О Кузьмиче» /o-kuzmiche: текст 400+ слов, FAQ,
+ * WebApplication JSON-LD, заголовок и описание под выдачу (Сыщик, 22.11).
+ *
+ * Слово владельца 28.11: «убрать с чата описание что умеет кузьмич» →
+ * «перенести на отдельную». На /kuzmich над чатом — заголовок и лид, под
+ * чатом — одна ссылка на /o-kuzmiche; разделы, FAQ и ссылки — там. Судится
+ * рендером обеих страниц и картой сайта.
  */
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+
+const poolQuery = vi.hoisted(() => vi.fn(async () => ({ rows: [] })));
+vi.mock('@/lib/db-pool', () => ({ pool: { query: poolQuery } }));
+vi.mock('@/lib/database', () => ({ query: poolQuery }));
+vi.mock('@/components/layout/Header', () => ({ Header: () => null }));
+vi.mock('@/app/kuzmich/_KuzmichClient', () => ({ default: () => <div data-chat="kuzmich" /> }));
+
 import { KUZMICH_MAX_URL, KUZMICH_TELEGRAM_URL } from '@/components/shared/KuzmichActions';
 import {
+  KUZMICH_ABOUT_DESCRIPTION,
+  KUZMICH_ABOUT_H1,
+  KUZMICH_ABOUT_PATH,
+  KUZMICH_ABOUT_TITLE,
+  KUZMICH_CHAT_LINK_TEXT,
   KUZMICH_FAQ,
   KUZMICH_FAQ_HEADING,
   KUZMICH_LEAD,
@@ -22,7 +39,10 @@ import {
   kuzmichWebApplicationJsonLd,
   kuzmichWordCount,
 } from '@/lib/seo/kuzmich-page';
-import KuzmichAbout, { KuzmichIntro } from '@/app/kuzmich/KuzmichAbout';
+import KuzmichAbout, { KuzmichIntro } from '@/components/kuzmich/KuzmichAbout';
+import KuzmichPage from '@/app/kuzmich/page';
+import KuzmichAboutPage, { metadata as aboutMetadata } from '@/app/o-kuzmiche/page';
+import { collectSitemapEntriesWithStatus } from '@/lib/seo/sitemap-entries';
 
 function words(text: string): string[] {
   return text.split(/\s+/).filter((w) => /[A-Za-zА-Яа-я0-9]/.test(w));
@@ -30,9 +50,11 @@ function words(text: string): string[] {
 
 const BRAND = ' | Ведар';
 const page = readFileSync('app/kuzmich/page.tsx', 'utf8');
-const aboutSrc = readFileSync('app/kuzmich/KuzmichAbout.tsx', 'utf8');
+const aboutSrc = readFileSync('components/kuzmich/KuzmichAbout.tsx', 'utf8');
+const aboutPageSrc = readFileSync('app/o-kuzmiche/page.tsx', 'utf8');
 const client = readFileSync('app/kuzmich/_KuzmichClient.tsx', 'utf8');
-const pageBody = page.slice(page.indexOf('export default function'));
+const chatHtml = renderToStaticMarkup(<KuzmichPage />);
+const aboutHtml = renderToStaticMarkup(<KuzmichAboutPage />);
 
 describe('мета /kuzmich', () => {
   it('title с брендом ≤ 60, description ≤ 160, без цен и оценочных слов', () => {
@@ -47,14 +69,55 @@ describe('мета /kuzmich', () => {
   it('страница берёт title, description и WebApplication из модуля', () => {
     expect(page).toMatch(/title: KUZMICH_PAGE_TITLE/);
     expect(page).toMatch(/description: KUZMICH_PAGE_DESCRIPTION/);
-    expect(page).toMatch(/kuzmichWebApplicationJsonLd/);
-    expect(pageBody).toMatch(/KuzmichIntro/);
-    expect(pageBody).toMatch(/KuzmichClient/);
-    expect(pageBody).toMatch(/KuzmichAbout/);
+    expect(chatHtml).toContain('"@type":"WebApplication"');
+  });
+
+  it('«О Кузьмиче»: свой title с брендом ≤ 60, description 70–160, canonical', () => {
+    expect((KUZMICH_ABOUT_TITLE + BRAND).length).toBeLessThanOrEqual(60);
+    expect(KUZMICH_ABOUT_DESCRIPTION.length).toBeGreaterThanOrEqual(70);
+    expect(KUZMICH_ABOUT_DESCRIPTION.length).toBeLessThanOrEqual(160);
+    expect(aboutMetadata.title).toBe(KUZMICH_ABOUT_TITLE);
+    expect(aboutMetadata.description).toBe(KUZMICH_ABOUT_DESCRIPTION);
+    expect(aboutMetadata.alternates?.canonical).toBe(KUZMICH_ABOUT_PATH);
+    expect(aboutMetadata.robots).toBe('index, follow');
+    expect(`${KUZMICH_ABOUT_TITLE} ${KUZMICH_ABOUT_DESCRIPTION}`).not.toMatch(/₽|руб|лучш|уникальн/i);
+  });
+
+  it('обе страницы — в карте сайта', async () => {
+    const { entries } = await collectSitemapEntriesWithStatus();
+    expect(entries.some((e) => e.url === 'https://vedarai.ru/kuzmich')).toBe(true);
+    expect(entries.some((e) => e.url === `https://vedarai.ru${KUZMICH_ABOUT_PATH}`)).toBe(true);
   });
 });
 
-describe('текст /kuzmich', () => {
+describe('чат /kuzmich: над чатом заголовок, лид и ссылка на «О Кузьмиче», под чатом ничего (слово владельца 28.11)', () => {
+  it('разделов, FAQ и списка ссылок на странице чата нет', () => {
+    for (const s of KUZMICH_SECTIONS) expect(chatHtml, s.id).not.toContain(s.heading);
+    expect(chatHtml).not.toContain(KUZMICH_FAQ_HEADING);
+    expect(chatHtml).not.toContain(KUZMICH_RELATED_HEADING);
+    expect(chatHtml).not.toContain('FAQPage');
+    expect(chatHtml).not.toContain('data-kuzmich-about=');
+  });
+
+  it('один H1, короткий лид и «Подробнее» на «О Кузьмиче» — над чатом; под чатом страница ничего не ставит', () => {
+    expect(chatHtml.match(/<h1[\s>]/g)?.length).toBe(1);
+    expect(chatHtml).toContain(KUZMICH_PAGE_H1);
+    expect(chatHtml).toContain(KUZMICH_LEAD_SHORT);
+    expect(chatHtml).not.toContain('#o-kuzmiche');
+    const lead = chatHtml.indexOf('data-lead-answer');
+    const chat = chatHtml.indexOf('data-chat="kuzmich"');
+    const link = chatHtml.indexOf(`href="${KUZMICH_ABOUT_PATH}"`);
+    expect(lead).toBeGreaterThan(0);
+    expect(link).toBeGreaterThan(lead);
+    expect(chat).toBeGreaterThan(link);
+    expect(chatHtml).toMatch(new RegExp(`href="${KUZMICH_ABOUT_PATH}"[^>]*>Подробнее</a>`));
+    // После чата страница не рисует ничего: в чатах подвалов нет.
+    const afterChat = chatHtml.slice(chat + 'data-chat="kuzmich">'.length);
+    expect(afterChat.replace(/<\/(main|div)>/g, '').trim()).toBe('');
+  });
+});
+
+describe('текст «О Кузьмиче» (/o-kuzmiche)', () => {
   it('первый абзац сразу отвечает, кто такой Кузьмич и что он умеет', () => {
     expect(KUZMICH_LEAD).toMatch(/^Кузьмич — AI-помощник платформы Ведар/);
     expect(KUZMICH_LEAD).toMatch(/туры с витрины/);
@@ -74,13 +137,9 @@ describe('текст /kuzmich', () => {
     expect(words(KUZMICH_LEAD_SHORT).length).toBeLessThanOrEqual(40);
     for (const s of KUZMICH_SECTIONS) expect(s.heading, s.id).toMatch(/\?$/);
     expect(aboutSrc).not.toMatch(/['"]use client['"]/);
+    expect(aboutPageSrc).not.toMatch(/['"]use client['"]/);
     expect(page).not.toMatch(/['"]use client['"]/);
     expect(readFileSync('components/faq/FaqSection.tsx', 'utf8')).not.toMatch(/['"]use client['"]/);
-    // Слово владельца 28.11: чат первым, описание под ним — и в DOM тоже.
-    expect(pageBody.indexOf('KuzmichIntro')).toBeGreaterThan(0);
-    expect(pageBody.indexOf('KuzmichClient')).toBeGreaterThan(pageBody.indexOf('KuzmichIntro'));
-    expect(pageBody.indexOf('KuzmichAbout')).toBeGreaterThan(pageBody.indexOf('KuzmichClient'));
-    expect(pageBody).not.toMatch(/order-last/);
   });
 
   it('видимый текст длиннее 400 слов', () => {
@@ -113,17 +172,14 @@ describe('текст /kuzmich', () => {
   });
 });
 
-describe('рендер без JS: H1, FAQ и ссылки в серверном HTML', () => {
-  const html = renderToStaticMarkup(
-    <>
-      <KuzmichIntro />
-      <KuzmichAbout />
-    </>,
-  );
+describe('«О Кузьмиче» без JS: H1, разделы, FAQ и ссылки в серверном HTML', () => {
+  const html = aboutHtml;
 
-  it('H1 называет Кузьмича, лид и разделы видны в HTML', () => {
+  it('H1 называет Кузьмича, лид и разделы видны в HTML; кнопка ведёт в чат', () => {
     expect(html.match(/<h1[\s>]/g)?.length).toBe(1);
-    expect(html).toContain(KUZMICH_PAGE_H1);
+    expect(html).toContain(KUZMICH_ABOUT_H1);
+    expect(html).toContain('href="/kuzmich"');
+    expect(html).toContain(KUZMICH_CHAT_LINK_TEXT);
     expect(html).toContain('AI-помощник платформы Ведар');
     expect(html).toContain('@kuzmichai_bot');
     for (const s of KUZMICH_SECTIONS) expect(html, s.id).toContain(s.heading);
@@ -145,16 +201,23 @@ describe('рендер без JS: H1, FAQ и ссылки в серверном 
     expect(html).toContain(KUZMICH_MAX_URL);
   });
 
-  // Слово владельца 28.11: над чатом знаки Telegram и MAX, а не текстовые
-  // ссылки; адреса — со стартом, как в действиях Кузьмича.
-  it('под заголовком знаки Telegram и MAX со стартом бота', () => {
-    expect(html).toMatch(/<a href="https:\/\/t\.me\/kuzmichai_bot\?start=lead" target="_blank" rel="noopener noreferrer" aria-label="Telegram" title="Telegram"/);
-    expect(html).toMatch(/<a href="https:\/\/max\.ru\/id4101147649_bot\?start=lead" target="_blank" rel="noopener noreferrer" aria-label="MAX" title="MAX"/);
+  // Слово владельца 28.11 (#3900): над чатом знаки Telegram и MAX, а не
+  // текстовые ссылки; адреса — со стартом, как в действиях Кузьмича.
+  it('под заголовком чата знаки Telegram и MAX со стартом бота', () => {
+    expect(chatHtml).toMatch(/<a href="https:\/\/t\.me\/kuzmichai_bot\?start=lead" target="_blank" rel="noopener noreferrer" aria-label="Telegram" title="Telegram"/);
+    expect(chatHtml).toMatch(/<a href="https:\/\/max\.ru\/id4101147649_bot\?start=lead" target="_blank" rel="noopener noreferrer" aria-label="MAX" title="MAX"/);
   });
 
-  it('в чате нет второго H1; на странице ровно один', () => {
+  it('в чате нет второго H1', () => {
     expect(client).not.toMatch(/<h1\b/);
-    expect(pageBody).not.toMatch(/<h1\b/);
+  });
+
+  it('вводная чата — заголовок чата и «Подробнее» на «О Кузьмиче»; на самой «О Кузьмиче» вводной чата нет', () => {
+    expect(renderToStaticMarkup(<KuzmichIntro />)).toContain(KUZMICH_PAGE_H1);
+    expect(renderToStaticMarkup(<KuzmichIntro />)).toContain(`href="${KUZMICH_ABOUT_PATH}"`);
+    expect(aboutHtml).not.toContain('data-kuzmich-about-link');
+    expect(aboutHtml).not.toContain(KUZMICH_LEAD_SHORT);
+    expect(renderToStaticMarkup(<KuzmichAbout />)).toContain(KUZMICH_FAQ_HEADING);
   });
 });
 
