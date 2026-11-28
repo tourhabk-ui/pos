@@ -6,6 +6,8 @@ import { loadPkcBoard } from '@/lib/flights/pkc-board';
 import { loadAirportMetar } from '@/lib/flights/metar';
 import { defaultOgImages } from '@/lib/seo/og-image';
 import { FLIGHTS_PAGE_DESCRIPTION, FLIGHTS_PAGE_TITLE } from '@/lib/seo/flights-meta';
+import { JsonLd } from '@/components/seo/JsonLd';
+import { flightsAirportJsonLd } from '@/lib/seo/flights-about';
 
 /**
  * Табло аэропорта Елизово — задержки и отмены (карт-бланш владельца 29.10, #2788).
@@ -39,6 +41,7 @@ export default async function FlightsPage() {
   const [board, metar] = await Promise.all([loadPkcBoard(), loadAirportMetar()]);
   return (
     <>
+      <JsonLd data={flightsAirportJsonLd()} />
       <Header />
       <main className="ds-page px-4 pt-20 pb-24">
         <FlightBoardView board={board} metar={metar} />

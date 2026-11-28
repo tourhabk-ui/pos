@@ -250,6 +250,8 @@ export default async function PlaceDetailPage({ params }: Props) {
   const landingTours = landing ? await loadToursFor(landing) : null;
   // Прямой ответ на вопрос из выдачи (lib/seo/place-search-meta); у посадочной — её текст.
   const leadAnswer = landing ? null : (placeSearchMeta(canonicalId)?.leadAnswer ?? null);
+  // Блок «на карте» в «Как добраться» — тоже из списка, у посадочной его нет.
+  const mapNote = landing ? null : (placeSearchMeta(canonicalId)?.mapNote ?? null);
 
   // Данные карточки — сразу в HTML: поисковик и человек без JS видят имя,
   // описание, факты и ссылки на маршруты (Н1). Браузер потом обновит их сам.
@@ -366,7 +368,7 @@ export default async function PlaceDetailPage({ params }: Props) {
       )}
       {pageLd && <JsonLd data={pageLd} />}
       {breadcrumbItems && <BreadcrumbJsonLd items={breadcrumbItems} />}
-      <PlaceDetailClient id={arkId} initialPlace={initialPlace} landingHeading={landing?.h1 ?? null} closure={placeClosure(canonicalId)} leadAnswer={leadAnswer} />
+      <PlaceDetailClient id={arkId} initialPlace={initialPlace} landingHeading={landing?.h1 ?? null} closure={placeClosure(canonicalId)} leadAnswer={leadAnswer} mapNote={mapNote} mapRef={canonicalId} />
       {landing && (
         <div className={`${pageContainer('reading')} pb-10`}>
           <LandingContent landing={landing} tours={landingTours} showH1={false} />
