@@ -113,7 +113,7 @@ describe('чат /kuzmich: над чатом заголовок и лид, по�
   });
 });
 
-describe('текст /kuzmich', () => {
+describe('текст «О Кузьмиче» (/o-kuzmiche)', () => {
   it('первый абзац сразу отвечает, кто такой Кузьмич и что он умеет', () => {
     expect(KUZMICH_LEAD).toMatch(/^Кузьмич — AI-помощник платформы Ведар/);
     expect(KUZMICH_LEAD).toMatch(/туры с витрины/);
