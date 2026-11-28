@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { OperatorNameLink } from '@/components/operators/OperatorNameLink';
 import Image from 'next/image';
 import {
-  Sparkles, Send, Loader2, ArrowLeft, Bot, ArrowRight,
+  Sparkles, Send, Loader2,
   Camera, X, MapPin, Users, Calendar, Phone, User, Mail,
   CheckCircle, ExternalLink,
   Fish, Mountain, Droplets, Waves, Backpack, Binoculars, Thermometer, Map,
@@ -21,7 +21,6 @@ import { compressImageToLimit } from '@/lib/images/compress-client';
 import BookingAccessLink from '@/components/bookings/BookingAccessLink';
 import SpeakButton from '@/components/kuzmich/SpeakButton';
 import { tourPath } from '@/lib/tours/tour-url';
-import { KUZMICH_TELEGRAM_URL } from '@/components/shared/KuzmichActions';
 import { platformAcceptsPayments } from '@/lib/payments/accepting';
 import { ASK_PARAM, sanitizeAsk } from '@/lib/kuzmich/ask-link';
 import { TURN_STOPPED_TEXT, isAbortError } from '@/lib/kuzmich/turn-control';
@@ -592,46 +591,20 @@ export default function KuzmichClient() {
           около 230. На телефоне ответ Кузьмича — во всю ширину карточки, без
           аватара; пузырь пользователя справа, как был. С sm: — прежняя раскладка. */}
 
-      {/* Навигация */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-6">
-        <Link href="/" className="flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
-          <ArrowLeft className="w-4 h-4" /> Главная
-        </Link>
-        <div className="flex-1" />
-        <a
-          href={KUZMICH_TELEGRAM_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center min-h-[44px] text-sm text-[var(--ocean)] hover:underline"
-        >
-          Кузьмич в Telegram
-        </a>
-        <Link href="/request" className="flex items-center gap-1.5 text-sm text-[var(--ocean)] hover:underline">
-          Оставить заявку <ArrowRight className="w-3.5 h-3.5" />
-        </Link>
-      </div>
-
-      {/* Личность Кузьмича */}
-      {!hasMessages && (
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-lg bg-[var(--accent)]/10 mb-4">
-            <Bot className="w-8 h-8 text-[var(--accent)]" />
-          </div>
-          <div className="inline-flex items-center gap-2 bg-[var(--success)]/10 rounded-full px-3 py-1 mb-3">
-            <span className="w-2 h-2 rounded-full bg-[var(--success)] animate-pulse" />
-            <span className="text-xs font-medium text-[var(--success)]">Кузьмич онлайн</span>
-          </div>
-          <p className="text-[var(--text-secondary)] text-sm md:text-base max-w-md mx-auto">
-            Напишите вопрос в чат — про тур, место, погоду или обстановку.
-          </p>
-        </div>
-      )}
-
       {/* Чат */}
       {/* overflow-clip, а не overflow-hidden: hidden делает карточку прокручиваемым
           предком, и «липкое» поле ввода ниже прилипало бы к ней, а не к экрану
-          (тест 21.11: на телефоне поле уезжало вместе с ответом). */}
+          (тест 21.11: на телефоне поле уезжало вместе с ответом).
+          Порядок детей задан order-*: поле ввода сразу под строкой «онлайн»,
+          чипы под ним (слово владельца 28.11: «Я еле нашёл строку ввода»). */}
       <div className={`flex-1 flex flex-col bg-[var(--bg-card)] border border-[var(--border)] rounded-xl overflow-clip ${hasMessages ? 'min-h-[400px]' : ''}`}>
+
+        {!hasMessages && (
+          <div className="order-0 flex items-center justify-center gap-2 px-4 pt-3 text-xs">
+            <span className="w-2 h-2 rounded-full bg-[var(--success)] animate-pulse" />
+            <span className="font-medium text-[var(--success)]">Кузьмич онлайн</span>
+          </div>
+        )}
 
         {/* Сообщения */}
         {hasMessages && (
@@ -735,14 +708,15 @@ export default function KuzmichClient() {
           </div>
         )}
 
-        {/* Чипы — до первого сообщения */}
+        {/* Чипы — до первого сообщения, под полем ввода. На телефоне — первые
+            четыре, с sm: — все восемь. */}
         {!hasMessages && (
-          <div className="p-5 flex-1 flex flex-col justify-end">
+          <div className="order-4 p-5 flex-1 flex flex-col">
             <p className="text-xs text-[var(--text-muted)] mb-3 text-center">Быстрые запросы:</p>
             <div className="flex flex-wrap justify-center gap-2">
-              {CHIPS.map(chip => (
+              {CHIPS.map((chip, i) => (
                 <button key={chip.text} type="button" onClick={() => send(chip.text)}
-                  className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] border border-[var(--border)] rounded-full px-4 py-2 hover:border-[var(--accent)] hover:text-[var(--accent)] transition-all">
+                  className={`${i >= 4 ? 'hidden sm:flex' : 'flex'} items-center gap-1.5 text-xs text-[var(--text-secondary)] border border-[var(--border)] rounded-full px-4 py-2 hover:border-[var(--accent)] hover:text-[var(--accent)] transition-all`}>
                   <chip.icon size={13} />
                   {chip.text}
                 </button>
@@ -753,7 +727,7 @@ export default function KuzmichClient() {
 
         {/* Превью фото */}
         {imagePreview && (
-          <div className="px-4 pt-3 flex items-center gap-2">
+          <div className="order-1 px-4 pt-3 flex items-center gap-2">
             <div className="relative">
               <Image src={imagePreview} alt="Фото" width={56} height={56} className="rounded-lg object-cover h-14 w-14" />
               <button type="button" onClick={clearImage} aria-label="Убрать фото"
@@ -772,7 +746,7 @@ export default function KuzmichClient() {
 
         {/* Ввод. Прилипает к низу экрана, пока листается ответ (тест 21.11,
             390 px: поле уезжало), с отступом под жест «домой» у iPhone. */}
-        <div data-kuzmich-input className="sticky bottom-0 z-10 flex items-center gap-3 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-[var(--border)] bg-[var(--bg-card)]">
+        <div data-kuzmich-input className="sticky bottom-0 z-10 order-2 flex items-center gap-3 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-[var(--border)] bg-[var(--bg-card)]">
           <input
             ref={fileInputRef}
             type="file"
@@ -798,7 +772,7 @@ export default function KuzmichClient() {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => !isImeKeyEvent(e.nativeEvent) && e.key === 'Enter' && !e.shiftKey && send(input)}
-            placeholder={imagePreview ? 'Добавьте вопрос или просто отправьте фото...' : 'Опишите мечту о путешествии...'}
+            placeholder={imagePreview ? 'Добавьте вопрос или просто отправьте фото...' : 'Спросите про тур, место или погоду…'}
             className="flex-1 min-w-0 bg-transparent text-[var(--text-primary)] placeholder:text-[var(--text-muted)] text-base sm:text-sm outline-none"
           />
           <button type="button" onClick={() => send(input)} disabled={!input.trim() && !imageFile}
@@ -808,7 +782,7 @@ export default function KuzmichClient() {
           </button>
         </div>
         {waitingApi.waiting.length > 0 && (
-          <div className="px-4 pb-3 flex flex-wrap items-center gap-x-3 gap-y-1" aria-live="polite">
+          <div className="order-3 px-4 pb-3 flex flex-wrap items-center gap-x-3 gap-y-1" aria-live="polite">
             <p className="text-xs text-[var(--text-muted)]">{waitingStrip(waitingApi.waiting.length)}</p>
             <button type="button" onClick={waitingApi.clear}
               className="min-h-[44px] text-xs text-[var(--ocean)] hover:underline">
@@ -817,7 +791,7 @@ export default function KuzmichClient() {
           </div>
         )}
         {queued.length > 0 && (
-          <div className="px-4 pb-3" aria-live="polite">
+          <div className="order-3 px-4 pb-3" aria-live="polite">
             <p className="text-xs text-[var(--text-muted)]">
               {queued.length === 1
                 ? 'Сообщение уйдёт, когда Кузьмич допишет ответ.'
@@ -832,13 +806,12 @@ export default function KuzmichClient() {
         )}
       </div>
 
-      {/* Подсказка */}
+      {/* Подсказка. «Оставить заявку» — только здесь, один раз; Telegram и
+          MAX — знаками под заголовком страницы. */}
       <p className="text-center text-xs text-[var(--text-muted)] mt-4">
-        Предпочитаете живое общение?{' '}
-        <Link href="/request" className="text-[var(--ocean)] hover:underline">
-          Оставьте заявку
-        </Link>{' '}
-        — менеджер перезвонит в течение часа.
+        <Link href="/" className="text-[var(--ocean)] hover:underline">Главная</Link>. Предпочитаете живое общение?{' '}
+        <Link href="/request" className="text-[var(--ocean)] hover:underline">Оставьте заявку</Link>
+        {' '}— менеджер перезвонит в течение часа.
       </p>
     </section>
   );

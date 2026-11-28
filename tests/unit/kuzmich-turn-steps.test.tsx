@@ -58,7 +58,7 @@ describe('страница /kuzmich', () => {
       return Promise.resolve(new Response(body, { headers: { 'content-type': 'text/event-stream' } }));
     }));
     render(<KuzmichClient />);
-    const box = await screen.findByPlaceholderText(/Опишите мечту/);
+    const box = await screen.findByPlaceholderText(/Спросите про тур/);
     fireEvent.change(box, { target: { value: 'Погода на Горелом?' } });
     fireEvent.keyDown(box, { key: 'Enter' });
     await waitFor(() => expect(push).not.toBe(undefined));

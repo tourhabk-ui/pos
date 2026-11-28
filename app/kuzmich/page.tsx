@@ -33,15 +33,13 @@ export default function KuzmichPage() {
     <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh] flex flex-col">
       <Header />
       <JsonLd data={kuzmichWebApplicationJsonLd(SITE)} />
-      {/* Статья и FAQ — в серверном HTML до клиентского чата, чтобы бот
-          без JS прочитал весь текст. Визуально чат остаётся под лидом
-          (order-last у статьи). */}
-      <main className="flex-1 flex flex-col max-w-3xl w-full mx-auto px-2 sm:px-4 pb-6 pt-20">
+      {/* Порядок в DOM = порядок на экране (слово владельца 28.11): заголовок,
+          чат, описание. Клиентский чат рендерится на сервере, текст описания
+          и FAQ есть в HTML и без JS. */}
+      <main className="flex-1 flex flex-col max-w-3xl w-full mx-auto px-2 sm:px-4 pb-6 pt-16">
         <KuzmichIntro />
-        <div className="order-last">
-          <KuzmichAbout />
-        </div>
         <KuzmichClient />
+        <KuzmichAbout />
       </main>
     </div>
   );

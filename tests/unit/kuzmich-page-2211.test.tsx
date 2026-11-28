@@ -10,6 +10,7 @@ import {
   KUZMICH_FAQ,
   KUZMICH_FAQ_HEADING,
   KUZMICH_LEAD,
+  KUZMICH_LEAD_SHORT,
   KUZMICH_PAGE_DESCRIPTION,
   KUZMICH_PAGE_H1,
   KUZMICH_PAGE_TITLE,
@@ -62,22 +63,24 @@ describe('текст /kuzmich', () => {
   });
 
   it('прямой ответ умещается в первые 40 слов, H2 — вопросы, текст в серверном HTML', () => {
-    const first = words(`${KUZMICH_PAGE_H1} ${KUZMICH_LEAD}`).slice(0, 40).join(' ');
+    const first = words(`${KUZMICH_PAGE_H1} ${KUZMICH_LEAD_SHORT}`).slice(0, 40).join(' ');
     expect(first).toMatch(/Кузьмич/);
     expect(first).toMatch(/AI-помощник/);
     expect(first).toMatch(/Ведар/);
     expect(first).toMatch(/туры/);
     expect(first).toMatch(/места/);
     expect(first).toMatch(/погоду|обстановку/);
-    expect(words(KUZMICH_LEAD).length).toBeLessThanOrEqual(40);
+    expect(KUZMICH_LEAD_SHORT.length).toBeLessThanOrEqual(110);
+    expect(words(KUZMICH_LEAD_SHORT).length).toBeLessThanOrEqual(40);
     for (const s of KUZMICH_SECTIONS) expect(s.heading, s.id).toMatch(/\?$/);
     expect(aboutSrc).not.toMatch(/['"]use client['"]/);
     expect(page).not.toMatch(/['"]use client['"]/);
     expect(readFileSync('components/faq/FaqSection.tsx', 'utf8')).not.toMatch(/['"]use client['"]/);
+    // Слово владельца 28.11: чат первым, описание под ним — и в DOM тоже.
     expect(pageBody.indexOf('KuzmichIntro')).toBeGreaterThan(0);
-    expect(pageBody.indexOf('KuzmichAbout')).toBeGreaterThan(pageBody.indexOf('KuzmichIntro'));
-    expect(pageBody.indexOf('KuzmichClient')).toBeGreaterThan(pageBody.indexOf('KuzmichAbout'));
-    expect(pageBody).toMatch(/order-last/);
+    expect(pageBody.indexOf('KuzmichClient')).toBeGreaterThan(pageBody.indexOf('KuzmichIntro'));
+    expect(pageBody.indexOf('KuzmichAbout')).toBeGreaterThan(pageBody.indexOf('KuzmichClient'));
+    expect(pageBody).not.toMatch(/order-last/);
   });
 
   it('видимый текст длиннее 400 слов', () => {
@@ -140,6 +143,13 @@ describe('рендер без JS: H1, FAQ и ссылки в серверном 
     }
     expect(html).toContain(KUZMICH_TELEGRAM_URL);
     expect(html).toContain(KUZMICH_MAX_URL);
+  });
+
+  // Слово владельца 28.11: над чатом знаки Telegram и MAX, а не текстовые
+  // ссылки; адреса — со стартом, как в действиях Кузьмича.
+  it('под заголовком знаки Telegram и MAX со стартом бота', () => {
+    expect(html).toMatch(/<a href="https:\/\/t\.me\/kuzmichai_bot\?start=lead" target="_blank" rel="noopener noreferrer" aria-label="Telegram" title="Telegram"/);
+    expect(html).toMatch(/<a href="https:\/\/max\.ru\/id4101147649_bot\?start=lead" target="_blank" rel="noopener noreferrer" aria-label="MAX" title="MAX"/);
   });
 
   it('в чате нет второго H1; на странице ровно один', () => {

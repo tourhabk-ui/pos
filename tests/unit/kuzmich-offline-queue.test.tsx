@@ -136,7 +136,7 @@ describe('экраны: вопрос ждёт связи и уходит сам'
 
   it('/kuzmich: без сети вопрос встаёт ждать, с сетью уходит сам — с подписью, когда задан', async () => {
     render(<KuzmichClient />);
-    const box = await screen.findByPlaceholderText(/Опишите мечту/);
+    const box = await screen.findByPlaceholderText(/Спросите про тур/);
     ask(box, WEATHER);
     expect(await screen.findByText(waitingReply('tab'))).toBeTruthy();
     expect(screen.getByText(waitingStrip(1))).toBeTruthy();
@@ -153,7 +153,7 @@ describe('экраны: вопрос ждёт связи и уходит сам'
 
   it('/kuzmich: два вопроса без сети — одним сообщением', async () => {
     render(<KuzmichClient />);
-    const box = await screen.findByPlaceholderText(/Опишите мечту/);
+    const box = await screen.findByPlaceholderText(/Спросите про тур/);
     ask(box, WEATHER);
     await screen.findByText(waitingStrip(1));
     ask(box, 'Где поесть в Елизово?');
@@ -165,7 +165,7 @@ describe('экраны: вопрос ждёт связи и уходит сам'
 
   it('/kuzmich: очередь полна — шестой вопрос не сохранён, и ответ этого не обещает', async () => {
     render(<KuzmichClient />);
-    const box = await screen.findByPlaceholderText(/Опишите мечту/);
+    const box = await screen.findByPlaceholderText(/Спросите про тур/);
     for (let i = 1; i <= 5; i++) {
       ask(box, `Вопрос ${i}`);
       await screen.findByText(waitingStrip(i));
@@ -178,7 +178,7 @@ describe('экраны: вопрос ждёт связи и уходит сам'
 
   it('/kuzmich: вопрос из очереди уходит без фото, прикреплённого после него, и не стирает поле ввода', async () => {
     const { container } = render(<KuzmichClient />);
-    const box = await screen.findByPlaceholderText(/Опишите мечту/);
+    const box = await screen.findByPlaceholderText(/Спросите про тур/);
     ask(box, WEATHER);
     await screen.findByText(waitingStrip(1));
     const file = new File(['x'], 'grib.jpg', { type: 'image/jpeg' });
@@ -194,7 +194,7 @@ describe('экраны: вопрос ждёт связи и уходит сам'
 
   it('/kuzmich: «Не отправлять» — вопрос не уходит, когда сеть вернётся', async () => {
     render(<KuzmichClient />);
-    const box = await screen.findByPlaceholderText(/Опишите мечту/);
+    const box = await screen.findByPlaceholderText(/Спросите про тур/);
     ask(box, WEATHER);
     fireEvent.click(await screen.findByRole('button', { name: 'Не отправлять' }));
     expect(screen.queryByText(waitingStrip(1))).toBeNull();
@@ -210,7 +210,7 @@ describe('экраны: вопрос ждёт связи и уходит сам'
       equipment: ['каска'], mchsRequired: true, mchsPhone: null, parkName: null, alerts: [], medical: [],
     });
     render(<KuzmichClient />);
-    const box = await screen.findByPlaceholderText(/Опишите мечту/);
+    const box = await screen.findByPlaceholderText(/Спросите про тур/);
     ask(box, 'рядом медведь');
     await screen.findByText(/Связи нет — отвечаю памяткой/);
     ask(box, 'Что взять на Мутновский?');
@@ -227,7 +227,7 @@ describe('экраны: вопрос ждёт связи и уходит сам'
       equipment: ['каска'], mchsRequired: true, mchsPhone: null, parkName: null, alerts: [], medical: [],
     });
     render(<KuzmichClient />);
-    const box = await screen.findByPlaceholderText(/Опишите мечту/);
+    const box = await screen.findByPlaceholderText(/Спросите про тур/);
     ask(box, WEATHER);
     await screen.findByText(/В сохранённом в телефоне маршруте «Вулкан Мутновский» ответа на это нет/);
     expect(screen.getByText(/Вопрос ждёт в телефоне и уйдёт Кузьмичу сам/)).toBeTruthy();
@@ -238,7 +238,7 @@ describe('экраны: вопрос ждёт связи и уходит сам'
     online = true;
     failFetch = true;
     render(<KuzmichClient />);
-    const box = await screen.findByPlaceholderText(/Опишите мечту/);
+    const box = await screen.findByPlaceholderText(/Спросите про тур/);
     ask(box, WEATHER);
     expect(await screen.findByText(waitingReply('tab'))).toBeTruthy();
     await new Promise((r) => setTimeout(r, 50));
@@ -254,7 +254,7 @@ describe('экраны: вопрос ждёт связи и уходит сам'
 
   it('/kuzmich: вопрос с фото ждать не встаёт — без снимка он ушёл бы не тем вопросом', async () => {
     const { container } = render(<KuzmichClient />);
-    const box = await screen.findByPlaceholderText(/Опишите мечту/);
+    const box = await screen.findByPlaceholderText(/Спросите про тур/);
     const file = new File(['x'], 'grib.jpg', { type: 'image/jpeg' });
     fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [file] } });
     await screen.findByPlaceholderText(/Добавьте вопрос/);
