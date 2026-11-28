@@ -104,7 +104,8 @@ interface TourFull {
   base_price: string;
   price_old: string | null;
   price_unit: string | null;
-  activity_type: string;
+  /** Вид занятия; у части туров не записан (null) — §4.0. */
+  activity_type: string | null;
   location_type: string;
   location_name: string | null;
   latitude: string | null;
@@ -669,14 +670,22 @@ export default function TourDetailClient({ tour, reviews = [], askSeatsFirst = f
               <Link href="/" className={CRUMB}>Главная</Link>
               <ChevronRight className="w-3 h-3 text-white/60" aria-hidden />
               <Link href="/catalog" className={CRUMB}>Туры</Link>
-              <ChevronRight className="w-3 h-3 text-white/60" aria-hidden />
-              <Link href={`/catalog?activity_type=${tour.activity_type}`} className={CRUMB}>{activity}</Link>
+              {/* Тура без вида занятия крошка вела на /catalog?activity_type=null
+                  (выгрузка Search Console 28.11): пустой вид — пункта нет. */}
+              {tour.activity_type && (
+                <>
+                  <ChevronRight className="w-3 h-3 text-white/60" aria-hidden />
+                  <Link href={`/catalog?activity_type=${encodeURIComponent(tour.activity_type)}`} className={CRUMB}>{activity}</Link>
+                </>
+              )}
             </nav>
 
-            <div className="flex items-center gap-2.5 mb-3">
-              <span className="w-6 h-0.5 bg-[var(--accent)]" />
-              <span className="text-[12px] font-semibold uppercase tracking-[0.2em]" style={{ fontFamily: FM, color: '#fff' }}>{activity}</span>
-            </div>
+            {tour.activity_type && (
+              <div data-testid="tour-hero-activity" className="flex items-center gap-2.5 mb-3">
+                <span className="w-6 h-0.5 bg-[var(--accent)]" />
+                <span className="text-[12px] font-semibold uppercase tracking-[0.2em]" style={{ fontFamily: FM, color: '#fff' }}>{activity}</span>
+              </div>
+            )}
 
             <h1 className="text-white max-w-[16ch]" style={{ fontFamily: FD, fontWeight: 700, fontSize: 'clamp(30px,5vw,56px)', lineHeight: 1.04, letterSpacing: '-0.02em', textShadow: '0 2px 34px rgba(0,0,0,.4)', textWrap: 'balance' }}>
               {tour.title}
