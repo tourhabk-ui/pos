@@ -19,7 +19,7 @@ import { LandingContent, LandingKuzmich } from '@/components/landings/LandingCon
 import { landingBySlug, relatedLandings, guideAnchor } from '@/lib/landings/landings';
 import { KUZMICH_TEXT_LINKS } from '@/lib/seo/kuzmich-page';
 import { RelatedLandings } from '@/components/landings/KamchatkaGuide';
-import KuzmichAbout, { KuzmichIntro } from '@/app/kuzmich/KuzmichAbout';
+import KuzmichAbout, { KuzmichIntro } from '@/components/kuzmich/KuzmichAbout';
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf-8');

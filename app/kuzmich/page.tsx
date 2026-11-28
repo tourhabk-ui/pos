@@ -7,7 +7,7 @@ import {
   KUZMICH_PAGE_TITLE,
   kuzmichWebApplicationJsonLd,
 } from '@/lib/seo/kuzmich-page';
-import KuzmichAbout, { KuzmichIntro } from './KuzmichAbout';
+import { KuzmichAboutLink, KuzmichIntro } from '@/components/kuzmich/KuzmichAbout';
 import KuzmichClient from './_KuzmichClient';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
@@ -33,15 +33,12 @@ export default function KuzmichPage() {
     <div className="bg-[var(--bg-primary)] text-[var(--text-primary)] min-h-[100dvh] flex flex-col">
       <Header />
       <JsonLd data={kuzmichWebApplicationJsonLd(SITE)} />
-      {/* Статья и FAQ — в серверном HTML до клиентского чата, чтобы бот
-          без JS прочитал весь текст. Визуально чат остаётся под лидом
-          (order-last у статьи). */}
+      {/* Разделы, FAQ и ссылки — на странице «О Кузьмиче» (слово владельца
+          28.11): здесь над чатом заголовок и лид, под чатом одна ссылка. */}
       <main className="flex-1 flex flex-col max-w-3xl w-full mx-auto px-2 sm:px-4 pb-6 pt-20">
         <KuzmichIntro />
-        <div className="order-last">
-          <KuzmichAbout />
-        </div>
         <KuzmichClient />
+        <KuzmichAboutLink />
       </main>
     </div>
   );

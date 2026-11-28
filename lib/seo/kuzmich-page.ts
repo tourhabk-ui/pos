@@ -17,6 +17,21 @@ export const KUZMICH_PAGE_DESCRIPTION =
 
 export const KUZMICH_PAGE_H1 = KUZMICH_PAGE_TITLE;
 
+/**
+ * Страница «О Кузьмиче» (слово владельца 28.11: «убрать с чата описание что
+ * умеет кузьмич» → «перенести на отдельную»). Разделы, FAQ и ссылки живут
+ * там; на /kuzmich над чатом — заголовок и лид, под чатом — одна ссылка сюда.
+ */
+export const KUZMICH_ABOUT_PATH = '/o-kuzmiche';
+export const KUZMICH_ABOUT_TITLE = 'Что умеет Кузьмич — AI-помощник Ведара';
+export const KUZMICH_ABOUT_DESCRIPTION =
+  'Что умеет Кузьмич, AI-помощник Ведара: туры с витрины, места и маршруты, погода и обстановка, каналы Telegram и MAX, данные для ИИ-агентов и чего он не делает.';
+export const KUZMICH_ABOUT_H1 = KUZMICH_ABOUT_TITLE;
+/** Ссылка под чатом на /kuzmich. */
+export const KUZMICH_ABOUT_LINK_TEXT = 'Что умеет Кузьмич, как с ним говорить и чего он не делает';
+/** Кнопка со страницы «О Кузьмиче» в чат. */
+export const KUZMICH_CHAT_LINK_TEXT = 'Написать Кузьмичу';
+
 export const KUZMICH_LEAD =
   'Кузьмич — AI-помощник платформы Ведар. Он подбирает туры с витрины, отвечает про места и маршруты, сообщает погоду, вулканическую обстановку и предупреждения по краю. Написать ему можно на этой странице, в Telegram-боте @kuzmichai_bot и в MAX.';
 
@@ -147,10 +162,10 @@ export function kuzmichWebApplicationJsonLd(site: string = SITE): Record<string,
   };
 }
 
-/** Видимый русский текст страницы: заголовок, лид, разделы, FAQ и ссылки. */
+/** Видимый русский текст страницы «О Кузьмиче»: заголовок, лид, разделы, FAQ и ссылки. */
 export function kuzmichVisibleText(): string {
   const parts = [
-    KUZMICH_PAGE_H1,
+    KUZMICH_ABOUT_H1,
     KUZMICH_LEAD,
     ...KUZMICH_SECTIONS.flatMap((s) => [s.heading, ...s.paragraphs]),
     KUZMICH_FAQ_HEADING,

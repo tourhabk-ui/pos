@@ -2,6 +2,8 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import FaqSection from '@/components/faq/FaqSection';
 import {
+  KUZMICH_ABOUT_LINK_TEXT,
+  KUZMICH_ABOUT_PATH,
   KUZMICH_FAQ,
   KUZMICH_FAQ_HEADING,
   KUZMICH_LEAD,
@@ -60,10 +62,10 @@ function linkedText(text: string): ReactNode {
   return parts;
 }
 
-export function KuzmichIntro() {
+export function KuzmichIntro({ title = KUZMICH_PAGE_H1 }: { title?: string }) {
   return (
     <header className="space-y-3 mb-8">
-      <h1 className="font-playfair text-3xl md:text-4xl font-bold text-[var(--text-primary)]">{KUZMICH_PAGE_H1}</h1>
+      <h1 className="font-playfair text-3xl md:text-4xl font-bold text-[var(--text-primary)]">{title}</h1>
       <p data-lead-answer className="text-[var(--text-secondary)] text-sm md:text-base leading-relaxed">
         {linkedText(KUZMICH_LEAD)}
       </p>
@@ -71,9 +73,20 @@ export function KuzmichIntro() {
   );
 }
 
+/** Под чатом /kuzmich — одна ссылка на страницу «О Кузьмиче» вместо всего текста. */
+export function KuzmichAboutLink() {
+  return (
+    <p className="mt-6 text-center text-sm" data-kuzmich-about-link>
+      <Link href={KUZMICH_ABOUT_PATH} className="underline" style={{ color: 'var(--ocean)' }}>
+        {KUZMICH_ABOUT_LINK_TEXT}
+      </Link>
+    </p>
+  );
+}
+
 export default function KuzmichAbout() {
   return (
-    <div className="mt-12 space-y-8" data-kuzmich-about>
+    <div className="mt-10 space-y-8" data-kuzmich-about>
       {KUZMICH_SECTIONS.map((section) => (
         <section key={section.id} id={section.id} className="space-y-3">
           <h2 className="ds-h2" style={{ fontFamily: 'var(--font-playfair)' }}>

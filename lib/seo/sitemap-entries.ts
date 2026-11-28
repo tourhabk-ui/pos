@@ -119,6 +119,8 @@ export async function collectSitemapEntriesWithStatus(): Promise<{ entries: Meta
     // Журнал 21.11: /kuzmich открывается из Google, robots index, follow,
     // в карте сайта страницы не было. Достижима с таб-бара (mobile-two-taps).
     { url: `${BASE}/kuzmich`,              lastModified: new Date('2026-11-21'), changeFrequency: 'weekly',  priority: 0.7 },
+    // Текст о Кузьмиче уехал с чата на свою страницу (слово владельца 28.11).
+    { url: `${BASE}/o-kuzmiche`,           lastModified: new Date('2026-11-28'), changeFrequency: 'monthly', priority: 0.6 },
     // Китайский HTML-вход (12.10): поисковики КНР индексируют HTML, а не llms.txt.
     // Список китайских страниц один — lib/zh/pages (аудит 15.10, CN-quick): тот
     // же читает пинг IndexNow, и новая /zh/<…> не разъедется между ними.
