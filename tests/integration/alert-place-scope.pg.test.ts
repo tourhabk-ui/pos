@@ -47,6 +47,7 @@ import { applyParkReopenings, markParkStatusUnknown, rejectParkReopening } from 
 import { PARK_STATUS_UNKNOWN_SQL } from '@/lib/services/safety/alert-place-scope';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
 import { VOLCANO_STALE_DAYS } from '@/lib/services/safety/kvert-vona';
+import { loadMeteoWarnings } from '@/lib/weather/weather-page';
 import { KFEGS_MAX_AGE_DAYS } from '@/lib/services/safety/volcano-scales';
 import { sameParksParam, sameParksSql } from '@/lib/services/safety/push-same-kind';
 import { PARK_CLOSURE_HOLD_HOURS } from '@/lib/safety/park-closure';
@@ -2396,6 +2397,28 @@ withPg('кого накрывает предупреждение', () => {
         const bySpeaker = new Map(warningsFromRows(rows).map((w) => [w.place, w.speaker]));
         expect(bySpeaker.get('Порталов')).toBe('Турпортал края');
         expect(bySpeaker.get('Эмчеэсов')).toBe('МЧС');
+      } finally {
+        await pool.query(`DELETE FROM external_alerts WHERE id::text = ANY($1::text[])`, [inserted]);
+      }
+    });
+  });
+
+  describe('страница погоды: под «Предупреждения Росгидромета» — только Гидрометцентр (28.11)', () => {
+    it('погодная запись МЧС на страницу не идёт, предупреждение Гидрометцентра идёт', async () => {
+      const inserted = (await pool.query<{ id: string }>(
+        `INSERT INTO external_alerts (alert_type, severity, title, description, affected_zones, created_at, expires_at, external_id)
+         VALUES ('weather', 2, 'Росгидромет: метель — оранжевый уровень (тестовый край)', 'Метель.', '{}',
+                 TIMESTAMP '2099-01-01 00:00:00', TIMESTAMP '2099-01-02 00:00:00', 'meteoalert/41/test/2099'),
+                ('weather', 3, 'ГУ МЧС России держит на контроле обстановку (тест сгонно-нагонного явления)', '', '{}',
+                 TIMESTAMP '2099-01-01 00:00:00', TIMESTAMP '2099-01-02 00:00:00', 'vk_mchs/2099-01-01/wtest')
+         RETURNING id::text AS id`,
+      )).rows.map((r) => r.id);
+      try {
+        const r = await loadMeteoWarnings(new Date('2099-01-01T06:00:00Z'));
+        expect(r.kind).not.toBe('failed');
+        const titles = r.kind === 'failed' ? [] : r.items.map((w) => w.title);
+        expect(titles).toContain('Метель — оранжевый уровень (тестовый край)');
+        expect(titles.some((t) => /МЧС/.test(t))).toBe(false);
       } finally {
         await pool.query(`DELETE FROM external_alerts WHERE id::text = ANY($1::text[])`, [inserted]);
       }

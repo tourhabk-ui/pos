@@ -114,11 +114,16 @@ const toSeverity = (v: number | null): 1 | 2 | 3 => (v === 3 ? 3 : v === 2 ? 2 :
 
 export async function loadMeteoWarnings(now: Date = new Date()): Promise<WarningsRead> {
   try {
+    // Только Гидрометцентр (слово владельца 28.11 «1»). Раньше сюда шли и все
+    // записи типа «погода» — их производит и разбор ленты МЧС (сгонно-нагонные
+    // явления, ветер), — и под заголовком «Предупреждения Росгидромета» стояли
+    // сообщения МЧС и ГИМС: источник был назван неверно (§0). Они остаются на
+    // странице «Безопасность», ссылка на неё — в этом же блоке.
     const [alerts, health] = await Promise.all([
       pool.query<{ title: string; description: string | null; severity: number | null; expires_at: Date | string | null }>(
         `SELECT title, description, severity, expires_at
            FROM external_alerts
-          WHERE (external_id LIKE $1 OR alert_type = 'weather')
+          WHERE external_id LIKE $1
             AND expires_at > ${UTC_WALL_NOW_SQL}
           ORDER BY severity DESC NULLS LAST, created_at DESC
           LIMIT 10`,
