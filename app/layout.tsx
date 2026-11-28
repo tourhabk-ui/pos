@@ -143,6 +143,7 @@ import { ReferralCapture } from '@/components/shared/ReferralCapture'
 import { WebMcpTools } from '@/components/shared/WebMcpTools'
 import { Footer } from '@/components/layout/Footer'
 import { SiteFooter } from '@/components/layout/SiteFooter'
+import { newsChannelForRequest } from '@/lib/seo/news-channel'
 import { webmcpOriginTrialToken } from '@/lib/webmcp/origin-trial'
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -161,6 +162,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // организация, сайт vedarai.ru» на чужом домене приписала бы сайт партнёра
   // Ведару. Свою разметку организации ставит сама страница партнёра.
   const onPartnerSite = partnerSiteOfRequest(requestHeaders) !== null;
+  // Новостной канал в подвале: в РФ — MAX, иначе Telegram (lib/seo/news-channel).
+  const newsChannel = newsChannelForRequest(requestHeaders);
   // WebMCP (lib/webmcp): ключ пробного запуска Chrome — из переменной
   // окружения, пустая — тега нет. На домене партнёра нет ни ключа, ни
   // инструментов: там его витрина (§0), а инструменты Ведара показали бы
@@ -205,7 +208,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           {/* Подвал — в серверном HTML на всех страницах сайта (Сыщик 21.11);
               исключения — lib/navigation/site-footer-paths. На домене партнёра
               меню Ведара не ставится (§0). */}
-          {!onPartnerSite && <SiteFooter><Footer /></SiteFooter>}
+          {!onPartnerSite && <SiteFooter><Footer newsChannel={newsChannel} /></SiteFooter>}
           <GlobalSearchModal />
           <LastPositionTracker />
           {/* Приглашение приземляется на любую страницу, не только на главную. */}

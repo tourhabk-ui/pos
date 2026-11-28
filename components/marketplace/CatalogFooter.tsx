@@ -1,5 +1,7 @@
 import Link from 'next/link';
+import { headers } from 'next/headers';
 import { Footer } from '@/components/layout/Footer';
+import { newsChannelForRequest } from '@/lib/seo/news-channel';
 import { REQUISITES } from '@/lib/legal/requisites';
 
 /**
@@ -13,12 +15,16 @@ import { REQUISITES } from '@/lib/legal/requisites';
  * Нижний отступ телефонной строки — под таб-бар (`--bottom-nav-h`, его
  * публикует BottomNav), чтобы реквизиты не лежали под ним. Отступ остался
  * с запасом: плавающей кнопки заявки больше нет (19.10).
+ *
+ * Серверный: новостной канал подвала считается по заголовкам запроса — в РФ
+ * MAX, иначе Telegram (lib/seo/news-channel).
  */
-export function CatalogFooter() {
+export async function CatalogFooter() {
+  const newsChannel = newsChannelForRequest(await headers());
   return (
     <>
       <div className="hidden md:block">
-        <Footer />
+        <Footer newsChannel={newsChannel} />
       </div>
       <p
         className="md:hidden px-4 pt-6 text-xs leading-relaxed text-[var(--text-secondary)] text-center"

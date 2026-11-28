@@ -17,7 +17,7 @@ describe('правки Сыщика 22.11', () => {
     const page = read('app/planner/page.tsx');
     expect(page).toContain("import { Footer } from '@/components/layout/Footer';");
     const gate = page.slice(page.indexOf('PlannerLoginGate gate='));
-    expect(gate.indexOf('Footer />')).toBeGreaterThan(0);
+    expect(gate.search(/<Footer(?: newsChannel=\{[^}]+\})? \/>/)).toBeGreaterThan(0);
   });
 
   it('перелинковка в теле страниц', () => {

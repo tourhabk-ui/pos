@@ -9,8 +9,24 @@ import { PLATFORM_LINKS as PLATFORM, LEGAL_LINKS as LEGAL } from '@/lib/navigati
 import { ORGANIZATION_PROFILES } from '@/lib/seo/organization-profiles';
 import { KamchatkaGuide } from '@/components/landings/KamchatkaGuide';
 import { PUBLIC_NAP } from '@/lib/legal/requisites';
+// Только тип: модуль считает канал по заголовкам и переменным окружения, а
+// подвал живёт и в клиентском дереве карточки тура. Канал приходит пропом с
+// сервера (newsChannelForRequest).
+import type { NewsChannelLink } from '@/lib/seo/news-channel';
 
-export function Footer({ showGuide = true }: { showGuide?: boolean } = {}) {
+/**
+ * Без пропа — Telegram-канал из реестра. Переменные окружения здесь не
+ * читаются: адрес с их учётом и по стране посетителя считает сервер.
+ */
+const DEFAULT_NEWS_CHANNEL: NewsChannelLink = {
+  href: ORGANIZATION_PROFILES.telegramChannel,
+  label: 'Telegram-канал',
+};
+
+export function Footer({
+  showGuide = true,
+  newsChannel = DEFAULT_NEWS_CHANNEL,
+}: { showGuide?: boolean; newsChannel?: NewsChannelLink } = {}) {
   return (
     <footer className="border-t border-[var(--border)] bg-[var(--bg-primary)]">
       <div className="mx-auto w-full max-w-[1280px] px-6 xl:px-8 py-12">
@@ -43,23 +59,16 @@ export function Footer({ showGuide = true }: { showGuide?: boolean } = {}) {
                 <Send className="w-3.5 h-3.5" />
                 Поддержка Telegram @kuzmichai_bot
               </a>
+              {/* Один новостной канал: в РФ — MAX, иначе Telegram (слово
+                  владельца 28.11). Оба адреса остаются в разметке организации. */}
               <a
-                href={ORGANIZATION_PROFILES.telegramChannel}
+                href={newsChannel.href}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-xs text-[var(--ocean)] hover:underline transition-colors"
               >
                 <Send className="w-3.5 h-3.5" />
-                Telegram-канал
-              </a>
-              <a
-                href={ORGANIZATION_PROFILES.maxChannel}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-[var(--ocean)] hover:underline transition-colors"
-              >
-                <Send className="w-3.5 h-3.5" />
-                Канал в MAX
+                {newsChannel.label}
               </a>
             </div>
           </div>

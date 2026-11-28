@@ -18,6 +18,7 @@ import { resolveCoverImage } from '@/lib/notifications/cover-image';
 import { tgPostPhoto, tgPostMediaGroup, tgPostVideo, maxChannelPost } from '@/lib/notifications/telegram-channel';
 import { recordOwnChannelPosts } from '@/lib/notifications/own-channel-posts';
 import type { TgSentMessage } from '@/lib/notifications/tg-sent-messages';
+import { adaptNewsChannelLinks } from '@/lib/seo/news-channel';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://vedarai.ru';
 
@@ -82,6 +83,11 @@ export async function publishManualChannelPost(
   }
 
   const textHash = manualPostTextHash(post.text, post.photos, post.video);
+  // В каждом канале — ссылка на свой канал (слово владельца 28.11): корень
+  // канала MAX в тексте для Telegram и корень Telegram-канала в тексте для MAX
+  // заменяются. Дедуп и обложка считаются по исходному тексту.
+  const tgText = adaptNewsChannelLinks(post.text, 'telegram');
+  const maxText = adaptNewsChannelLinks(post.text, 'max');
   let tgDuplicate = false;
   try {
     const dup = await query(
@@ -126,7 +132,7 @@ export async function publishManualChannelPost(
           });
           dupCoverUrl = dupCover.url;
         }
-        const maxResult = await maxChannelPost(post.text, dupCoverUrl);
+        const maxResult = await maxChannelPost(maxText, dupCoverUrl);
         if (maxResult.ok) {
           try {
             await query(
@@ -148,12 +154,12 @@ export async function publishManualChannelPost(
 
   if (post.video) {
     const videoUrl = post.video.startsWith('/') ? `${SITE_URL}${post.video}` : post.video;
-    result = await tgPostVideo(channelId, videoUrl, post.text);
+    result = await tgPostVideo(channelId, videoUrl, tgText);
     coverUrl = videoUrl;
     imageSource = 'video';
   } else if (post.photos && post.photos.length >= 2) {
     const urls = post.photos.map((p) => (p.startsWith('/') ? `${SITE_URL}${p}` : p));
-    result = await tgPostMediaGroup(channelId, urls, post.text);
+    result = await tgPostMediaGroup(channelId, urls, tgText);
     coverUrl = urls[0];
     imageSource = 'real_photos';
   } else {
@@ -163,7 +169,7 @@ export async function publishManualChannelPost(
     const cover = await resolveCoverImage(post.text, post.channel, seed, {
       explicitPrompt: post.imagePrompt,
     });
-    result = await tgPostPhoto(channelId, cover.url, post.text);
+    result = await tgPostPhoto(channelId, cover.url, tgText);
     coverUrl = cover.url;
     imageSource = cover.source;
   }
@@ -179,7 +185,7 @@ export async function publishManualChannelPost(
     } else {
       console.error('[manual-channel-post] Telegram не вернул message_id — репостер может отправить пост в MAX второй раз');
     }
-    maxChannelPost(post.text, coverUrl).then(async r => {
+    maxChannelPost(maxText, coverUrl).then(async r => {
       if (!r.ok) { console.error('[manual-channel-post] MAX error:', r.error); return; }
       try {
         await query(

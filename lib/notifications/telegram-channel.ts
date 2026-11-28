@@ -29,6 +29,7 @@ import { BEAR_PHOTOS } from '@/lib/media/wildlife-photos';
 import { fetchPhotoForUpload, isFetched } from '@/lib/notifications/telegram-upload';
 import { asPlanForLead, planLeadLines } from '@/lib/planner/plan-for-lead';
 import { tripFactsOf, tripPartyWords, wishesWords, PLAN_UNREADABLE } from '@/lib/planner/trip-request-lines';
+import { adaptNewsChannelLinks } from '@/lib/seo/news-channel';
 import { redactPII } from '@/lib/security/pii-redact';
 import { leadOrigin, ORIGIN_NOT_RECORDED } from '@/lib/leads/origin';
 import { recordOwnChannelPosts } from '@/lib/notifications/own-channel-posts';
@@ -484,16 +485,18 @@ export interface ChannelPostResult {
 }
 
 /**
- * Текст каждого канала со ссылкой на другой: Telegram зовёт в MAX, MAX — в
- * Telegram. Одно правило для всех постов и для превью поста администратора
- * (lib/max/admin-post): превью показывает ровно то, что уйдёт в Telegram.
+ * Текст для каждого канала со ссылкой на СВОЙ канал (слово владельца 28.11):
+ * в Telegram — корень Telegram-канала, в MAX — корень канала MAX. Меняется
+ * только корень канала, названный в тексте (`adaptNewsChannelLinks`);
+ * ссылка на пост остаётся, новой строки «мы в …» нет. Одно правило для всех
+ * постов и для превью поста администратора (lib/max/admin-post): превью
+ * показывает telegram-версию, а в MAX уходит тот же текст после подстановки
+ * канала MAX.
  */
 export function crossLinkedTexts(text: string): { telegram: string; max: string } {
-  const tgLink = process.env.TELEGRAM_CHANNEL_LINK ?? '';
-  const maxLink = process.env.MAX_CHANNEL_LINK ?? '';
   return {
-    telegram: maxLink ? text + `\n\n<a href="${maxLink}">Мы в MAX</a>` : text,
-    max: tgLink ? text + `\n\n<a href="${tgLink}">Мы в Telegram</a>` : text,
+    telegram: adaptNewsChannelLinks(text, 'telegram'),
+    max: adaptNewsChannelLinks(text, 'max'),
   };
 }
 
@@ -520,7 +523,7 @@ export async function postToAllChannels(post: ChannelPost): Promise<ChannelPostR
     return { ok: false, error, photo: 'none', checkRefused: validation.errors.join('; ') };
   }
 
-  // Telegram — со ссылкой на MAX, MAX — со ссылкой на Telegram.
+  // В каждом канале — ссылка на свой канал, не на соседний.
   const { telegram: tgText, max: maxText } = crossLinkedTexts(text);
 
   // 1. Основной TG-канал. Альбом настоящих фото (photoUrls) — приоритетный

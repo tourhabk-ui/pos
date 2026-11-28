@@ -1344,7 +1344,10 @@ withPg('вход через MAX подтверждается вопросом в
         await sayPost(`пост\n${POST}`);
         // Превью — консоли: не Кузьмичу туриста и не список дат.
         expect(lastText()).toContain('Так выйдет в канале:');
-        expect(lastText()).toContain(`${ESCAPED}\n\n<a href="https://max.ru/vedar_test">Мы в MAX</a>`);
+        // Кросс-подвала «Мы в MAX» больше нет (слово владельца 28.11): канала в
+        // тексте нет — превью и обе публикации равны тексту.
+        expect(lastText()).toContain(ESCAPED);
+        expect(lastText()).not.toContain('Мы в MAX');
         expect(lastText()).toContain('Куда: канал Ведара в Telegram и в MAX.');
         expect(lastText()).not.toContain('Внимание: в тексте телефон');
         // До «Да» в канал ничего не ушло.
@@ -1358,11 +1361,11 @@ withPg('вход через MAX подтверждается вопросом в
         await pressAs(yes.payload);
         expect(lastText()).toContain('Опубликовано в канале Ведара в Telegram и в MAX.');
         expect(tgSent).toEqual([expect.objectContaining({
-          chat_id: '-100777', text: `${ESCAPED}\n\n<a href="https://max.ru/vedar_test">Мы в MAX</a>`,
+          chat_id: '-100777', text: ESCAPED,
         })]);
         expect(channelPosts).toHaveLength(1);
         expect(channelPosts[0].url).toContain('chat_id=-555');
-        expect(channelPosts[0].text).toBe(`${ESCAPED}\n\n<a href="https://t.me/vedar_test">Мы в Telegram</a>`);
+        expect(channelPosts[0].text).toBe(ESCAPED);
         const [row] = await postRows();
         expect(row.status).toBe('done');
         expect(row.params.text).toBe(ESCAPED);
@@ -1374,6 +1377,22 @@ withPg('вход через MAX подтверждается вопросом в
         expect(lastText()).toContain('Уже нажато раньше. Опубликовано в канале Ведара в Telegram и в MAX.');
         expect(tgSent).toHaveLength(1);
         expect(channelPosts).toHaveLength(1);
+      });
+
+      it('канал в тексте: в Telegram — Telegram-канал, в MAX — канал MAX (адрес из окружения)', async () => {
+        const withChannel = `${POST} Наш канал в Telegram: https://t.me/kamchatka_real`;
+        await sayPost(`пост\n${withChannel}`);
+        expect(lastText()).toContain('Наш канал в Telegram: https://t.me/kamchatka_real');
+        const yes = yesButton()!;
+        sent.length = 0;
+        await pressAs(yes.payload);
+        expect(lastText()).toContain('Опубликовано в канале Ведара в Telegram и в MAX.');
+        expect(tgSent).toHaveLength(1);
+        expect(tgSent[0].text).toContain('Наш канал в Telegram: https://t.me/kamchatka_real');
+        expect(tgSent[0].text).not.toContain('max.ru');
+        expect(channelPosts).toHaveLength(1);
+        expect(channelPosts[0].text).toContain('Наш канал в MAX: https://max.ru/vedar_test');
+        expect(channelPosts[0].text).not.toContain('t.me/kamchatka_real');
       });
 
       it('проверка не пропустила — отказ словами до вопроса: прежний вопрос снят, в канал ничего', async () => {

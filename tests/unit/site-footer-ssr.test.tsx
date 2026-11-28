@@ -39,7 +39,7 @@ describe('где подвал', () => {
   it('корневой layout ставит подвал; страницы со своим <Footer /> — ровно OWN_FOOTER_PATHS', () => {
     const layout = readFileSync(join(ROOT, 'app/layout.tsx'), 'utf-8');
     expect(layout).toMatch(/import \{ SiteFooter \} from '@\/components\/layout\/SiteFooter'/);
-    expect(layout.includes('<SiteFooter><Footer /></SiteFooter>'), 'подвал в layout — внутри SiteFooter').toBe(true);
+    expect(/<SiteFooter><Footer(?: newsChannel=\{newsChannel\})? \/><\/SiteFooter>/.test(layout), 'подвал в layout — внутри SiteFooter').toBe(true);
     // Кто ещё ставит <Footer /> сам — только главная и каталог (OWN_FOOTER_PATHS);
     // любой другой дал бы второй подвал поверх общего.
     const users: string[] = [];

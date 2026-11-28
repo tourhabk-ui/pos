@@ -22,6 +22,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { maxPostToChannel, maxPostPhotoToChannel } from '@/lib/notifications/max-channel';
 import { ownChannelPostRecorded } from '@/lib/notifications/own-channel-posts';
+import { adaptNewsChannelLinks } from '@/lib/seo/news-channel';
 
 export const dynamic = 'force-dynamic';
 
@@ -99,12 +100,14 @@ async function getTelegramFileUrl(fileId: string): Promise<string | null> {
 }
 
 /**
- * Конвертировать Telegram HTML-entities в MAX-совместимый HTML.
- * TG и MAX поддерживают одинаковые базовые теги (<b>, <i>, <a>, <code>),
- * поэтому конвертация — это просто passthrough.
+ * Текст поста Telegram для канала MAX. TG и MAX поддерживают одинаковые
+ * базовые теги (<b>, <i>, <a>, <code>), разметка не меняется. Меняется корень
+ * новостного канала: в MAX ссылка ведёт на канал MAX, а не на t.me (слово
+ * владельца 28.11). Ссылки на посты не трогаются. Скрытые ссылки Telegram
+ * (`entities` типа `text_link`) в `text` не видны и остаются как были.
  */
 function tgTextToMaxHtml(text: string): string {
-  return text;
+  return adaptNewsChannelLinks(text, 'max');
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
