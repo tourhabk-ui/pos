@@ -2438,19 +2438,23 @@ withPg('кого накрывает предупреждение', () => {
   // профиля с местом — uuid ark_id, сравнение решает сервер; точка остаётся
   // одной строкой, а без записи в профиле — NULL, не ноль.
   describe('офлайн-пакет маршрута: медпомощь у точек', () => {
-    it('расстояние из профиля места, без профиля и без числа — NULL, порядок прохождения', async () => {
+    it('расстояние из профиля места, без профиля и без числа — NULL, порядок прохождения; у «рядом» — NULL', async () => {
       const route = '0b1e0000-0000-4000-8000-00000000b001';
-      const places: Array<[string, string, string, number | null | 'none']> = [
-        ['bundle-start', 'Т Старт', '0b1e0000-0000-4000-8000-00000000a001', 12.5],
-        ['bundle-crater', 'Т Кратер', '0b1e0000-0000-4000-8000-00000000a002', null],
-        ['bundle-hut', 'Т Хижина', '0b1e0000-0000-4000-8000-00000000a003', 'none'],
+      const places: Array<[string, string, string, number | null | 'none', string | null]> = [
+        ['bundle-start', 'Т Старт', '0b1e0000-0000-4000-8000-00000000a001', 12.5, 'waypoint'],
+        ['bundle-crater', 'Т Кратер', '0b1e0000-0000-4000-8000-00000000a002', null, 'waypoint'],
+        ['bundle-hut', 'Т Хижина', '0b1e0000-0000-4000-8000-00000000a003', 'none', 'waypoint'],
+        // Род «рядом» (§4.1): расстояние у места записано, но медпомощью на пути оно не служит.
+        ['bundle-beach', 'Т Пляж', '0b1e0000-0000-4000-8000-00000000a004', 3, 'nearby'],
+        // Род не установлен — судится как точка пути, как в остальных запросах.
+        ['bundle-ridge', 'Т Гребень', '0b1e0000-0000-4000-8000-00000000a005', 7, 'unknown'],
       ];
       try {
         await pool.query(
           `INSERT INTO kamchatka_routes (id, category, title, zone, is_visible) VALUES ($1::uuid, 'hiking', 'Т Пакет', 'southern', true)`,
           [route],
         );
-        for (const [i, [id, name, ark, medical]] of places.entries()) {
+        for (const [i, [id, name, ark, medical, kind]] of places.entries()) {
           await pool.query(
             `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
              VALUES ($1::text, $2::text, 52.4, 158.2, $3::uuid, 'volcano', 'southern', true)`,
@@ -2463,14 +2467,14 @@ withPg('кого накрывает предупреждение', () => {
             );
           }
           await pool.query(
-            `INSERT INTO route_waypoints (route_id, place_id, position, link_kind) VALUES ($1::uuid, $2, $3, 'waypoint')`,
-            [route, id, i],
+            `INSERT INTO route_waypoints (route_id, place_id, position, link_kind) VALUES ($1::uuid, $2, $3, $4)`,
+            [route, id, i, kind],
           );
         }
         const { rows } = await pool.query(OFFLINE_BUNDLE_WAYPOINTS_SQL, [route]);
         // Строки драйвера — через то же сопоставление, что отдаёт роут пакета.
         expect(offlineBundleWaypoints(rows).map((w) => [w.name, w.position, w.nearest_medical_km]))
-          .toEqual([['Т Старт', 0, 12.5], ['Т Кратер', 1, null], ['Т Хижина', 2, null]]);
+          .toEqual([['Т Старт', 0, 12.5], ['Т Кратер', 1, null], ['Т Хижина', 2, null], ['Т Пляж', 3, null], ['Т Гребень', 4, 7]]);
       } finally {
         await pool.query(`DELETE FROM route_waypoints WHERE route_id = $1::uuid`, [route]);
         await pool.query(`DELETE FROM location_safety_profile WHERE agent_route_id = ANY($1::uuid[])`, [places.map((p) => p[2])]);

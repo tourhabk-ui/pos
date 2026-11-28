@@ -9,14 +9,21 @@
  * шаг 2: «опасности, снаряжение, телефоны МЧС, ближайшая медпомощь»).
  * Подзапрос, а не JOIN: точка маршрута остаётся одной строкой, что бы ни
  * лежало в профиле.
+ *
+ * Медпомощь — только у точек ПУТИ: у связи рода `nearby` («это рядом,
+ * загляните», §4.1, lib/routes/link-kind.ts) расстояние не берётся. Иначе
+ * Халактырский пляж, привязанный «рядом» к Авачинскому, назвал бы туристу на
+ * склоне вулкана свою медпомощь. Сама точка в пакете остаётся — для карты.
  */
 export const OFFLINE_BUNDLE_WAYPOINTS_SQL = `
   SELECT p.lat, p.lng, p.name AS place_name, rw.position,
-         (SELECT sp.nearest_medical_km
-            FROM location_safety_profile sp
-           WHERE sp.agent_route_id = p.ark_id
-             AND sp.nearest_medical_km IS NOT NULL
-           LIMIT 1) AS nearest_medical_km
+         CASE WHEN COALESCE(rw.link_kind, 'unknown') = 'nearby' THEN NULL
+              ELSE (SELECT sp.nearest_medical_km
+                      FROM location_safety_profile sp
+                     WHERE sp.agent_route_id = p.ark_id
+                       AND sp.nearest_medical_km IS NOT NULL
+                     LIMIT 1)
+         END AS nearest_medical_km
     FROM route_waypoints rw
     JOIN places p ON p.id = rw.place_id
    WHERE rw.route_id = $1 AND p.lat IS NOT NULL AND p.lng IS NOT NULL
