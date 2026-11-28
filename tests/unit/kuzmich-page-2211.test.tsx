@@ -90,7 +90,7 @@ describe('мета /kuzmich', () => {
   });
 });
 
-describe('чат /kuzmich: над чатом заголовок и лид, под чатом одна ссылка (слово владельца 28.11)', () => {
+describe('чат /kuzmich: над чатом заголовок, лид и ссылка на «О Кузьмиче», под чатом ничего (слово владельца 28.11)', () => {
   it('разделов, FAQ и списка ссылок на странице чата нет', () => {
     for (const s of KUZMICH_SECTIONS) expect(chatHtml, s.id).not.toContain(s.heading);
     expect(chatHtml).not.toContain(KUZMICH_FAQ_HEADING);
@@ -99,7 +99,7 @@ describe('чат /kuzmich: над чатом заголовок и лид, по�
     expect(chatHtml).not.toContain('data-kuzmich-about=');
   });
 
-  it('один H1 и лид над чатом, ссылка на «О Кузьмиче» под чатом', () => {
+  it('один H1, лид и ссылка на «О Кузьмиче» — над чатом; под чатом страница ничего не ставит', () => {
     expect(chatHtml.match(/<h1[\s>]/g)?.length).toBe(1);
     expect(chatHtml).toContain(KUZMICH_PAGE_H1);
     expect(chatHtml).toContain('AI-помощник платформы Ведар');
@@ -107,9 +107,12 @@ describe('чат /kuzmich: над чатом заголовок и лид, по�
     const chat = chatHtml.indexOf('data-chat="kuzmich"');
     const link = chatHtml.indexOf(`href="${KUZMICH_ABOUT_PATH}"`);
     expect(lead).toBeGreaterThan(0);
-    expect(chat).toBeGreaterThan(lead);
-    expect(link).toBeGreaterThan(chat);
+    expect(link).toBeGreaterThan(lead);
+    expect(chat).toBeGreaterThan(link);
     expect(chatHtml).toContain(KUZMICH_ABOUT_LINK_TEXT);
+    // После чата страница не рисует ничего: в чатах подвалов нет.
+    const afterChat = chatHtml.slice(chat + 'data-chat="kuzmich">'.length);
+    expect(afterChat.replace(/<\/(main|div)>/g, '').trim()).toBe('');
   });
 });
 
@@ -200,8 +203,10 @@ describe('«О Кузьмиче» без JS: H1, разделы, FAQ и ссыл
     expect(client).not.toMatch(/<h1\b/);
   });
 
-  it('заголовок по умолчанию у вводной — заголовок чата', () => {
+  it('заголовок по умолчанию у вводной — заголовок чата, ссылки «О Кузьмиче» без просьбы нет', () => {
     expect(renderToStaticMarkup(<KuzmichIntro />)).toContain(KUZMICH_PAGE_H1);
+    expect(renderToStaticMarkup(<KuzmichIntro />)).not.toContain(KUZMICH_ABOUT_PATH);
+    expect(aboutHtml).not.toContain('data-kuzmich-about-link');
     expect(renderToStaticMarkup(<KuzmichAbout />)).toContain(KUZMICH_FAQ_HEADING);
   });
 });

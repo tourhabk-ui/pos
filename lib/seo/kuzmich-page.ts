@@ -20,14 +20,15 @@ export const KUZMICH_PAGE_H1 = KUZMICH_PAGE_TITLE;
 /**
  * Страница «О Кузьмиче» (слово владельца 28.11: «убрать с чата описание что
  * умеет кузьмич» → «перенести на отдельную»). Разделы, FAQ и ссылки живут
- * там; на /kuzmich над чатом — заголовок и лид, под чатом — одна ссылка сюда.
+ * там; на /kuzmich над чатом — заголовок, лид и ссылка сюда, под чатом —
+ * ничего: в чатах подвалов нет (слово владельца 28.11).
  */
 export const KUZMICH_ABOUT_PATH = '/o-kuzmiche';
 export const KUZMICH_ABOUT_TITLE = 'Что умеет Кузьмич — AI-помощник Ведара';
 export const KUZMICH_ABOUT_DESCRIPTION =
   'Что умеет Кузьмич, AI-помощник Ведара: туры с витрины, места и маршруты, погода и обстановка, каналы Telegram и MAX, данные для ИИ-агентов и чего он не делает.';
 export const KUZMICH_ABOUT_H1 = KUZMICH_ABOUT_TITLE;
-/** Ссылка под чатом на /kuzmich. */
+/** Ссылка на /kuzmich под вводной, над чатом. */
 export const KUZMICH_ABOUT_LINK_TEXT = 'Что умеет Кузьмич, как с ним говорить и чего он не делает';
 /** Кнопка со страницы «О Кузьмиче» в чат. */
 export const KUZMICH_CHAT_LINK_TEXT = 'Написать Кузьмичу';

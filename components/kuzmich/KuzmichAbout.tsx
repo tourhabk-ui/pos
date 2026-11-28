@@ -62,25 +62,23 @@ function linkedText(text: string): ReactNode {
   return parts;
 }
 
-export function KuzmichIntro({ title = KUZMICH_PAGE_H1 }: { title?: string }) {
+export function KuzmichIntro({ title = KUZMICH_PAGE_H1, aboutLink = false }: { title?: string; aboutLink?: boolean }) {
   return (
     <header className="space-y-3 mb-8">
       <h1 className="font-playfair text-3xl md:text-4xl font-bold text-[var(--text-primary)]">{title}</h1>
       <p data-lead-answer className="text-[var(--text-secondary)] text-sm md:text-base leading-relaxed">
         {linkedText(KUZMICH_LEAD)}
       </p>
+      {/* На чате ссылка «О Кузьмиче» — здесь, над чатом: под чатом ничего
+          нет, в чатах подвалов нет (слово владельца 28.11). */}
+      {aboutLink && (
+        <p className="text-sm" data-kuzmich-about-link>
+          <Link href={KUZMICH_ABOUT_PATH} className="underline" style={{ color: 'var(--ocean)' }}>
+            {KUZMICH_ABOUT_LINK_TEXT}
+          </Link>
+        </p>
+      )}
     </header>
-  );
-}
-
-/** Под чатом /kuzmich — одна ссылка на страницу «О Кузьмиче» вместо всего текста. */
-export function KuzmichAboutLink() {
-  return (
-    <p className="mt-6 text-center text-sm" data-kuzmich-about-link>
-      <Link href={KUZMICH_ABOUT_PATH} className="underline" style={{ color: 'var(--ocean)' }}>
-        {KUZMICH_ABOUT_LINK_TEXT}
-      </Link>
-    </p>
   );
 }
 

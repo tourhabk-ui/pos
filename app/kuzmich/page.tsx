@@ -7,7 +7,7 @@ import {
   KUZMICH_PAGE_TITLE,
   kuzmichWebApplicationJsonLd,
 } from '@/lib/seo/kuzmich-page';
-import { KuzmichAboutLink, KuzmichIntro } from '@/components/kuzmich/KuzmichAbout';
+import { KuzmichIntro } from '@/components/kuzmich/KuzmichAbout';
 import KuzmichClient from './_KuzmichClient';
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://vedarai.ru';
@@ -34,11 +34,11 @@ export default function KuzmichPage() {
       <Header />
       <JsonLd data={kuzmichWebApplicationJsonLd(SITE)} />
       {/* Разделы, FAQ и ссылки — на странице «О Кузьмиче» (слово владельца
-          28.11): здесь над чатом заголовок и лид, под чатом одна ссылка. */}
+          28.11): здесь над чатом заголовок, лид и ссылка на неё; под чатом
+          ничего — в чатах подвалов нет. */}
       <main className="flex-1 flex flex-col max-w-3xl w-full mx-auto px-2 sm:px-4 pb-6 pt-20">
-        <KuzmichIntro />
+        <KuzmichIntro aboutLink />
         <KuzmichClient />
-        <KuzmichAboutLink />
       </main>
     </div>
   );
