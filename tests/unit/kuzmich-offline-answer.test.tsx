@@ -52,6 +52,10 @@ describe('правило ответа без сети', () => {
     expect(offlineKuzmichAnswer('Какая завтра погода на Мутновском?')).toBe(OFFLINE_NO_ANSWER);
     expect(OFFLINE_NO_ANSWER).toMatch(/112/);
     expect(OFFLINE_NO_ANSWER).toMatch(/SOS/);
+    // Ответа «когда сеть вернётся» этот текст не обещает: его видит и тот,
+    // чей вопрос в телефоне не сохранён. Обещание — только у вставшего ждать.
+    expect(OFFLINE_NO_ANSWER).not.toMatch(/ответит/);
+    expect(OFFLINE_NO_ANSWER).toMatch(/задайте вопрос ещё раз, когда появится сеть/);
   });
 
   it('сетевой отказ отличается от отказа сервера', () => {

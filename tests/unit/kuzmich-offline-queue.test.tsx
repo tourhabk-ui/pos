@@ -97,10 +97,12 @@ describe('экраны: вопрос ждёт связи и уходит сам'
   let online = false;
   let failFetch = false;
   let asked: string[] = [];
+  let withPhoto: string[] = [];
   beforeEach(() => {
     online = false;
     failFetch = false;
     asked = [];
+    withPhoto = [];
     sessionStorage.clear();
     localStorage.clear();
     Element.prototype.scrollIntoView = vi.fn();
@@ -111,8 +113,10 @@ describe('экраны: вопрос ждёт связи и уходит сам'
           asked.push(`(не ушло) ${JSON.parse(String(init.body)).message}`);
           return Promise.reject(new TypeError('Failed to fetch'));
         }
-        const q = String(JSON.parse(String(init.body)).message);
+        const body = JSON.parse(String(init.body)) as { message: unknown; imageBase64?: unknown };
+        const q = String(body.message);
         asked.push(q);
+        if (body.imageBase64) withPhoto.push(q);
         return Promise.resolve(new Response(JSON.stringify({ data: { answer: `Ответ на: ${q}` } })));
       }
       return Promise.resolve(new Response(JSON.stringify({ data: { messages: [] } })));
@@ -157,6 +161,35 @@ describe('экраны: вопрос ждёт связи и уходит сам'
     await netBack();
     await waitFor(() => expect(asked).toEqual([`${WEATHER}\nГде поесть в Елизово?`]));
     expect(await screen.findByText(/^Заданы без сети с \d{2}:\d{2}/)).toBeTruthy();
+  });
+
+  it('/kuzmich: очередь полна — шестой вопрос не сохранён, и ответ этого не обещает', async () => {
+    render(<KuzmichClient />);
+    const box = await screen.findByPlaceholderText(/Опишите мечту/);
+    for (let i = 1; i <= 5; i++) {
+      ask(box, `Вопрос ${i}`);
+      await screen.findByText(waitingStrip(i));
+    }
+    ask(box, 'Вопрос 6');
+    expect(await screen.findByText(OFFLINE_NO_ANSWER)).toBeTruthy();
+    expect(screen.getByText(waitingStrip(5))).toBeTruthy();
+    expect(JSON.parse(stored() ?? '[]')).toHaveLength(5);
+  });
+
+  it('/kuzmich: вопрос из очереди уходит без фото, прикреплённого после него, и не стирает поле ввода', async () => {
+    const { container } = render(<KuzmichClient />);
+    const box = await screen.findByPlaceholderText(/Опишите мечту/);
+    ask(box, WEATHER);
+    await screen.findByText(waitingStrip(1));
+    const file = new File(['x'], 'grib.jpg', { type: 'image/jpeg' });
+    fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [file] } });
+    const withImage = await screen.findByPlaceholderText(/Добавьте вопрос/);
+    fireEvent.change(withImage, { target: { value: 'Что это за гриб?' } });
+    await netBack();
+    await waitFor(() => expect(asked).toEqual([WEATHER]));
+    expect(await screen.findByText(`Ответ на: ${WEATHER}`)).toBeTruthy();
+    expect(withPhoto).toEqual([]);
+    expect((screen.getByPlaceholderText(/Добавьте вопрос/) as HTMLTextAreaElement).value).toBe('Что это за гриб?');
   });
 
   it('/kuzmich: «Не отправлять» — вопрос не уходит, когда сеть вернётся', async () => {
@@ -261,6 +294,18 @@ describe('экраны: вопрос ждёт связи и уходит сам'
     await new Promise((r) => setTimeout(r, 60));
     expect(screen.getByText('Вчерашний ответ')).toBeTruthy();
     expect(screen.getByText(`Ответ на: ${WEATHER}`)).toBeTruthy();
+  });
+
+  it('/ai-assistant: вопрос из очереди не стирает то, что человек печатает', async () => {
+    render(<AIAssistantPage />);
+    const box = await screen.findByPlaceholderText('Спросите Кузьмича...');
+    fireEvent.change(box, { target: { value: WEATHER } });
+    fireEvent.submit(box.closest('form')!);
+    await screen.findByText(waitingReply('tab'));
+    fireEvent.change(box, { target: { value: 'Где поесть в Елизово' } });
+    await netBack();
+    expect(await screen.findByText(`Ответ на: ${WEATHER}`)).toBeTruthy();
+    expect((box as HTMLInputElement).value).toBe('Где поесть в Елизово');
   });
 
   it('/ai-assistant: вопрос про сохранённый маршрут без ответа в карточке — «в сохранённом нет» над «вопрос ждёт»', async () => {

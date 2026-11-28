@@ -329,7 +329,8 @@ function AIAssistantContent({ initialQuery }: { initialQuery: string | null }) {
     if (!text.trim() || loading || limitReached) return;
     const earlier = messages.filter((m) => m.role === 'user').map((m) => m.content);
     setMessages(prev => [...prev, { role: 'user', content: text, ...(asked ? { askedOffline: asked } : {}) }]);
-    setInput('');
+    // Вопрос из очереди не стирает то, что человек печатает сейчас.
+    if (!asked) setInput('');
     // Без сети запрос не уходит: ответ — памятка Спасателя, записанная заранее.
     // Спрашиваем браузер, а не состояние экрана: в момент события online
     // состояние ещё старое, и вопрос из очереди встал бы ждать снова.

@@ -468,8 +468,10 @@ export default function KuzmichClient() {
     let imageMimeType: string | undefined;
     let previewUrl: string | undefined;
 
-    const fileNow = imageFileRef.current;
-    const previewNow = imagePreviewRef.current;
+    // Вопрос из очереди задан без фото: снимок, прикреплённый уже после него,
+    // к нему не относится — не уходит с ним и остаётся в поле ввода.
+    const fileNow = asked ? null : imageFileRef.current;
+    const previewNow = asked ? null : imagePreviewRef.current;
     if (fileNow && previewNow) {
       const base64Data = previewNow.split(',')[1];
       imageBase64 = base64Data;
@@ -486,8 +488,10 @@ export default function KuzmichClient() {
     const prior = messagesRef.current.slice(-10).map(m => ({ role: m.role, content: m.content }));
     messagesRef.current = [...messagesRef.current, userMsg];
     setMessages(prev => [...prev, userMsg]);
-    setInput('');
-    clearImage();
+    if (!asked) {
+      setInput('');
+      clearImage();
+    }
     setLoading(true);
     const controller = new AbortController();
     abortRef.current = controller;
