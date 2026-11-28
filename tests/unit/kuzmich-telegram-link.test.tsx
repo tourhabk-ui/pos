@@ -28,6 +28,20 @@ describe('/kuzmich', () => {
     expect(max.getAttribute('href')).toBe(KUZMICH_MAX_URL);
   });
 
+  // Слово владельца 28.11: «под чатом оставь только строку "Предпочитаете
+  // живое общение? Оставьте заявку"».
+  it('под чатом — одна строка про заявку, единственная ссылка в ней — /request', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: { messages: [] } }))));
+    Element.prototype.scrollIntoView = () => {};
+    const { container } = render(<KuzmichClient />);
+    const section = container.querySelector('section[aria-label="Чат с Кузьмичем"]') as HTMLElement;
+    const line = section.lastElementChild as HTMLElement;
+    expect(line.tagName).toBe('P');
+    expect(line.textContent?.replace(/\s+/g, ' ').trim())
+      .toBe('Предпочитаете живое общение? Оставьте заявку — менеджер перезвонит в течение часа.');
+    expect([...line.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['/request']);
+  });
+
   it('Enter во время ответа не теряет следующее сообщение', async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((resolve) => { release = resolve; });
