@@ -390,11 +390,19 @@ Chrome Status, запись от 11.11.2026).
 На `/catalog` к ним добавляется `vedar_catalog_search`, на карточке тура —
 `vedar_tour_request`. `get_weather` и `safety_status` через `executeTool`
 отвечают; формы при проверке не отправлялись. Ошибок WebMCP в консоли нет.
-Без флага API нет: ключ пробного запуска был выпущен как сторонний
-(`isThirdParty`), а такой ключ Chrome из тега `<meta>` не принимает (CDP:
-`ValidTokenNotProvided`, у ключа `WrongOrigin`). Нужен ключ без «Third-party
-matching» на `https://vedarai.ru`; после его замены в Timeweb — повторная
-проверка без флага.
+Без флага API тогда не было: первый ключ пробного запуска был выпущен как
+сторонний (`isThirdParty`), а такой ключ Chrome из тега `<meta>` не принимает
+(CDP: `ValidTokenNotProvided`, у ключа `WrongOrigin`). В тот же день ключ
+заменён собственным: `https://vedarai.ru` с поддоменами, срок до 30.03.2027.
+Повторная проверка на проде 28.11.2026: на `/` один тег `origin-trial`, в
+Chrome 156 без флагов WebMCP включён (`isThirdParty` — false),
+`document.modelContext` есть, `getTools()` отдаёт шесть инструментов.
+
+Как выпускать ключ в Chrome Origin Trials: регистрировать без галочки «Третья
+сторона» (Third-party matching), иначе Chrome отвечает `WrongOrigin`. Кнопка
+«Обновить» у существующей регистрации этот флаг сохраняет, поэтому сторонний
+ключ продлением не исправить — нужна новая регистрация. Новый ключ кладётся в
+`WEBMCP_ORIGIN_TRIAL_TOKEN` в Timeweb.
 
 ### 4.8 Сторожа — как читать падение
 
