@@ -559,6 +559,35 @@ describe('4d. стиль Samsung Weather: приборы', () => {
     expect(details.querySelectorAll('ul li').length).toBe(3);
   });
 
+  // Владелец 28.11 (снимок телефона): «слишком много места занимают
+  // предупреждения пока долистаешь до самой погоды». Заголовками пришли целые
+  // тексты МЧС и ГИМС, и строка явлений растянулась на экран в нижнем регистре.
+  const LONG = [
+    { title: 'Прочие опасности', text: '', severity: 1 as const, until: null },
+    { title: 'ГУ МЧС России по Камчатскому краю держит на контроле обстановку, связанную с подтоплением взлётно-посадочной полосы аэропорта Тиличики', text: '', severity: 1 as const, until: null },
+    { title: 'Камчатские инспекторы центра ГИМС предупреждают: из-за повышения температуры лёд стал опасен', text: '', severity: 1 as const, until: null },
+  ];
+
+  it('длинный заголовок — не явление: в свёрнутую сводку не идёт, в списке остаётся', () => {
+    expect(warningsSummary(LONG)).toEqual({ line: '3 предупреждения · высший уровень — жёлтый', phenomena: 'Прочие опасности', highest: 1 });
+    expect(warningsSummary(LONG.slice(1))?.phenomena).toBeNull();
+    // Короткое название из нескольких слов — явление, оно остаётся.
+    expect(warningsSummary([{ title: 'Сильный дождь со снегом — жёлтый уровень', severity: 1 }])?.phenomena).toBe('Сильный дождь со снегом');
+    const { container } = withWarnings(LONG);
+    const summary = container.querySelector('section[aria-labelledby="weather-warnings"] summary')!;
+    expect(summary.textContent).toContain('3 предупреждения · высший уровень — жёлтый');
+    expect(summary.textContent).not.toMatch(/мчс|тиличики|гимс/i);
+    const list = container.querySelector('section[aria-labelledby="weather-warnings"] details ul')!;
+    expect(list.textContent).toContain('ГУ МЧС России по Камчатскому краю');
+  });
+
+  it('на телефоне слова «Подробно» нет — заголовок не переносится; с широкого экрана есть', () => {
+    const { container } = withWarnings(ORANGE);
+    const word = [...container.querySelectorAll('section[aria-labelledby="weather-warnings"] summary span')]
+      .find((s) => s.textContent === 'Подробно') as HTMLElement;
+    expect(word.className.split(/\s+/)).toEqual(expect.arrayContaining(['hidden', 'sm:inline']));
+  });
+
   it('оранжевый уровень — оранжевой кромкой, а не синим --accent светлой темы', () => {
     const { container } = withWarnings(ORANGE);
     const li = container.querySelector('section[aria-labelledby="weather-warnings"] ul li') as HTMLElement;
