@@ -45,6 +45,8 @@ const ENV_KEYS = ['ANTHROPIC_DIRECT_MAX_USD', 'ANTHROPIC_DIRECT_MAX_CALLS', 'GIT
 const saved: Record<string, string | undefined> = {};
 
 beforeEach(() => {
+  // Запись закрытия стопа в ядро (PR 1a серии «ядро») здесь не проверяется.
+  vi.stubEnv('LLM_BUDGET_KERNEL', 'off');
   queryMock.mockReset();
   // Каталога в тесте нет — цена берётся из запаса COST_PER_1K, как на раннере.
   queryMock.mockRejectedValue(new Error('no db in test'));
@@ -60,6 +62,7 @@ afterEach(() => {
   }
   resetAnthropicDirectBudget();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe('потолок прямого Anthropic: сумма и число вызовов', () => {

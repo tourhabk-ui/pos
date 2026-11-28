@@ -175,6 +175,26 @@ export async function readLlmSpendToday(): Promise<number> {
   return parseFloat(rows[0]?.spent ?? '0') || 0;
 }
 
+/**
+ * Та же сумма, что `readLlmSpendToday`, и ключ суток (`YYYY-MM-DD` окна
+ * `DATE_TRUNC('day', NOW())`) — из ОДНОГО запроса, на часах БД, а не
+ * приложения. Без кэша: нужна только при записи закрытия стопа в ядро
+ * (`lib/agents/kernel/llm-budget.ts`), где ключ суток — ключ идемпотентности.
+ * Агрегат без GROUP BY всегда даёт одну строку. Пустой ключ возвращается как
+ * есть — решает вызывающий (это ошибка чтения, а не «суток нет»).
+ */
+export async function readLlmSpendWithDayKey(): Promise<{ spentUsd: number; dayKey: string }> {
+  const { pool } = await import('@/lib/db-pool');
+  const { rows } = await pool.query<{ spent: string; day_key: string }>(
+    `SELECT COALESCE(SUM(estimated_cost_usd), 0)::text AS spent,
+            to_char(DATE_TRUNC('day', NOW()), 'YYYY-MM-DD') AS day_key
+       FROM llm_usage_log
+      WHERE ${SPEND_TODAY_SQL}
+        AND ${STOP_SPEND_SQL}`,
+  );
+  return { spentUsd: parseFloat(rows[0]?.spent ?? '0') || 0, dayKey: rows[0]?.day_key ?? '' };
+}
+
 export const anonChatGuard: AnonGuard = createAnonGuard({ readSpendToday: readLlmSpendToday });
 
 /** Срок окна в мс — для пояснений и тестов. */

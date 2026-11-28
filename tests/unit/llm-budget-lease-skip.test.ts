@@ -37,6 +37,12 @@ describe('сводка шага бюджета', () => {
     expect(v.lines).toContain('OK');
   });
 
+  it('повтор алерта за те же сутки (PR 1a серии «ядро») — настоящий замер, OK', () => {
+    const v = llmBudgetVerdict(200, JSON.stringify({ ok: true, status: 'alert_already_sent_today', spent_usd: 5.4, limit_usd: 5 }));
+    expect(v).toMatchObject({ exitCode: 0, measured: true });
+    expect(v.lines).toEqual(['OK']);
+  });
+
   it('не 200 — отказ', () => {
     const v = llmBudgetVerdict(502, '');
     expect(v.exitCode).toBe(1);

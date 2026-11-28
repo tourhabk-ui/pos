@@ -17,7 +17,8 @@ import { timingSafeCompare } from '@/lib/security/timing-safe';
 import { recordCronRun } from '@/lib/agents/cron-heartbeat';
 import { notifyBudgetAlert } from '@/lib/telegram/admin-notify';
 import { claimCronWindow, shouldRun, leaseSkipBody } from '@/lib/agents/cron-lease';
-import { readDailyBudget, BUDGET_UNSET_REASON, BUDGET_INVALID_REASON } from '@/lib/ai/daily-budget';
+import { readDailyBudget, BUDGET_UNSET_REASON, BUDGET_INVALID_REASON, llmBudgetKernelEnabled } from '@/lib/ai/daily-budget';
+import { recordBudgetStop, ensureBudgetAlert } from '@/lib/agents/kernel/llm-budget';
 import { STOP_SPEND_SQL, RUNNER_SPEND_SQL, SPEND_TODAY_SQL } from '@/lib/ai/spend-scope';
 
 export const dynamic = 'force-dynamic';
@@ -100,11 +101,35 @@ export async function GET(req: Request) {
       // говорил `alert_sent` при любом исходе — превышение бюджета
       // «срабатывало» только в JSON. «Отправлен» теперь пишется лишь по
       // ответу Telegram; недоставка — свой статус и причина.
-      const alert = await notifyBudgetAlert(spentUsd, limitUsd, runnerSpentUsd);
+      //
+      // С 29.11 (PR 1a серии «ядро») закрытие стопа — факт в ядре, и алерт
+      // уходит один раз за сутки: аренда окна — час, без дедупа владелец
+      // получал одно и то же каждый час. Выключатель LLM_BUDGET_KERNEL=off
+      // возвращает прежнее поведение. Троттлинг ядра крону не помеха: у него
+      // своя аренда, а taskId приходит и из существующей задачи суток.
+      if (!llmBudgetKernelEnabled()) {
+        const alert = await notifyBudgetAlert(spentUsd, limitUsd, runnerSpentUsd);
+        return Response.json({
+          ok: true,
+          status: alert.ok ? 'alert_sent' : 'alert_not_delivered',
+          alert,
+          spent_usd: spentUsd,
+          runner_spent_usd: runnerSpentUsd,
+          limit_usd: limitUsd,
+          unknown_cost_calls: unknownCalls,
+        });
+      }
+      const stop = await recordBudgetStop({ limitUsd, trigger: 'cron' });
+      const alert = await ensureBudgetAlert({ taskId: stop.taskId, spentUsd, limitUsd, runnerSpentUsd, mode: 'cron' });
       return Response.json({
         ok: true,
-        status: alert.ok ? 'alert_sent' : 'alert_not_delivered',
-        alert,
+        status: alert.status === 'already_sent'
+          ? 'alert_already_sent_today'
+          : alert.status === 'sent' ? 'alert_sent' : 'alert_not_delivered',
+        // Поле alert читают (tests/unit/tg-delivery-debt.test.ts): прежнее
+        // `ok` остаётся — true, если алерт за сутки доставлен (сейчас или
+        // раньше), — и рядом исход журнала ядра.
+        alert: { ok: alert.status === 'sent' || alert.status === 'already_sent', ...alert },
         spent_usd: spentUsd,
         runner_spent_usd: runnerSpentUsd,
         limit_usd: limitUsd,

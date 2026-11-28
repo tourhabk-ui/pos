@@ -12,9 +12,26 @@
  * «не прогнано», а не «прошло»); в CI базу даёт job kernel-pg с сервисом
  * postgres:16, локально — кластер PostgreSQL 16.
  */
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+// Запись закрытия стопа LLM (PR 1a серии «ядро»): сумма и ключ суток
+// подменены (в этой базе нет llm_usage_log — сам SQL проверяет
+// admin-day-counts.pg.test.ts), отправка в Telegram подменена. Настоящие —
+// задачи, события и журнал алерта ядра.
+const budget = vi.hoisted(() => ({
+  readSpendKey: vi.fn(async () => ({ spentUsd: 6.2, dayKey: '2026-11-29' })),
+  notify: vi.fn(async () => ({ ok: true as const })),
+}));
+vi.mock('@/lib/ai/anon-chat-guard', async (orig) => ({
+  ...(await orig<typeof import('@/lib/ai/anon-chat-guard')>()),
+  readLlmSpendWithDayKey: budget.readSpendKey,
+}));
+vi.mock('@/lib/telegram/admin-notify', async (orig) => ({
+  ...(await orig<typeof import('@/lib/telegram/admin-notify')>()),
+  notifyBudgetAlert: budget.notify,
+}));
 
 const PG_URL = process.env.KERNEL_PG_TEST_URL ?? '';
 const withPg = PG_URL ? describe : describe.skip;
@@ -586,5 +603,29 @@ withPg('Agent Kernel на настоящем PostgreSQL', () => {
       });
       expect(after.created, 'жнец обязан вернуть ресурс в оборот').toBe(true);
     });
+  });
+
+  it('закрытие стопа LLM: два recordBudgetStop за сутки — одна задача и одно policy_denied; алерт — один', async () => {
+    const llm = await import('@/lib/agents/kernel/llm-budget');
+    llm.resetBudgetStopThrottleForTests();
+    budget.notify.mockClear();
+    const first = await llm.recordBudgetStop({ limitUsd: 5, trigger: 'gate' });
+    llm.resetBudgetStopThrottleForTests();
+    const second = await llm.recordBudgetStop({ limitUsd: 5, trigger: 'cron' });
+    expect(first).toMatchObject({ first: true, dayKey: '2026-11-29' });
+    expect(second).toMatchObject({ first: false, taskId: first.taskId });
+
+    const { rows: tasks } = await pool.query<{ id: string; state: string; capability: string }>(
+      `SELECT id, state, capability FROM agent_tasks WHERE idempotency_key = 'llm-budget-stop:2026-11-29'`);
+    expect(tasks).toEqual([{ id: first.taskId, state: 'succeeded', capability: 'llm.budget_stop' }]);
+    const { rows: denied } = await pool.query<{ details: { spent_usd: number; limit_usd: number } }>(
+      `SELECT details FROM agent_events WHERE task_id = $1 AND event_type = 'policy_denied'`, [first.taskId]);
+    expect(denied).toHaveLength(1);
+    expect(denied[0].details).toMatchObject({ spent_usd: 6.2, limit_usd: 5, phase: 'admission' });
+
+    const alert = { taskId: first.taskId, spentUsd: 6.2, limitUsd: 5, runnerSpentUsd: null, mode: 'cron' as const };
+    expect(await llm.ensureBudgetAlert(alert)).toEqual({ status: 'sent' });
+    expect(await llm.ensureBudgetAlert(alert)).toEqual({ status: 'already_sent' });
+    expect(budget.notify).toHaveBeenCalledTimes(1);
   });
 });

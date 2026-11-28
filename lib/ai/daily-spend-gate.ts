@@ -15,6 +15,7 @@
  */
 
 import { dailyBudgetUsd, readLlmSpendToday, DEFAULT_DAILY_BUDGET_USD } from '@/lib/ai/anon-chat-guard';
+import { llmBudgetKernelEnabled } from '@/lib/ai/daily-budget';
 
 /** Сколько держим прочитанную сумму, чтобы не ходить в БД на каждый вызов. */
 export const SPEND_CACHE_MS = 15_000;
@@ -74,9 +75,44 @@ export async function cachedLlmSpendToday(): Promise<number> {
   }
 }
 
+/**
+ * Сумма, порог и закрыт ли стоп — одним снимком: ядро
+ * (`lib/agents/kernel/llm-budget.ts`) берёт порог отсюда, поэтому подмена
+ * `configureDailySpendGateForTests` действует и на него.
+ */
+export async function readDailyBudgetSnapshot(): Promise<{ spentUsd: number; limitUsd: number; stopped: boolean }> {
+  const spentUsd = await cachedLlmSpendToday();
+  const limitUsd = readBudget();
+  return { spentUsd, limitUsd, stopped: spentUsd >= limitUsd };
+}
+
+/**
+ * Закрытие стопа — фактом в ядро и одним алертом владельцу за сутки (PR 1a
+ * серии «ядро», 29.11). Не ждётся и не меняет ни ответ, ни задержку вызова:
+ * запись и отправка идут после возврата результата, ошибка только в лог.
+ * Ядро импортируется динамически: lib/ai не тянет lib/agents/kernel в свой
+ * граф (кольцо и реестр возможностей кронов). Частоту держит само ядро:
+ * троттлинг 10 минут и одна попытка на процесс одновременно.
+ */
+function recordStopInKernel(limitUsd: number): void {
+  void import('@/lib/agents/kernel/llm-budget')
+    .then(async (m) => {
+      const r = await m.recordBudgetStop({ limitUsd, trigger: 'gate' });
+      // Не только при first: задача суток уже есть, а алерт ещё не доставлен
+      // (Telegram не ответил, крон молчит в not_configured) — повтор отсюда.
+      if (!r.throttled && r.taskId && r.spentUsd !== null) {
+        await m.ensureBudgetAlert({ taskId: r.taskId, spentUsd: r.spentUsd, limitUsd, runnerSpentUsd: null, mode: 'gate' });
+      }
+    })
+    .catch((err: unknown) => {
+      console.error('[daily-spend-gate] закрытие стопа не записано в ядро:', err instanceof Error ? err.message : String(err));
+    });
+}
+
 export async function isDailyLlmBudgetStopped(): Promise<boolean> {
-  const spent = await cachedLlmSpendToday();
-  return spent >= readBudget();
+  const snap = await readDailyBudgetSnapshot();
+  if (snap.stopped && llmBudgetKernelEnabled()) recordStopInKernel(snap.limitUsd);
+  return snap.stopped;
 }
 
 /** Бросает DailyBudgetStopped, если новые вызовы LLM сегодня нельзя. */

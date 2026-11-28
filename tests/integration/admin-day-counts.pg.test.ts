@@ -723,8 +723,15 @@ withPg('числа суток в админке', () => {
         { spent_where: 'runner', n: '1' },
         { spent_where: null, n: '1' },
       ]);
-      const { readLlmSpendToday } = await import('@/lib/ai/anon-chat-guard');
+      const { readLlmSpendToday, readLlmSpendWithDayKey } = await import('@/lib/ai/anon-chat-guard');
       expect(await readLlmSpendToday()).toBeCloseTo(1.5, 6);
+      // Сумма и ключ суток одним SQL (PR 1a серии «ядро»): та же сумма, ключ —
+      // сутки окна стопа на часах БД.
+      const withKey = await readLlmSpendWithDayKey();
+      expect(withKey.spentUsd).toBeCloseTo(1.5, 6);
+      const { rows: today } = await pool.query<{ k: string }>(`SELECT to_char(DATE_TRUNC('day', NOW()), 'YYYY-MM-DD') AS k`);
+      expect(withKey.dayKey).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(withKey.dayKey).toBe(today[0].k);
     });
 
     it('приём расхода раннера пишет отметку «runner», и стоп его не считает', async () => {
