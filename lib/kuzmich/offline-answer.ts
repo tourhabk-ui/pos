@@ -29,9 +29,15 @@ import type { RouteFacts } from '@/lib/offline/route-facts';
 /** Первая строка ответа по памятке: откуда он, раз сети нет. */
 export const OFFLINE_PROTOCOL_LEAD = 'Связи нет — отвечаю памяткой, записанной заранее:';
 
-/** Памятки под вопрос нет: ответа нет, и это сказано — с 112 и SOS. */
+/**
+ * Памятки под вопрос нет: ответа нет, и это сказано — с 112 и SOS.
+ * «Кузьмич ответит» здесь не обещается: этот текст видит и тот, чей вопрос
+ * ждать не встал (фото, полная очередь, нет номера разговора). Обещание
+ * живёт только в `waitingReply` — там, где вопрос действительно сохранён.
+ */
 export const OFFLINE_NO_ANSWER =
-  'Связи нет — Кузьмич ответит, когда сеть вернётся. Если есть опасность — звоните 112; кнопка SOS в шапке работает и без сети. ' +
+  'Связи нет, а ответа на это в телефоне нет — задайте вопрос ещё раз, когда появится сеть. ' +
+  'Если есть опасность — звоните 112; кнопка SOS в шапке работает и без сети. ' +
   'Сохранённые карты и маршруты открываются без интернета.';
 
 /** Отказ без сети — этот класс бросает экран, не дожидаясь fetch. */
@@ -160,6 +166,9 @@ export function routeFactsAnswer(text: string, facts: readonly RouteFacts[]): st
   ].join('\n');
 }
 
+/** Откуда ответ без сети: `none` — ответа в телефоне нет, вопрос может ждать связи. */
+export type OfflineReplyKind = 'protocol' | 'route' | 'none';
+
 /**
  * Вопрос называет сохранённый маршрут, а ответа на него в телефоне нет — так и
  * сказано, с перечнем того, что записано (шаг 2: «честно говорит „этого в
@@ -178,17 +187,30 @@ export function savedRouteMiss(text: string, facts: readonly RouteFacts[]): stri
  * `facts` — карточки маршрутов, сохранённых в телефоне вместе с картой.
  *
  * Порядок: памятка беды раньше фактов маршрута — «что делать, медведь» важнее
- * списка снаряжения.
+ * списка снаряжения. Беда без памятки встаёт ждать связи, как любой вопрос
+ * без ответа: сразу человек видит 112 и кнопку SOS, а когда вопрос уйдёт,
+ * сервер ответит на признаки беды своим блоком 112.
  */
+export function offlineKuzmichReply(
+  text: string,
+  earlier: readonly string[] = [],
+  facts: readonly RouteFacts[] = [],
+): { text: string; kind: OfflineReplyKind; lead: string | null } {
+  const protocol = getLocalProtocol(text, earlier);
+  if (protocol) return { text: `${OFFLINE_PROTOCOL_LEAD}\n\n${protocol}`, kind: 'protocol', lead: null };
+  const fromRoute = routeFactsAnswer(text, facts);
+  if (fromRoute) return { text: fromRoute, kind: 'route', lead: null };
+  // Вопрос назвал сохранённый маршрут, а темы в карточке нет — так и сказано
+  // первой строкой; она же стоит и над ответом «вопрос ждёт связи».
+  const lead = savedRouteMiss(text, facts);
+  return { text: lead ? `${lead}\n\n${OFFLINE_NO_ANSWER}` : OFFLINE_NO_ANSWER, kind: 'none', lead };
+}
+
+/** Только текст ответа без сети. */
 export function offlineKuzmichAnswer(
   text: string,
   earlier: readonly string[] = [],
   facts: readonly RouteFacts[] = [],
 ): string {
-  const protocol = getLocalProtocol(text, earlier);
-  if (protocol) return `${OFFLINE_PROTOCOL_LEAD}\n\n${protocol}`;
-  const fromRoute = routeFactsAnswer(text, facts);
-  if (fromRoute) return fromRoute;
-  const miss = savedRouteMiss(text, facts);
-  return miss ? `${miss}\n\n${OFFLINE_NO_ANSWER}` : OFFLINE_NO_ANSWER;
+  return offlineKuzmichReply(text, earlier, facts).text;
 }
