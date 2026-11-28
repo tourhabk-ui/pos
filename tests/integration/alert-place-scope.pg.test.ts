@@ -42,6 +42,7 @@ import { meteoalertEvents } from '@/lib/services/safety/meteoalert';
 import { ZONE_CENSUS_SQL, summarizeZoneCensus, zoneProbes, type ZoneCensusRow } from '@/lib/places/zone-census';
 import { readFileSync } from 'node:fs';
 import { holdParkClosures } from '@/lib/services/safety/park-closure-hold';
+import { OFFLINE_BUNDLE_WAYPOINTS_SQL, offlineBundleWaypoints } from '@/lib/offline/bundle-sql';
 import { applyParkReopenings, markParkStatusUnknown, rejectParkReopening } from '@/lib/services/safety/park-reopening';
 import { PARK_STATUS_UNKNOWN_SQL } from '@/lib/services/safety/alert-place-scope';
 import { UTC_WALL_NOW_SQL } from '@/lib/db/timestamp-iso';
@@ -2428,6 +2429,53 @@ withPg('кого накрывает предупреждение', () => {
         expect(warnings.find((w) => w.place === 'Срочный')?.speaker).toBeNull();
       } finally {
         await pool.query(`DELETE FROM external_alerts WHERE id::text = ANY($1::text[])`, [inserted]);
+      }
+    });
+  });
+
+  // Офлайн-пакет маршрута (карт-бланш владельца 27.11, шаг 2 офлайн-Кузьмича):
+  // точки несут расстояние до медпомощи из профиля безопасности места. Связь
+  // профиля с местом — uuid ark_id, сравнение решает сервер; точка остаётся
+  // одной строкой, а без записи в профиле — NULL, не ноль.
+  describe('офлайн-пакет маршрута: медпомощь у точек', () => {
+    it('расстояние из профиля места, без профиля и без числа — NULL, порядок прохождения', async () => {
+      const route = '0b1e0000-0000-4000-8000-00000000b001';
+      const places: Array<[string, string, string, number | null | 'none']> = [
+        ['bundle-start', 'Т Старт', '0b1e0000-0000-4000-8000-00000000a001', 12.5],
+        ['bundle-crater', 'Т Кратер', '0b1e0000-0000-4000-8000-00000000a002', null],
+        ['bundle-hut', 'Т Хижина', '0b1e0000-0000-4000-8000-00000000a003', 'none'],
+      ];
+      try {
+        await pool.query(
+          `INSERT INTO kamchatka_routes (id, category, title, zone, is_visible) VALUES ($1::uuid, 'hiking', 'Т Пакет', 'southern', true)`,
+          [route],
+        );
+        for (const [i, [id, name, ark, medical]] of places.entries()) {
+          await pool.query(
+            `INSERT INTO places (id, name, lat, lng, ark_id, location_type, zone, is_visible)
+             VALUES ($1::text, $2::text, 52.4, 158.2, $3::uuid, 'volcano', 'southern', true)`,
+            [id, name, ark],
+          );
+          if (medical !== 'none') {
+            await pool.query(
+              `INSERT INTO location_safety_profile (agent_route_id, nearest_medical_km) VALUES ($1::uuid, $2::numeric)`,
+              [ark, medical],
+            );
+          }
+          await pool.query(
+            `INSERT INTO route_waypoints (route_id, place_id, position, link_kind) VALUES ($1::uuid, $2, $3, 'waypoint')`,
+            [route, id, i],
+          );
+        }
+        const { rows } = await pool.query(OFFLINE_BUNDLE_WAYPOINTS_SQL, [route]);
+        // Строки драйвера — через то же сопоставление, что отдаёт роут пакета.
+        expect(offlineBundleWaypoints(rows).map((w) => [w.name, w.position, w.nearest_medical_km]))
+          .toEqual([['Т Старт', 0, 12.5], ['Т Кратер', 1, null], ['Т Хижина', 2, null]]);
+      } finally {
+        await pool.query(`DELETE FROM route_waypoints WHERE route_id = $1::uuid`, [route]);
+        await pool.query(`DELETE FROM location_safety_profile WHERE agent_route_id = ANY($1::uuid[])`, [places.map((p) => p[2])]);
+        await pool.query(`DELETE FROM places WHERE id = ANY($1::text[])`, [places.map((p) => p[0])]);
+        await pool.query(`DELETE FROM kamchatka_routes WHERE id = $1::uuid`, [route]);
       }
     });
   });

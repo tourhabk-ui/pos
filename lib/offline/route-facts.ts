@@ -5,6 +5,8 @@
  * памятками». Сервер и раньше отдавал в офлайн-пакете маршрута
  * (`/api/routes/[id]/offline-bundle`) опасности, снаряжение, регистрацию МЧС,
  * парк и предупреждения, но экраны брали из ответа только рамку для карты.
+ * Расстояние до медпомощи пакет с 28.11 несёт у точек маршрута — из профиля
+ * безопасности места (lib/offline/bundle-sql.ts).
  * В поле без сети человек спрашивал «что взять» или «нужна ли регистрация» —
  * а ответ лежал в том самом пакете и выбрасывался.
  *
@@ -28,6 +30,12 @@ export interface RouteFactAlert {
   until: string | null;
 }
 
+/** Расстояние до медпомощи от точки маршрута — из профиля безопасности места. */
+export interface RouteFactMedical {
+  place: string;
+  km: number;
+}
+
 export interface RouteFacts {
   id: string;
   title: string;
@@ -42,12 +50,24 @@ export interface RouteFacts {
   mchsPhone: string | null;
   parkName: string | null;
   alerts: RouteFactAlert[];
+  /** Ближайшая медпомощь по точкам маршрута, ближе — первой. Пусто — не записано. */
+  medical: RouteFactMedical[];
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const strList = (v: unknown): string[] =>
   Array.isArray(v) ? v.map(str).filter((s): s is string => s !== null).slice(0, 30) : [];
+
+/** Медпомощь по точкам: только с названием и конечным неотрицательным числом. */
+function medicalList(v: unknown, keys: { place: string; km: string }): RouteFactMedical[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter(isRecord)
+    .map((w) => ({ place: str(w[keys.place]), km: typeof w[keys.km] === 'number' ? (w[keys.km] as number) : NaN }))
+    .filter((m): m is RouteFactMedical => m.place !== null && Number.isFinite(m.km) && m.km >= 0)
+    .sort((a, b) => a.km - b.km)
+    .slice(0, 5);
+}
 
 /** Карточка из ответа `/offline-bundle`. Нет маршрута или названия — null. */
 export function routeFactsFromBundle(bundle: Record<string, unknown>): RouteFacts | null {
@@ -71,6 +91,7 @@ export function routeFactsFromBundle(bundle: Record<string, unknown>): RouteFact
     mchsPhone: str(route.mchs_phone),
     parkName: str(route.park_name),
     alerts,
+    medical: medicalList(bundle.waypoints, { place: 'name', km: 'nearest_medical_km' }),
   };
 }
 
@@ -94,6 +115,8 @@ export function parseRouteFacts(raw: string | null): RouteFacts | null {
         ? v.alerts.filter(isRecord).map((a) => ({ title: str(a.title), until: str(a.until) }))
           .filter((a): a is RouteFactAlert => a.title !== null)
         : [],
+      // Карточка, сохранённая до 28.11, медпомощи не несёт — «не записано».
+      medical: medicalList(v.medical, { place: 'place', km: 'km' }),
     };
   } catch {
     return null;

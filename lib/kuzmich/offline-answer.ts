@@ -64,6 +64,7 @@ const TOPICS = {
   mchs: /мчс|регистрац|зарегистр/i,
   alerts: /закрыт|перекрыт|огранич|предупрежд/i,
   park: /парк|разрешени|пропуск/i,
+  medical: /медпомощ|медицин|больниц|врач|травмпункт|фельдшер|скор(?:ая|ую|ой) помощ|аптек/i,
 } as const;
 type Topic = keyof typeof TOPICS;
 
@@ -86,6 +87,10 @@ function namedRoutes(text: string, facts: readonly RouteFacts[]): RouteFacts[] {
   return facts.filter((f) => norm(f.title).split(/[^а-яa-z0-9]+/)
     .filter((w) => w.length >= 5 && !GENERIC_TITLE_WORDS.has(w))
     .some((w) => q.includes(stem(w))));
+}
+
+function formatKm(km: number): string {
+  return km >= 10 ? String(Math.round(km)) : String(Math.round(km * 10) / 10).replace('.', ',');
 }
 
 function savedOn(f: RouteFacts): string {
@@ -123,6 +128,11 @@ function factLines(f: RouteFacts, topics: readonly Topic[]): string[] {
         ? `Маршрут в природном парке «${f.parkName}».`
         : 'Природный парк в сохранённых данных не записан.');
     }
+    if (t === 'medical') {
+      lines.push(f.medical.length > 0
+        ? `Ближайшая медпомощь по данным мест маршрута: ${f.medical.map((m) => `от «${m.place}» — ${formatKm(m.km)} км`).join(', ')}.`
+        : 'Расстояние до медпомощи в сохранённых данных не записано. При беде — 112.');
+    }
   }
   return lines;
 }
@@ -151,6 +161,18 @@ export function routeFactsAnswer(text: string, facts: readonly RouteFacts[]): st
 }
 
 /**
+ * Вопрос называет сохранённый маршрут, а ответа на него в телефоне нет — так и
+ * сказано, с перечнем того, что записано (шаг 2: «честно говорит „этого в
+ * сохранённом нет“»). Вопрос не про сохранённый маршрут — null.
+ */
+export function savedRouteMiss(text: string, facts: readonly RouteFacts[]): string | null {
+  const named = namedRoutes(text, facts);
+  if (named.length === 0) return null;
+  const list = named.map((f) => `«${f.title}»`).join(', ');
+  return `В сохранённом в телефоне маршруте ${list} ответа на это нет: там записаны опасности, снаряжение, регистрация в МЧС, медпомощь и предупреждения.`;
+}
+
+/**
  * Ответ Кузьмича без сети. `earlier` — прежние реплики человека в этом чате:
  * без них «Потеряли рюкзак» после «Мы заблудились» сошла бы за утерю вещи.
  * `facts` — карточки маршрутов, сохранённых в телефоне вместе с картой.
@@ -167,5 +189,6 @@ export function offlineKuzmichAnswer(
   if (protocol) return `${OFFLINE_PROTOCOL_LEAD}\n\n${protocol}`;
   const fromRoute = routeFactsAnswer(text, facts);
   if (fromRoute) return fromRoute;
-  return OFFLINE_NO_ANSWER;
+  const miss = savedRouteMiss(text, facts);
+  return miss ? `${miss}\n\n${OFFLINE_NO_ANSWER}` : OFFLINE_NO_ANSWER;
 }

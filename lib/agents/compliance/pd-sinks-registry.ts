@@ -135,7 +135,7 @@ export const DEVICE_STORAGE: readonly DeviceStorageEntry[] = [
   { file: 'lib/client-errors/report.ts', personal: 'none', holds: 'очередь отчётов об ошибках: сообщение и адрес без строки запроса' },
   { file: 'lib/legal/consent.ts', personal: 'none', holds: 'выбор в окне согласия на cookie' },
   { file: 'lib/mesh/volcano-mesh.ts', personal: 'none', holds: 'случайный номер устройства' },
-  { file: 'lib/offline/route-facts.ts', personal: 'none', holds: 'факты сохранённого маршрута: опасности, снаряжение, регистрация МЧС, предупреждения' },
+  { file: 'lib/offline/route-facts.ts', personal: 'none', holds: 'факты сохранённого маршрута: опасности, снаряжение, регистрация МЧС, медпомощь у точек, предупреждения' },
   { file: 'lib/offline/route-map-save.ts', personal: 'none', holds: 'отметка сохранённой карты маршрута' },
   { file: 'lib/preparation/storage.ts', personal: 'none', holds: 'план подготовки к маршруту: длительность, опыт, снаряжение' },
   { file: 'lib/referral/agent-link.ts', personal: 'none', holds: 'метка агента, приведшего посетителя' },
